@@ -68,6 +68,63 @@ Before sending a change:
 3. If you added a new command or TUI key, update `README.md` (CLI reference / TUI bindings tables) in the same change.
 4. If you touched an invariant above, flag it explicitly in the PR description.
 
+## Onboarding a user
+
+When a user opens this repo with an agent and asks to "set up athanor", work in this order. Nothing below requires edits to tracked files — it's all install, profile, pick, pull, start.
+
+### CLI install modes
+
+`bin/athanor` resolves `../src/index.js` (the compiled entry), so the binary only works after a build. Pick one:
+
+| Mode | Setup | Invocation |
+|---|---|---|
+| from source, no build | `npm install` | `npm start -- <cmd>` (the `--` forwards args to tsx) |
+| linked global | `npm install && npm run build && npm link` | `athanor <cmd>` from anywhere |
+| project-local | `npm install && npm run build` | `./bin/athanor <cmd>` or `npx athanor <cmd>` |
+
+Linked mode does not auto-rebuild. Re-run `npm run build` after pulling changes or switch to `npm start` for the dev loop.
+
+### External binaries
+
+Run `athanor doctor` first — it prints presence and paths for each dependency and is the source of truth:
+
+- `mlx_lm.server` — required for MLX text models. `uv tool install mlx-lm` (or `pipx install mlx-lm`).
+- `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are load-bearing; see the `Qwen3VLVideoProcessor requires the PyTorch library` note in `README.md`.
+- `llama-server` — optional, for GGUF models. `brew install llama.cpp` or build from source.
+- `hf` — required for `athanor pull`. `uv tool install huggingface_hub --with hf_transfer` (or `pip install -U huggingface_hub[cli]`).
+
+`athanor pull` refuses when `hf` is missing; `athanor start` refuses when the target runtime binary is missing. Neither condition is a reason to edit code — surface the missing tool to the user.
+
+### Profiling the host
+
+Before suggesting a model, confirm Apple Silicon and read the memory ceiling. The signals an agent should gather:
+
+| Signal | Where |
+|---|---|
+| CPU architecture | `uname -m` — must be `arm64` |
+| Chip model | `sysctl -n machdep.cpu.brand_string` |
+| Unified memory total | `sysctl -n hw.memsize` (bytes); `os.totalmem()` agrees |
+| Memory actually used | `vm_stat` parsed by `parseVmStat` in `src/supervisor/metrics.ts` — `(active + wired + compressor) × pagesize`. Inactive and speculative pages are reclaimable cache, not used. |
+| HF cache footprint | `du -sh ~/.cache/huggingface/hub` |
+| Registry state | `athanor ls` — when empty it prints curated suggestions sized by segment |
+
+Rule of thumb for 4-bit MLX quants: weights occupy roughly **0.6 GB per billion parameters**, KV cache and context add 1–3 GB, and macOS plus the user's other apps want 6–8 GB. Practical budget: 8 GB Macs → stop at 4B-4bit; 16 GB → 9B-4bit; 32 GB+ → 27B-4bit is comfortable. Never recommend a quant whose on-disk size exceeds `totalMemBytes − currentUsed − 8 GB`.
+
+### Finding models on Hugging Face
+
+Three ordered sources, cheapest first:
+
+1. **Curated suggestions** — `src/pull/suggestions.ts`. Surfaced automatically by `athanor ls` and the TUI empty state. Safe defaults for 8/16/32 GB Macs. Start here unless the user has a specific model in mind.
+2. **`athanor search <query>`** — groups results into MLX / GGUF / other. `--mlx` and `--gguf` narrow the filter; `--author mlx-community`, `--sort downloads|likes|trending|modified`, and `--limit N` refine further. `athanor trending` is shorthand for `--sort trending`. Rows carry download count, likes, license, and last-modified — weight those over raw likes when judging a repo.
+3. **Direct pull** — `athanor pull <repo>` for an MLX repo, `athanor pull <repo> --file F.gguf` for a specific GGUF file.
+
+Quantization reading:
+
+- **MLX:** prefer `mlx-community/*` — they carry the right conversion manifest. Suffix `-4bit` is the default; `-6bit` / `-8bit` cost ~1.5×/2× disk and memory for modest quality gains; `-bf16` is rarely worth it for serving on a Mac.
+- **GGUF:** `Q4_K_M` is the balanced default, `Q5_K_M` / `Q6_K` trade size for quality, `Q8_0` is near-lossless but large. Avoid `Q2_*` and `Q3_*` except on tight memory.
+
+After pull, `athanor show <slug>` shows detected capabilities, resolved launch command, and merged preset. For MLX entries where `caps` includes `vlm`, only flip `athanor flavor <slug> vlm` if the user actually needs image input — most VLM repos serve text fine under `mlx_lm.server` without the torch install (see invariant #6).
+
 ## How to add things
 
 - **New adapter (runtime).** Add a file in `src/adapters/`, export `buildCommand(entry, config): { cmd, args }` and a health probe. Register it in `src/adapters/index.ts`. Add a fixture to `__fixtures.ts` and a test alongside.

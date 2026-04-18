@@ -22,6 +22,16 @@ A local LLM workbench for Apple Silicon. Discover, download, configure, and swit
 
 Run `athanor doctor` at any point to verify all four are on your `PATH`.
 
+## Agent-assisted setup
+
+If you use an AI coding agent (Claude Code, Cursor, Aider, etc.), the fastest path is to open this repo in the agent and ask it to set athanor up for you. `AGENTS.md` has an **Onboarding a user** section written for that case: it tells the agent how to install the CLI (`npm start` vs `npm link`), run `athanor doctor`, install any missing runtime binaries, profile the host (Apple Silicon check, unified memory via `vm_stat`, HF cache size), and pick a starter model sized for the machine.
+
+A minimal prompt, once the repo is open:
+
+> Set up athanor on this machine. Profile what I have, install anything missing, and suggest a starter model I can actually run.
+
+The rest of this README walks the same path manually.
+
 ## Setup
 
 Install the three runtime helpers athanor shells out to. All three land on your `PATH` and can be verified with `athanor doctor`.
@@ -155,16 +165,23 @@ athanor doctor
 ```bash
 npm install
 
+# verify external runtime binaries are on PATH
+npm start -- doctor
+
 # one-time: ingest whatever's already on disk
 npm start -- scan
 
-# see what's in the registry
+# see what's in the registry — if empty, this prints curated
+# starter models sized for 8 / 16 / 32 GB Macs that you can copy
+# the `athanor pull ...` line from
 npm start -- ls
 
-# start a model (by slug)
-npm start -- start qwen-2-5-32b-instruct-4bit
+# pull one and start it (by slug)
+npm start -- pull mlx-community/Qwen3.5-9B-MLX-4bit
+npm start -- start qwen3-5-9b-mlx-4bit
 
-# or drop into the TUI (no args)
+# or drop into the TUI (no args) — the empty state has the same
+# suggestions and pulls them inline when you press Enter
 npm start
 ```
 
@@ -175,6 +192,8 @@ npm run build        # emit dist/
 npm link             # expose `athanor` on PATH
 athanor ls           # now usable directly
 ```
+
+`bin/athanor` imports `dist/index.js`, so `npm link` requires a prior `npm run build`. Linked mode does not auto-rebuild; re-run the build after pulling changes or stay on `npm start` for the dev loop.
 
 ## Concepts
 
