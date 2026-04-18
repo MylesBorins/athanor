@@ -6,6 +6,7 @@ import App from "./ui/App.js"
 import { runCli } from "./cli/index.js"
 import { ensureBaseDirs } from "./config/index.js"
 import { startControlApi, stopControlApi } from "./control/server.js"
+import { startRouter, stopRouter } from "./router/server.js"
 import { listModels } from "./registry/index.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
 
@@ -26,19 +27,20 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // First-run ergonomics: if the registry is empty, ingest whatever is on
-  // disk so the TUI has something to show instead of an empty list.
+  // Always scan on start so out-of-band `hf download` calls (and any
+  // model added while the TUI was closed) are picked up without the
+  // user having to press `s`. ingestDiscovered is idempotent; when
+  // nothing changed it's a no-op write.
+  const rep = ingestDiscovered()
   let initialMessage: string | undefined
-  if (listModels().length === 0) {
-    const rep = ingestDiscovered()
-    if (rep.added.length > 0) {
-      initialMessage = `scanned: +${rep.added.length} new model${rep.added.length === 1 ? "" : "s"}`
-    } else {
-      initialMessage = "no models found on disk — press p to pull one"
-    }
+  if (rep.added.length > 0) {
+    initialMessage = `scanned: +${rep.added.length} new model${rep.added.length === 1 ? "" : "s"}`
+  } else if (listModels().length === 0) {
+    initialMessage = "no models found on disk — press p to pull one"
   }
 
   startControlApi()
+  startRouter()
 
   process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
   const restore = (): void => {
@@ -49,16 +51,20 @@ async function main(): Promise<void> {
     exitOnCtrlC: true
   })
 
+  const stopServers = async (): Promise<void> => {
+    await Promise.allSettled([stopControlApi(), stopRouter()])
+  }
+
   const shutdown = async (): Promise<void> => {
     instance.unmount()
-    await stopControlApi()
+    await stopServers()
     restore()
     process.exit(0)
   }
   process.on("SIGINT", shutdown)
   process.on("SIGTERM", shutdown)
   instance.waitUntilExit().then(() => {
-    stopControlApi().finally(() => { restore(); process.exit(0) })
+    stopServers().finally(() => { restore(); process.exit(0) })
   })
 }
 

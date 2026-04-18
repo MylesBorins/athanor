@@ -56,3 +56,20 @@ export function runtimeModelId(entry: ModelEntry): string {
   }
   return entry.piAlias ?? entry.slug
 }
+
+// Reverse lookup used by the router: given whatever pi-agent puts in a
+// request body's `model` field, find the matching registry entry.
+// Accepts runtimeModelId (primary), slug, and id as fallbacks so
+// third-party OpenAI clients can target athanor models by slug too.
+export function resolveByRuntimeModelId(
+  entries: ModelEntry[],
+  modelField: string
+): ModelEntry | undefined {
+  if (!modelField) return undefined
+  const exposed = entries.filter(e => e.publish)
+  return (
+    exposed.find(e => runtimeModelId(e) === modelField) ??
+    exposed.find(e => e.slug === modelField) ??
+    exposed.find(e => e.id === modelField)
+  )
+}

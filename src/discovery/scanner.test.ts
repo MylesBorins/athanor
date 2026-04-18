@@ -6,7 +6,7 @@ import {
   scanModels,
   getModelByPath,
   getRuntimeForModel,
-  detectMlxFlavor
+  detectMlxCapabilities
 } from "./scanner.js"
 import type { DiscoveredModel } from "../types/index.js"
 
@@ -50,37 +50,37 @@ describe("Scanner", () => {
     })
   })
 
-  describe("detectMlxFlavor", () => {
-    it("returns \"vlm\" when config.json has a vision_config block", () => {
+  describe("detectMlxCapabilities", () => {
+    it("returns [\"vlm\"] when config.json has a vision_config block", () => {
       const dir = mkSnapshot({
         model_type: "qwen2_5_vl",
         vision_config: { hidden_size: 1280 }
       })
-      expect(detectMlxFlavor(dir)).toBe("vlm")
+      expect(detectMlxCapabilities(dir)).toEqual(["vlm"])
     })
 
-    it("returns \"vlm\" for known VLM model_types without vision_config", () => {
+    it("returns [\"vlm\"] for known VLM model_types without vision_config", () => {
       const dir = mkSnapshot({ model_type: "llava_next" })
-      expect(detectMlxFlavor(dir)).toBe("vlm")
+      expect(detectMlxCapabilities(dir)).toEqual(["vlm"])
     })
 
-    it("returns \"vlm\" when architectures include a VL marker", () => {
+    it("returns [\"vlm\"] when architectures include a VL marker", () => {
       const dir = mkSnapshot({
         model_type: "qwen2",
         architectures: ["Qwen2VLForConditionalGeneration"]
       })
-      expect(detectMlxFlavor(dir)).toBe("vlm")
+      expect(detectMlxCapabilities(dir)).toEqual(["vlm"])
     })
 
-    it("returns \"lm\" for plain text-only LLMs", () => {
+    it("returns [] for plain text-only LLMs", () => {
       const dir = mkSnapshot({
         model_type: "qwen3",
         architectures: ["Qwen3ForCausalLM"]
       })
-      expect(detectMlxFlavor(dir)).toBe("lm")
+      expect(detectMlxCapabilities(dir)).toEqual([])
     })
 
-    it("returns \"lm\" for text-only MoE models (e.g. Qwen3-A3B)", () => {
+    it("returns [] for text-only MoE models (e.g. Qwen3-A3B)", () => {
       // MoE doesn't imply multimodal; the A3B family is text-only.
       const dir = mkSnapshot({
         model_type: "qwen3_moe",
@@ -88,17 +88,17 @@ describe("Scanner", () => {
         num_experts: 128,
         num_experts_per_tok: 8
       })
-      expect(detectMlxFlavor(dir)).toBe("lm")
+      expect(detectMlxCapabilities(dir)).toEqual([])
     })
 
-    it("returns \"lm\" for text-only variants of families with a VLM sibling", () => {
+    it("returns [] for text-only variants of families with a VLM sibling", () => {
       // Gemma 3 1B/4B text-only has model_type "gemma3" but no
       // vision_config; only 12B/27B multimodal variants do.
       const dir = mkSnapshot({
         model_type: "gemma3",
         architectures: ["Gemma3ForCausalLM"]
       })
-      expect(detectMlxFlavor(dir)).toBe("lm")
+      expect(detectMlxCapabilities(dir)).toEqual([])
     })
 
     it("detects multimodal Gemma 3 via vision_config", () => {
@@ -107,14 +107,14 @@ describe("Scanner", () => {
         vision_config: { hidden_size: 1152 },
         architectures: ["Gemma3ForConditionalGeneration"]
       })
-      expect(detectMlxFlavor(dir)).toBe("vlm")
+      expect(detectMlxCapabilities(dir)).toEqual(["vlm"])
     })
 
-    it("returns \"lm\" when config.json is missing or malformed", () => {
-      expect(detectMlxFlavor(mkSnapshot(null))).toBe("lm")
+    it("returns [] when config.json is missing or malformed", () => {
+      expect(detectMlxCapabilities(mkSnapshot(null))).toEqual([])
       const bad = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-snap-"))
       fs.writeFileSync(path.join(bad, "config.json"), "{{{not json", "utf8")
-      expect(detectMlxFlavor(bad)).toBe("lm")
+      expect(detectMlxCapabilities(bad)).toEqual([])
     })
   })
 
@@ -124,7 +124,7 @@ describe("Scanner", () => {
     //   - models--<org>--<repo> parsing with dashes in the repo name
     //   - refs/main → snapshots/<hash> resolution
     //   - multi-shard safetensors + sibling index files
-    //   - flavor detection end-to-end through scanMlxModels
+    //   - capability detection end-to-end through scanMlxModels
     function buildHfCache(tmpHub: string): void {
       const repoDir = path.join(tmpHub, "models--mlx-community--Qwen3-A3B-Test-4bit")
       const hash = "abc123def456"
@@ -147,7 +147,7 @@ describe("Scanner", () => {
       fs.writeFileSync(path.join(snap, "tokenizer.json"), "{}")
     }
 
-    it("discovers sharded MoE snapshots and tags them mlxFlavor=lm", async () => {
+    it("discovers sharded MoE snapshots with empty mlxCapabilities", async () => {
       const hub = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-hub-"))
       buildHfCache(hub)
 
@@ -165,7 +165,7 @@ describe("Scanner", () => {
       )
       expect(found).toBeDefined()
       expect(found!.runtime).toBe("mlx")
-      expect(found!.mlxFlavor).toBe("lm")
+      expect(found!.mlxCapabilities).toEqual([])
       // 3 shards × 1024 bytes, plus small index + tokenizer.
       expect(found!.sizeBytes).toBeGreaterThanOrEqual(3 * 1024)
 

@@ -36,11 +36,19 @@ export function ingestDiscovered(
         existing.sizeBytes = d.sizeBytes ?? existing.sizeBytes
         changed = true
       }
-      // Flavor can flip if upstream publishes a new config.json revision
-      // (unusual but real — e.g. a text-only repo gains a VLM sibling).
-      if (d.runtime === "mlx" && d.mlxFlavor && existing.mlxFlavor !== d.mlxFlavor) {
-        existing.mlxFlavor = d.mlxFlavor
-        changed = true
+      // Refresh detected capabilities — this is a fact about the model,
+      // not user intent. Safe to overwrite on re-scan (e.g. if our
+      // detection heuristics improve). `mlxFlavor` (the routing choice)
+      // is never touched here; the override path is
+      // `athanor flavor <slug> lm|vlm`.
+      if (d.runtime === "mlx") {
+        const nextCaps = d.mlxCapabilities ?? []
+        const prevCaps = existing.mlxCapabilities ?? []
+        if (!capsEqual(prevCaps, nextCaps)) {
+          if (nextCaps.length > 0) existing.mlxCapabilities = nextCaps
+          else delete existing.mlxCapabilities
+          changed = true
+        }
       }
       if (changed) updatedPath.push(existing)
       else unchanged++
@@ -65,7 +73,9 @@ export function ingestDiscovered(
       piAlias: slug,
       sizeBytes: d.sizeBytes,
       addedAt: Date.now(),
-      ...(d.runtime === "mlx" && d.mlxFlavor ? { mlxFlavor: d.mlxFlavor } : {})
+      ...(d.runtime === "mlx" && d.mlxCapabilities && d.mlxCapabilities.length > 0
+          ? { mlxCapabilities: d.mlxCapabilities }
+          : {})
     }
     reg.models.push(entry)
     byId.set(entry.id, entry)
@@ -76,4 +86,11 @@ export function ingestDiscovered(
 
   saveRegistry(reg)
   return { added, updatedPath, unchanged }
+}
+
+function capsEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const sa = [...a].sort()
+  const sb = [...b].sort()
+  return sa.every((v, i) => v === sb[i])
 }

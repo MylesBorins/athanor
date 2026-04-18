@@ -39,6 +39,22 @@ export interface ControlApiConfig {
   host: string
 }
 
+// OpenAI-compatible proxy that fronts every exposed model on a single
+// port. When enabled, pi-agent sees up to two aggregator providers —
+// `athanor-mlx` and `athanor-llama` — both pointing at the router and
+// each carrying the compat flags that runtime needs. Model-switching
+// inside pi triggers on-demand supervisor.start() for the selected
+// entry. Off by default and 127.0.0.1-only, same posture as the
+// control API.
+export interface RouterConfig {
+  enabled: boolean
+  port: number
+  host: string
+  // Max time supervisor.stop waits for in-flight router streams targeting
+  // the model to drain before SIGTERM. 0 disables waiting.
+  drainTimeoutMs: number
+}
+
 export interface Config {
   portRange: PortRange
   enablePiSync: boolean
@@ -50,6 +66,7 @@ export interface Config {
   llama: LlamaConfig
   supervisor: SupervisorConfig
   controlApi: ControlApiConfig
+  router: RouterConfig
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -82,6 +99,12 @@ export const DEFAULT_CONFIG: Config = {
     enabled: false,
     port: 8079,
     host: "127.0.0.1"
+  },
+  router: {
+    enabled: false,
+    port: 8080,
+    host: "127.0.0.1",
+    drainTimeoutMs: 30_000
   }
 }
 

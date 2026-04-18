@@ -16,7 +16,7 @@ import {
   listGgufFiles
 } from "./api.js"
 import { runHfDownload, resolveMlxSnapshot } from "./download.js"
-import { detectMlxFlavor } from "../discovery/scanner.js"
+import { detectMlxCapabilities } from "../discovery/scanner.js"
 
 export { fetchRepoInfo, inferRuntimeFromRepo, listGgufFiles } from "./api.js"
 
@@ -97,12 +97,12 @@ function upsertRegistryEntry(
   const snap = snapshot(reg)
   const id = file ? `${repo}:${file}` : repo
   // resolvedPath for MLX points at snapshots/<hash>/ — that's where
-  // config.json lives and what detectMlxFlavor expects.
-  const mlxFlavor = runtime === "mlx" ? detectMlxFlavor(resolvedPath) : undefined
+  // config.json lives and what detectMlxCapabilities expects.
+  const mlxCapabilities = runtime === "mlx" ? detectMlxCapabilities(resolvedPath) : undefined
   const existing = reg.models.find(m => m.id === id)
   if (existing) {
     existing.path = resolvedPath
-    if (mlxFlavor) existing.mlxFlavor = mlxFlavor
+    if (mlxCapabilities) existing.mlxCapabilities = mlxCapabilities
     saveRegistry(reg)
     return existing
   }
@@ -121,7 +121,7 @@ function upsertRegistryEntry(
     publish: true,
     piAlias: slug,
     addedAt: Date.now(),
-    ...(mlxFlavor ? { mlxFlavor } : {})
+    ...(mlxCapabilities && mlxCapabilities.length > 0 ? { mlxCapabilities } : {})
   }
   reg.models.push(entry)
   saveRegistry(reg)

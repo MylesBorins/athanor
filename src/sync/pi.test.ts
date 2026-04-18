@@ -225,4 +225,146 @@ describe("pi sync (provider-per-model)", () => {
     expect(fs.existsSync(PI_MODELS)).toBe(false)
     expect(fs.existsSync(PI_SETTINGS)).toBe(false)
   })
+
+  it("emits per-runtime aggregator providers when router is enabled", async () => {
+    // Router mode: one aggregator per runtime. Both providers share
+    // the router baseUrl but carry runtime-specific compat blocks —
+    // MLX rejects the developer role, llama-server accepts it.
+    // Per-model providers must not be emitted in this mode.
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: true, piAlias: "a", addedAt: 0 },
+        { id: "b.gguf", slug: "b", path: "/m/b.gguf", runtime: "llama.cpp",
+          source: { type: "local" }, port: 8082,
+          publish: true, piAlias: "bee", addedAt: 0 },
+        { id: "hidden", slug: "h", path: "/m/h", runtime: "mlx",
+          source: { type: "hf", repo: "x/hidden" }, port: 8083,
+          publish: false, addedAt: 0 }
+      ]
+    }))
+    const { syncPi, ATHANOR_MLX_PROVIDER, ATHANOR_LLAMA_PROVIDER } =
+      await import("./pi.js")
+    syncPi({ instances: [] })
+    const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
+    expect(Object.keys(written.providers).sort())
+      .toEqual([ATHANOR_LLAMA_PROVIDER, ATHANOR_MLX_PROVIDER])
+
+    const mlx = written.providers[ATHANOR_MLX_PROVIDER]
+    expect(mlx.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(mlx.api).toBe("openai-completions")
+    expect(mlx.models.map((m: { id: string }) => m.id)).toEqual(["mlx-community/A"])
+    expect(mlx.compat).toEqual({
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false
+    })
+    expect(mlx.athanorRouter).toBe(true)
+    expect(mlx.athanorRuntime).toBe("mlx")
+
+    const llama = written.providers[ATHANOR_LLAMA_PROVIDER]
+    expect(llama.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(llama.models.map((m: { id: string }) => m.id)).toEqual(["bee"])
+    // llama-server accepts the developer role, so the flag is absent
+    // and pi falls back to its default (supported).
+    expect(llama.compat).toEqual({ supportsReasoningEffort: false })
+    expect(llama.athanorRuntime).toBe("llama.cpp")
+  })
+
+  it("omits a runtime's provider when no exposed entries use it", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: true, piAlias: "a", addedAt: 0 }
+      ]
+    }))
+    const { syncPi, ATHANOR_MLX_PROVIDER } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
+    expect(Object.keys(written.providers)).toEqual([ATHANOR_MLX_PROVIDER])
+  })
+
+  it("router mode points defaultProvider at the active model's runtime provider", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: true, piAlias: "a", addedAt: 0 }
+      ]
+    }))
+    const { syncPi, ATHANOR_MLX_PROVIDER } = await import("./pi.js")
+    const inst = {
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 1, startedAt: 0, status: "running" as const, logFile: "/tmp/x"
+    }
+    syncPi({ activeDefault: inst, instances: [inst] })
+    const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
+    expect(settings.defaultProvider).toBe(ATHANOR_MLX_PROVIDER)
+    expect(settings.defaultModel).toBe("mlx-community/A")
+  })
+
+  it("clears any legacy athanor-router provider on sync", async () => {
+    // Users upgrading from the single-aggregator version have an
+    // athanor-router entry on disk; the prefix-strip in syncModels
+    // must drop it alongside any stale per-model providers.
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "b.gguf", slug: "b", path: "/m/b.gguf", runtime: "llama.cpp",
+          source: { type: "local" }, port: 8082, publish: true, addedAt: 0 }
+      ]
+    }))
+    fs.mkdirSync(path.dirname(PI_MODELS), { recursive: true })
+    fs.writeFileSync(PI_MODELS, JSON.stringify({
+      providers: {
+        "athanor-router": { baseUrl: "http://old", models: [] },
+        "openai": { baseUrl: "https://api.openai.com/v1" }
+      }
+    }))
+    const { syncPi, ATHANOR_LLAMA_PROVIDER } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
+    expect(Object.keys(written.providers).sort())
+      .toEqual([ATHANOR_LLAMA_PROVIDER, "openai"])
+  })
 })

@@ -2,6 +2,7 @@ import {
   cmdConfig,
   cmdDoctor,
   cmdExpose,
+  cmdFlavor,
   cmdList,
   cmdLogs,
   cmdPresetApply,
@@ -13,6 +14,7 @@ import {
   cmdRecipes,
   cmdRestart,
   cmdRm,
+  cmdRouter,
   cmdScan,
   cmdSearch,
   cmdShow,
@@ -39,10 +41,12 @@ function usage(): void {
     ["trending",   "[--mlx|--gguf] [--limit N]",     "top trending MLX/GGUF models"],
     ["preset",     "<slug> show|set k=v...|unset k...|clear|apply <recipe>", "tune a model"],
     ["recipes",    "",                               "list built-in and user recipes + tunable keys"],
+    ["flavor",     "<slug> lm|vlm",                  "force MLX runtime flavor (lm = mlx_lm, vlm = mlx_vlm)"],
     ["expose",     "<id|slug>",                      "include in pi-agent catalog"],
     ["hide",       "<id|slug>",                      "remove from pi-agent catalog"],
     ["rm",         "<id|slug>",                      "remove from registry (must be stopped)"],
     ["sync",       "",                               "manually rewrite pi catalog"],
+    ["router",     "[--host H] [--port P]",          "run the pi-agent router in the foreground"],
     ["config",     "",                               "print config and its path"],
     ["doctor",     "",                               "check for required binaries"],
     ["(no args)",  "",                               "launch the TUI"]
@@ -114,8 +118,20 @@ export async function runCli(argv: string[]): Promise<boolean> {
     }
     case "expose":      cmdExpose(required(rest[0], "id|slug"), true); return true
     case "hide":        cmdExpose(required(rest[0], "id|slug"), false); return true
+    case "flavor":      cmdFlavor(required(rest[0], "id|slug"), required(rest[1], "lm|vlm")); return true
     case "rm":          cmdRm(required(rest[0], "id|slug")); return true
     case "sync":        cmdSync(); return true
+    case "router": {
+      const host = getFlag(rest, "--host")
+      const portRaw = getFlag(rest, "--port")
+      const port = portRaw ? Number(portRaw) : undefined
+      if (portRaw && !Number.isFinite(port)) {
+        console.error(`${style.red("✗")} --port must be a number, got ${style.bold(portRaw)}`)
+        process.exit(1)
+      }
+      await cmdRouter({ host, port })
+      return true
+    }
     case "config":      cmdConfig(); return true
     case "doctor":      await cmdDoctor(); return true
     case "help":

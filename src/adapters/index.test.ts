@@ -4,8 +4,11 @@ import {
   getAdapter,
   inferRuntime,
   mergedConfigFor,
+  resolveByRuntimeModelId,
+  runtimeModelId,
   runtimes
 } from "./index.js"
+import type { ModelEntry } from "../types/index.js"
 import { MlxAdapter } from "./mlx.js"
 import { LlamaAdapter } from "./llama.js"
 import { mlxEntry, llamaEntry } from "./__fixtures.js"
@@ -48,6 +51,51 @@ describe("adapters registry", () => {
       })
       const merged = mergedConfigFor(entry) as { ctxSize: number }
       expect(merged.ctxSize).toBe(16384)
+    })
+  })
+
+  describe("resolveByRuntimeModelId", () => {
+    // Router-side reverse lookup: given whatever pi-agent puts in a
+    // request body's `model` field, find the athanor entry that will
+    // accept it. Must match the same computation syncPi uses so the
+    // `id`s synthesised into pi's catalog round-trip correctly.
+    const entries: ModelEntry[] = [
+      mlxEntry({ id: "mlx-community/Qwen3-32B-4bit", slug: "qwen3-32b",
+        source: { type: "hf", repo: "mlx-community/Qwen3-32B-4bit" }, publish: true }),
+      mlxEntry({ id: "local-vlm", slug: "local-vlm", path: "/models/local-vlm",
+        source: { type: "local" }, publish: true }),
+      llamaEntry({ id: "llama-raw", slug: "raw", piAlias: "nice-name", publish: true }),
+      llamaEntry({ id: "llama-bare", slug: "bare", publish: true, piAlias: undefined }),
+      mlxEntry({ id: "hidden", slug: "hidden",
+        source: { type: "hf", repo: "author/hidden-repo" }, publish: false })
+    ]
+
+    it("matches by runtime model id (primary)", () => {
+      expect(resolveByRuntimeModelId(entries, "mlx-community/Qwen3-32B-4bit")?.slug).toBe("qwen3-32b")
+      expect(resolveByRuntimeModelId(entries, "/models/local-vlm")?.slug).toBe("local-vlm")
+      expect(resolveByRuntimeModelId(entries, "nice-name")?.slug).toBe("raw")
+      expect(resolveByRuntimeModelId(entries, "bare")?.slug).toBe("bare")
+    })
+
+    it("falls back to slug and then id", () => {
+      expect(resolveByRuntimeModelId(entries, "qwen3-32b")?.id).toBe("mlx-community/Qwen3-32B-4bit")
+      expect(resolveByRuntimeModelId(entries, "llama-raw")?.slug).toBe("raw")
+    })
+
+    it("ignores unexposed entries even if their id matches", () => {
+      expect(resolveByRuntimeModelId(entries, "author/hidden-repo")).toBeUndefined()
+      expect(resolveByRuntimeModelId(entries, "hidden")).toBeUndefined()
+    })
+
+    it("returns undefined for unknown or empty input", () => {
+      expect(resolveByRuntimeModelId(entries, "nope")).toBeUndefined()
+      expect(resolveByRuntimeModelId(entries, "")).toBeUndefined()
+    })
+
+    it("runtimeModelId matches the resolver's primary key exactly", () => {
+      for (const e of entries.filter(x => x.publish)) {
+        expect(resolveByRuntimeModelId(entries, runtimeModelId(e))?.id).toBe(e.id)
+      }
     })
   })
 })

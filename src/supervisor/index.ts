@@ -12,6 +12,7 @@ import {
   savePersistedInstances
 } from "./state.js"
 import { updateModel } from "../registry/index.js"
+import { awaitIdle } from "./inflight.js"
 
 export class Supervisor {
   private instances = new Map<string, ActiveInstance>()
@@ -117,6 +118,12 @@ export class Supervisor {
   async stop(id: string): Promise<void> {
     const inst = this.instances.get(id)
     if (!inst) return
+    // Wait briefly for any router-proxied streams targeting this model
+    // to finish, so SSE clients aren't cut mid-token. Bounded by
+    // config.router.drainTimeoutMs (0 disables). No-op when the router
+    // is idle or not running.
+    const cfg = loadConfig()
+    if (cfg.router.drainTimeoutMs > 0) await awaitIdle(id, cfg.router.drainTimeoutMs)
     await this.killPid(inst.pid)
     this.instances.delete(id)
     this.persist()

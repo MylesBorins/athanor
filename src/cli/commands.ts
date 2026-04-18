@@ -21,6 +21,7 @@ import { formatResultRow } from "../search/format.js"
 import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
 import { findRecipe, listRecipes, recipeToPreset } from "../presets/recipes.js"
 import { listKeys, parseKvTokens, setPresetFields, unsetPresetFields } from "../presets/edit.js"
+import { startRouter, stopRouter } from "../router/server.js"
 
 function ok(msg: string): void   { console.log(`${style.green(sym.check)} ${msg}`) }
 function info(msg: string): void { console.log(`${style.cyan(sym.arrow)} ${msg}`) }
@@ -169,6 +170,30 @@ export function cmdExpose(idOrSlug: string, expose: boolean): void {
   ok(`${style.bold(entry.slug)} ${tag} ${dim(expose ? "exposed" : "hidden")}`)
 }
 
+export function cmdFlavor(idOrSlug: string, value: string): void {
+  if (value !== "lm" && value !== "vlm") {
+    throw new Error(`flavor must be lm or vlm, got ${value}`)
+  }
+  const entry = getModel(idOrSlug)
+  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+  if (entry.runtime !== "mlx") {
+    throw new Error(`flavor only applies to mlx entries (${entry.slug} is ${entry.runtime})`)
+  }
+  if (entry.mlxFlavor === value) {
+    info(`${style.bold(entry.slug)} already ${style.cyan(value)}`)
+    return
+  }
+  if (value === "vlm" && !(entry.mlxCapabilities ?? []).includes("vlm")) {
+    warn(`${style.bold(entry.slug)} has no detected vision tower — mlx_vlm.server will likely fail at load`)
+  }
+  const updated = updateModel(entry.id, { mlxFlavor: value })!
+  syncPi({ instances: supervisor.list() })
+  const label = value === "vlm" ? "mlx-vlm" : "mlx-lm"
+  ok(`${style.bold(updated.slug)} flavor → ${style.cyan(label)}`)
+  const running = supervisor.list().some(i => i.id === updated.id)
+  if (running) info(`restart to apply: ${style.bold(`athanor restart ${updated.slug}`)}`)
+}
+
 export function cmdRm(idOrSlug: string): void {
   const inst = supervisor.list().find(i => i.id === idOrSlug || i.slug === idOrSlug)
   if (inst) throw new Error(`cannot remove ${idOrSlug}: currently running (stop it first)`)
@@ -245,6 +270,14 @@ export function cmdShow(idOrSlug: string): void {
   console.log(`  ${dim("port")}     ${entry.port}`)
   console.log(`  ${dim("exposed")}  ${entry.publish ? style.magenta("yes (pi)") : "no"}`)
   console.log(`  ${dim("source")}   ${entry.source.type === "hf" ? `hf:${entry.source.repo}` : "local"}`)
+  if (entry.runtime === "mlx") {
+    const caps = entry.mlxCapabilities ?? []
+    const capsLabel = caps.length > 0 ? caps.join(", ") : dim("(none detected)")
+    console.log(`  ${dim("caps")}     ${capsLabel}`)
+    if (caps.includes("vlm") && entry.mlxFlavor !== "vlm") {
+      console.log(`  ${dim("hint")}     ${style.yellow("vision-capable")} — enable with ${style.bold(`athanor flavor ${entry.slug} vlm`)}`)
+    }
+  }
   const status = inst ? `${statusGlyph(inst.status)} ${inst.status}` : `${style.gray(sym.idle)} idle`
   console.log(`  ${dim("status")}   ${status}`)
   console.log()
@@ -274,6 +307,9 @@ export function cmdShow(idOrSlug: string): void {
   console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset set ${entry.slug} key=value ...`)}`)
   console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset apply ${entry.slug} <recipe>`)}`)
   console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor recipes`)}  ${dim("# list available recipes")}`)
+  if (entry.runtime === "mlx") {
+    console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor flavor ${entry.slug} lm|vlm`)}  ${dim("# force mlx_lm vs mlx_vlm server")}`)
+  }
 }
 
 export function cmdPresetShow(idOrSlug: string): void {
@@ -343,6 +379,21 @@ export function cmdRecipes(): void {
       console.log(`    ${style.bold(k.aliases[0]!.padEnd(22))} ${dim(k.help)}`)
     }
   }
+}
+
+export async function cmdRouter(opts: { host?: string; port?: number }): Promise<void> {
+  const cfg = loadConfig()
+  const host = opts.host ?? cfg.router.host
+  const port = opts.port ?? cfg.router.port
+  const server = startRouter({ host, port, force: true, silent: true })
+  if (!server) throw new Error("router already running in this process")
+  ok(`athanor router listening on ${style.bold(`http://${host}:${port}`)}`)
+  info(`exposed models: ${listModels().filter(m => m.publish).length} — ${dim("Ctrl-C to stop")}`)
+  await new Promise<void>(resolve => {
+    const shutdown = (): void => { void stopRouter().then(resolve) }
+    process.once("SIGINT", shutdown)
+    process.once("SIGTERM", shutdown)
+  })
 }
 
 export async function cmdDoctor(): Promise<void> {

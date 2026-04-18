@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import * as path from "path"
-import type { DiscoveredModel, MlxFlavor, RuntimeType } from "../types/index.js"
+import type { DiscoveredModel, MlxCapability, RuntimeType } from "../types/index.js"
 import { getModelDirs } from "../config/index.js"
 
 // Known VLM model_types. HF's transformers registry is the source of
@@ -71,29 +71,31 @@ function isMlxSnapshot(snapshotDir: string): boolean {
   }
 }
 
-// Best-effort MLX flavor detection. Returns "vlm" when config.json
-// advertises a vision component (either a nested `vision_config` or a
-// known VLM `model_type` / `architectures[]` entry). Returns "lm"
-// otherwise. Silently returns "lm" when config is unreadable — worst
-// case the runtime will crash at load time and the user can override.
-export function detectMlxFlavor(snapshotDir: string): MlxFlavor {
+// Best-effort detection of MLX capabilities advertised by config.json.
+// Today the only capability is "vlm" — set when config advertises a
+// vision component (either a nested `vision_config`, a known VLM
+// `model_type`, or a vision marker in `architectures[]`). Returns []
+// when config is unreadable or the model is text-only. Capability is a
+// detected fact; the routing decision (mlx_lm vs mlx_vlm) is stored
+// separately as `mlxFlavor` and only set by the user.
+export function detectMlxCapabilities(snapshotDir: string): MlxCapability[] {
   try {
     const raw = fs.readFileSync(path.join(snapshotDir, "config.json"), "utf8")
     const cfg = JSON.parse(raw) as Record<string, unknown>
-    if (cfg && typeof cfg === "object" && "vision_config" in cfg) return "vlm"
+    if (cfg && typeof cfg === "object" && "vision_config" in cfg) return ["vlm"]
     const modelType = typeof cfg.model_type === "string" ? cfg.model_type : ""
-    if (VLM_MODEL_TYPES.has(modelType)) return "vlm"
+    if (VLM_MODEL_TYPES.has(modelType)) return ["vlm"]
     const arches = Array.isArray(cfg.architectures) ? cfg.architectures : []
     // Architecture class names are CamelCase with no word boundaries
     // between runs (e.g. Qwen2VLForConditionalGeneration), so match
     // known vision markers case-insensitively.
     const archRx = /vision|vlfor|vlmodel|vlforcausallm|onevision/i
     for (const a of arches) {
-      if (typeof a === "string" && archRx.test(a)) return "vlm"
+      if (typeof a === "string" && archRx.test(a)) return ["vlm"]
     }
-    return "lm"
+    return []
   } catch {
-    return "lm"
+    return []
   }
 }
 
@@ -148,7 +150,7 @@ function scanMlxModels(baseDir: string): Model[] {
         runtime: "mlx",
         source: { type: "hf", repo },
         sizeBytes: snapshotSizeBytes(snapshotDir),
-        mlxFlavor: detectMlxFlavor(snapshotDir)
+        mlxCapabilities: detectMlxCapabilities(snapshotDir)
       })
     }
   } catch (err) {

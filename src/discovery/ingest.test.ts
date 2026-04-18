@@ -99,15 +99,32 @@ describe("ingestDiscovered", () => {
     expect(m.piAlias).toBe(m.slug)
   })
 
-  it("carries mlxFlavor from discovery into new entries", () => {
-    ingestDiscovered([mlxDiscovered({ id: "vl", name: "vl", mlxFlavor: "vlm" })])
-    expect(listModels()[0]!.mlxFlavor).toBe("vlm")
+  it("carries mlxCapabilities from discovery and leaves mlxFlavor unset", () => {
+    ingestDiscovered([mlxDiscovered({ id: "vl", name: "vl", mlxCapabilities: ["vlm"] })])
+    const m = listModels()[0]!
+    expect(m.mlxCapabilities).toEqual(["vlm"])
+    expect(m.mlxFlavor).toBeUndefined()
   })
 
-  it("refreshes mlxFlavor on re-ingest when upstream config changes", () => {
-    ingestDiscovered([mlxDiscovered({ mlxFlavor: "lm" })])
-    const rep = ingestDiscovered([mlxDiscovered({ mlxFlavor: "vlm" })])
+  it("never flips user mlxFlavor on re-ingest, even when capabilities update", () => {
+    // Flavor is a runtime choice, not a discovered fact: for VLMs that
+    // mlx_lm can serve text-only (e.g. Qwen VL), the user may prefer
+    // "lm" on purpose. Ingest must never touch mlxFlavor.
+    ingestDiscovered([mlxDiscovered()])
+    updateModel(listModels()[0]!.id, { mlxFlavor: "lm" })
+    const rep = ingestDiscovered([mlxDiscovered({ mlxCapabilities: ["vlm"] })])
     expect(rep.updatedPath).toHaveLength(1)
-    expect(listModels()[0]!.mlxFlavor).toBe("vlm")
+    expect(listModels()[0]!.mlxFlavor).toBe("lm")
+    expect(listModels()[0]!.mlxCapabilities).toEqual(["vlm"])
+  })
+
+  it("refreshes mlxCapabilities on re-ingest when detection changes", () => {
+    // Capabilities are a detected fact — safe to overwrite as
+    // heuristics improve or config.json changes.
+    ingestDiscovered([mlxDiscovered()])
+    expect(listModels()[0]!.mlxCapabilities).toBeUndefined()
+    const rep = ingestDiscovered([mlxDiscovered({ mlxCapabilities: ["vlm"] })])
+    expect(rep.updatedPath).toHaveLength(1)
+    expect(listModels()[0]!.mlxCapabilities).toEqual(["vlm"])
   })
 })

@@ -39,6 +39,14 @@ describe("Config", () => {
       expect(loadConfig().controlApi.enabled).toBe(false)
     })
 
+    it("defaults router to disabled, bound to 127.0.0.1:8080", () => {
+      const r = loadConfig().router
+      expect(r.enabled).toBe(false)
+      expect(r.host).toBe("127.0.0.1")
+      expect(r.port).toBe(8080)
+      expect(r.drainTimeoutMs).toBe(30_000)
+    })
+
     it("exposes default mlx and llama knobs", () => {
       const c = loadConfig()
       expect(c.mlx.prefillStepSize).toBe(256)

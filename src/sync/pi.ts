@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
-import type { ActiveInstance, ModelEntry } from "../types/index.js"
+import type { ActiveInstance, ModelEntry, RuntimeType } from "../types/index.js"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
 import { runtimeModelId } from "../adapters/index.js"
@@ -18,7 +18,19 @@ const PI_SETTINGS_PATH = path.join(PI_DIR, "agent", "settings.json")
 // and each athanor model runs on its own stable port, so one
 // provider per model is required. The runtime segment keeps the
 // backing engine obvious in pi's /model picker and in the JSON file.
+//
+// When `config.router.enabled` is true, pi instead sees up to two
+// aggregating providers — `athanor-mlx` and `athanor-llama` — both
+// pointing at the router port. The split exists because pi's provider
+// compat flags differ by runtime: mlx_lm/vlm don't accept the
+// developer role, llama-server does. Per-model athanor-* providers
+// are cleared in router mode so the /model picker isn't cluttered
+// with duplicates; the legacy `athanor-router` aggregator (if present
+// from an older install) is cleared the same way, because both
+// constants share this prefix.
 export const ATHANOR_PROVIDER_PREFIX = "athanor-"
+export const ATHANOR_MLX_PROVIDER = "athanor-mlx"
+export const ATHANOR_LLAMA_PROVIDER = "athanor-llama"
 
 function runtimeTag(entry: ModelEntry): string {
   return entry.runtime === "llama.cpp" ? "llama" : "mlx"
@@ -147,6 +159,40 @@ export interface SyncInputs {
   instances?: ActiveInstance[]
 }
 
+// Per-runtime compat flags. MLX (both mlx_lm and mlx_vlm) rejects the
+// developer role; llama-server accepts it when the chat template does.
+// reasoning_effort is not honoured by either engine today.
+function compatFor(runtime: RuntimeType): Record<string, unknown> {
+  if (runtime === "mlx") {
+    return { supportsDeveloperRole: false, supportsReasoningEffort: false }
+  }
+  return { supportsReasoningEffort: false }
+}
+
+function runtimeRouterProviderFor(
+  entries: ModelEntry[],
+  runtime: RuntimeType,
+  routerBaseUrl: string
+): PiProviderConfig {
+  return {
+    baseUrl: routerBaseUrl,
+    api: "openai-completions",
+    apiKey: "athanor",
+    compat: compatFor(runtime),
+    models: entries.map(e => ({
+      id: modelIdFor(e),
+      name: displayNameFor(e),
+      input: ["text"]
+    })),
+    athanorRouter: true,
+    athanorRuntime: runtime
+  }
+}
+
+function providerNameForRuntime(runtime: RuntimeType): string {
+  return runtime === "llama.cpp" ? ATHANOR_LLAMA_PROVIDER : ATHANOR_MLX_PROVIDER
+}
+
 export function syncPi(inputs: SyncInputs = {}): void {
   const config = loadConfig()
   if (!config.enablePiSync) return
@@ -155,13 +201,14 @@ export function syncPi(inputs: SyncInputs = {}): void {
   const instances = inputs.instances ?? []
   const instanceById = new Map(instances.map(i => [i.id, i]))
 
-  syncModels(entries, instanceById)
-  syncSettings(entries, inputs.activeDefault)
+  syncModels(entries, instanceById, config.router)
+  syncSettings(entries, inputs.activeDefault, config.router)
 }
 
 function syncModels(
   entries: ModelEntry[],
-  instanceById: Map<string, ActiveInstance>
+  instanceById: Map<string, ActiveInstance>,
+  router: { enabled: boolean; host: string; port: number }
 ): void {
   const existing = readModelsFile()
   const existingProviders = (existing.providers && typeof existing.providers === "object")
@@ -175,9 +222,26 @@ function syncModels(
     if (!name.startsWith(ATHANOR_PROVIDER_PREFIX)) next[name] = cfg
   }
 
-  for (const entry of entries) {
-    if (!entry.publish) continue
-    next[providerNameFor(entry)] = providerFor(entry, instanceById.get(entry.id))
+  if (router.enabled) {
+    // Router mode: one aggregator per runtime, no per-model entries.
+    // The compat block differs between mlx and llama.cpp, which is why
+    // we don't share a single provider. Providers with no exposed
+    // members are suppressed so the /model picker isn't cluttered.
+    const baseUrl = `http://${router.host}:${router.port}/v1`
+    const exposed = entries.filter(e => e.publish)
+    const mlxEntries = exposed.filter(e => e.runtime === "mlx")
+    const llamaEntries = exposed.filter(e => e.runtime === "llama.cpp")
+    if (mlxEntries.length > 0) {
+      next[ATHANOR_MLX_PROVIDER] = runtimeRouterProviderFor(mlxEntries, "mlx", baseUrl)
+    }
+    if (llamaEntries.length > 0) {
+      next[ATHANOR_LLAMA_PROVIDER] = runtimeRouterProviderFor(llamaEntries, "llama.cpp", baseUrl)
+    }
+  } else {
+    for (const entry of entries) {
+      if (!entry.publish) continue
+      next[providerNameFor(entry)] = providerFor(entry, instanceById.get(entry.id))
+    }
   }
 
   const out: PiModelsFile = { ...existing, providers: next }
@@ -185,12 +249,18 @@ function syncModels(
   atomicWrite(PI_MODELS_PATH, JSON.stringify(out, null, 2))
 }
 
-function syncSettings(entries: ModelEntry[], active?: ActiveInstance): void {
+function syncSettings(
+  entries: ModelEntry[],
+  active: ActiveInstance | undefined,
+  router: { enabled: boolean }
+): void {
   if (!active) return
   const entry = entries.find(e => e.id === active.id)
   if (!entry) return
   const settings = readSettingsFile()
-  settings.defaultProvider = providerNameFor(entry)
+  settings.defaultProvider = router.enabled
+    ? providerNameForRuntime(entry.runtime)
+    : providerNameFor(entry)
   settings.defaultModel = modelIdFor(entry)
   ensureDir(PI_SETTINGS_PATH)
   atomicWrite(PI_SETTINGS_PATH, JSON.stringify(settings, null, 2))

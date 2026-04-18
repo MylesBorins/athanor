@@ -1,10 +1,13 @@
 export type RuntimeType = "mlx" | "llama.cpp"
 
 // Some MLX models (Qwen2-VL, Qwen2.5-VL, Llama-3.2-Vision, Pixtral,
-// Phi-3-V, Idefics, LLaVA…) require mlx_vlm.server rather than
-// mlx_lm.server. The `lm` loader raises on VLM configs. Flavor is
-// detected at scan time from the snapshot's config.json.
+// Phi-3-V, Idefics, LLaVA…) ship with a vision tower and can be
+// served via mlx_vlm.server. Many of the same repos also run fine as
+// text-only under mlx_lm.server (no torch/torchvision required), so
+// capability and flavor are kept as separate axes: capability is a
+// detected fact, flavor is user intent.
 export type MlxFlavor = "lm" | "vlm"
+export type MlxCapability = "vlm"
 
 export type InstanceStatus =
   | "idle"
@@ -62,8 +65,12 @@ export interface ModelEntry {
   addedAt: number
   lastUsedAt?: number
   // Only meaningful when runtime === "mlx". Absent or "lm" routes to
-  // mlx_lm.server; "vlm" routes to mlx_vlm.server.
+  // mlx_lm.server; "vlm" routes to mlx_vlm.server. User intent —
+  // never mutated by discovery.
   mlxFlavor?: MlxFlavor
+  // Detected facts about the model (refreshed by scan/pull). Today
+  // only "vlm" — present when config.json has a vision tower.
+  mlxCapabilities?: MlxCapability[]
 }
 
 export interface Registry {
@@ -102,5 +109,5 @@ export interface DiscoveredModel {
   runtime: RuntimeType
   source: ModelSource
   sizeBytes?: number
-  mlxFlavor?: MlxFlavor
+  mlxCapabilities?: MlxCapability[]
 }

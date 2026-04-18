@@ -55,24 +55,35 @@ MLX requires Apple Silicon and macOS 13.5+. Models are downloaded to `~/.cache/h
 
 ### mlx-vlm (MLX vision/multimodal runtime)
 
-Required only if you run multimodal MLX models (Qwen2-VL, Qwen2.5-VL, Llama-3.2-Vision, Pixtral, Phi-3-V, LLaVA, Idefics, etc.). Athanor detects VLM-architecture models at scan/pull time (by reading each snapshot's `config.json`) and routes them to `mlx_vlm.server` instead of `mlx_lm.server`.
+Required only if you flip a model to `mlxFlavor: "vlm"` to feed it actual image input. Athanor defaults every MLX entry to `mlx_lm.server`, which handles text-only chat for most VLM-tagged repos (Qwen2-VL, Qwen2.5-VL, Qwen3-VL, LLaVA, etc.) without torch. Only install this when you actually need vision — and then opt in per model with `athanor flavor <slug> vlm`.
+
+`mlx_vlm.server` imports `transformers`' VLM processors, which in turn import PyTorch and Torchvision. Installing `mlx-vlm` alone is not enough; `torch` and `torchvision` must be present in the same environment. With `uv`:
 
 ```bash
-# with uv (same pattern as mlx-lm)
-uv tool install mlx-vlm
+uv tool install mlx-vlm --with torch --with torchvision
+```
 
-# or pipx
+Or with pipx:
+
+```bash
 pipx install mlx-vlm
+pipx inject mlx-vlm torch torchvision
+```
 
-# or pip into the same venv you used for mlx-lm
-pip install -U mlx-vlm
+Or with pip into the same venv you used for mlx-lm:
+
+```bash
+pip install -U mlx-vlm torch torchvision
 ```
 
 Verify:
 
 ```bash
 mlx_vlm.server --help
+python3 -c "import torch, torchvision; print(torch.__version__, torchvision.__version__)"
 ```
+
+If `mlx_vlm.server` starts but a request fails with `Qwen3VLVideoProcessor requires the PyTorch library` (or similar), torch/torchvision are missing or installed into a different interpreter than `mlx_vlm.server` is using. Re-run the install above into the right environment.
 
 ### llama.cpp (GGUF runtime)
 
@@ -191,9 +202,16 @@ Each model is bound to a port at first ingest and keeps it forever. This means p
 
 Port range is configurable (`portRange` in `~/.athanor/config.json`, default 8081–8099).
 
-### MLX flavor routing
+### MLX capabilities and flavor routing
 
-Each MLX entry carries an `mlxFlavor`: `"lm"` for text-only models (routed to `mlx_lm.server`) and `"vlm"` for vision/multimodal models (routed to `mlx_vlm.server`). Flavor is detected from the snapshot's `config.json` at scan and pull time — primarily by looking for a `vision_config` block, with fallbacks for known VLM `model_type` values (`qwen2_vl`, `qwen2_5_vl`, `llava*`, `mllama`, `pixtral`, `idefics2/3`, `phi3_v`) and architecture-name patterns such as `Qwen2VLForConditionalGeneration`. In `athanor ls` and `athanor show`, VLM entries display `mlx-vlm` in the runtime column; in pi-agent they render as `[mlx-vlm] <slug> (athanor)`. The provider id stays `athanor-mlx-<slug>` regardless of flavor, so pi URLs don't churn if a model's flavor is later corrected.
+MLX entries track two independent axes:
+
+- `mlxCapabilities` — *what the model advertises*. Detected from the snapshot's `config.json` at scan and pull time, primarily by looking for a `vision_config` block, with fallbacks for known VLM `model_type` values (`qwen2_vl`, `qwen2_5_vl`, `llava*`, `mllama`, `pixtral`, `idefics2/3`, `phi3_v`) and architecture-name patterns such as `Qwen2VLForConditionalGeneration`. Today the only capability is `"vlm"`. Capabilities are refreshed on every scan.
+- `mlxFlavor` — *which server binary to launch*. `"lm"` routes to `mlx_lm.server` (the default, no torch/torchvision required); `"vlm"` routes to `mlx_vlm.server` (requires torch + torchvision; needed for actual image input). Never set automatically — you choose with `athanor flavor <slug> lm|vlm`.
+
+The split is deliberate: many VLM-tagged repos (e.g. Qwen2.5-VL, Qwen3-VL-MLX) run fine as text-only under `mlx_lm.server`, which is lighter, faster to load, and doesn't need a PyTorch install. Auto-routing every VLM-capable repo to `mlx_vlm.server` would silently break text-only workflows whenever torch isn't available. So athanor defaults everything to `lm` and leaves the upgrade to you.
+
+In `athanor ls` and `athanor show`, entries with `mlxFlavor: "vlm"` display `mlx-vlm` in the runtime column; `athanor show` also prints a `caps` row and, for vision-capable entries still on `lm`, a hint pointing at `athanor flavor <slug> vlm`. In pi-agent, VLM-flavored entries render as `[mlx-vlm] <slug> (athanor)`; the provider id stays `athanor-mlx-<slug>` regardless of flavor, so pi URLs don't churn if a model's flavor is toggled later.
 
 ### Supervisor and policies
 
@@ -281,6 +299,7 @@ athanor trending [--mlx|--gguf] [--limit N]
 athanor preset   <slug> show|set k=v...|unset k...|clear|apply <recipe>
                                  view or modify a model's preset
 athanor recipes                  list built-in + user recipes and tunable keys
+athanor flavor   <slug> lm|vlm   force MLX runtime flavor (lm = mlx_lm, vlm = mlx_vlm)
 athanor expose    <id|slug>      include in pi-agent catalog
 athanor hide      <id|slug>      remove from pi-agent catalog
 athanor rm       <id|slug>       remove from registry (must be stopped)
@@ -295,19 +314,38 @@ athanor doctor                   check that required binaries are on PATH
 
 | key        | action                                              |
 | ---------- | --------------------------------------------------- |
-| `↑` / `↓`  | move selection                                      |
+| `↑` / `↓` / wheel | move selection (one entry per wheel notch)   |
 | `⏎`        | start (if idle) / stop (if running) the highlighted model |
 | `r`        | restart the highlighted model                       |
 | `k`        | kill the highlighted model                          |
 | `P`        | toggle pi-agent visibility (expose/hide)            |
 | `d`        | remove the highlighted entry from the registry      |
-| `s`        | rescan and ingest new models                        |
-| `p`        | open the pull modal                                 |
+| `s`        | rescan and ingest new models (automatic on start and when the HF cache changes) |
+| `p`        | open the pull modal (`esc` cancels in progress)     |
 | `e`        | open the preset editor for the highlighted model    |
 | `/`        | filter the list by substring of slug or id          |
+| `tab`      | hide the model selector and expand the log pane; press again to restore |
 | `q`        | quit (does **not** stop running models)             |
 
-The bottom pane continuously tails the log file of whichever model is highlighted.
+With the selector hidden (`tab`), the log pane grows to fill the space and the arrow keys switch roles:
+
+| key                   | action                                               |
+| --------------------- | ---------------------------------------------------- |
+| mouse wheel           | scroll the log (3 lines per notch)                   |
+| `↑` / `↓`             | scroll the log one line at a time                    |
+| `PgUp` / `PgDn`       | scroll by half a page                                |
+| `g` / `Home`          | jump to the top of the buffer                        |
+| `G` / `End`           | jump back to the tail (resumes live follow)          |
+
+When scrolled up, the header shows `+N ↑  paused` and the log stops auto-updating until you return to the tail. All other keys (`r`, `k`, `⏎`, `tab`) still act on the model you had selected before hiding the list.
+
+Mouse reporting is enabled only while the TUI is running (SGR mode, `\x1b[?1000h\x1b[?1006h`) and disabled on exit, including on uncaught exceptions and `SIGTERM`/`SIGHUP`. While it's active, click-and-drag text selection in some terminals (iTerm2, Terminal.app) requires holding `⌥`/`Alt`; copy-on-select typically still works. If the process is killed with `SIGKILL`, nothing can reset the terminal — run `reset` or relaunch the TUI to restore it.
+
+The bottom pane continuously tails the log file of whichever model is highlighted. When any model enters the running set — whether you started it, restarted it, or the router auto-started it on an incoming request — the cursor jumps to it so its logs appear immediately; if an active filter hides the newcomer, the filter is cleared.
+
+Press `tab` for a full-screen log view that shows model details (id, runtime, port, path), live instance telemetry (pid, uptime, CPU, RSS, tok/s), and a larger log tail. It honors the same cursor-follows-active behavior, so a router-driven model swap auto-switches the view to the new active model. `tab` again returns to the split list+log layout.
+
+Models downloaded out-of-band (`hf download` in another terminal, or pulled while the TUI was closed) are picked up automatically: every TUI start runs a scan, and while the TUI is running an `fs.watch` on `modelDirs.mlx` / `modelDirs.llama` debounces cache changes into an incremental `ingestDiscovered` call. New entries toast in the footer as `+N new: <slug>…`. Pressing `s` still works as an explicit rescan.
 
 ## Configuration
 
@@ -343,6 +381,11 @@ The bottom pane continuously tails the log file of whichever model is highlighte
   "controlApi": {
     "enabled": false,
     "port": 8079,
+    "host": "127.0.0.1"
+  },
+  "router": {
+    "enabled": false,
+    "port": 8080,
     "host": "127.0.0.1"
   }
 }
@@ -437,6 +480,8 @@ What happens:
 2. `hf download` is invoked, output streamed.
 3. On success, a registry entry is created with `publish: true`, a fresh port from `portRange`, and `piAlias: slug`.
 
+Cancellation is safe: press `Ctrl-C` during `athanor pull` (or `Esc` in the TUI pull modal) and athanor SIGTERMs the `hf` child — escalating to SIGKILL after 3s if it ignores the signal — and exits with code 130. No registry entry is written on abort, so you can re-run the same `pull` later without cleanup.
+
 
 ## Control API (optional)
 
@@ -450,6 +495,42 @@ POST /deactivate    { "id": "<id|slug>" }   stop a model
 
 This is off by default. Enable it only on trusted machines.
 
+## Router (optional)
+
+When `router.enabled` is `true`, athanor exposes an OpenAI-compatible proxy (default `127.0.0.1:8080`) that fronts every exposed model on a single port. Pi-agent then sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at the router, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
+
+```
+GET  /health                                200 OK
+GET  /v1/models                             synthesised list of exposed models
+POST /v1/chat/completions  { "model": ... } activate + proxy (SSE streamed through)
+POST /v1/completions       { "model": ... } same
+POST /v1/embeddings        { "model": ... } same
+```
+
+Enable it by adding to `~/.athanor/config.json`:
+
+```json
+{ "router": { "enabled": true, "port": 8080, "host": "127.0.0.1" } }
+```
+
+With router mode on, pi sync emits only the aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime's model id (the HF repo for MLX, the launch alias for llama.cpp), the athanor slug, or the canonical id; all three are resolved. Unknown models return `404`.
+
+For users who don't want to keep the TUI open, `athanor router` runs the server in the foreground and blocks on `Ctrl-C`:
+
+```bash
+athanor router                       # uses config.router.host / .port
+athanor router --port 9000           # override
+athanor router --host 0.0.0.0 --port 8080
+```
+
+The subcommand ignores `router.enabled` — invoking it is itself the opt-in — but it still respects `127.0.0.1` as the default host. It shares the same pi-sync shape, so you can leave `router.enabled: false` in config and only start the router when you want it.
+
+Caveats:
+
+- **Cold start.** First request on an idle model blocks until the runtime is healthy (often 10–60s for large MLX). No keepalive is injected into the stream — make sure your client's timeout is generous.
+- **In-flight safety.** `athanor stop` on a currently-streaming model waits briefly (up to `router.drainTimeoutMs`, default 30s) for open proxied streams to finish before SIGTERM; past that, the runtime is terminated and in-flight responses are cut.
+- **Listen posture.** Same as the control API: `127.0.0.1` only, no auth, off by default.
+
 ## Troubleshooting
 
 - **`athanor start` hangs or times out.** Check `~/.athanor/logs/<slug>-<pid>.log`. Most startup failures are the runtime itself complaining (missing weights, wrong quant, out of memory). Raise `supervisor.startupTimeoutMs` for very large models.
@@ -458,10 +539,6 @@ This is off by default. Enable it only on trusted machines.
 - **Models from other tools disappeared from pi.** They shouldn't — athanor only rewrites providers whose name starts with `athanor-`. If this happens, open an issue with the before/after of `~/.pi/agent/models.json`.
 - **Stale PID in registry.** If a child crashed without athanor noticing, `athanor status` will show nothing running but the port might be held. Run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
 - **`doctor` reports a missing binary.** Install `mlx_lm`, `mlx_vlm`, `llama.cpp`, or `huggingface_hub`, or adjust your shell's `PATH`. `mlx_vlm.server` is only needed if you plan to run VLM models; `athanor start` on a VLM entry will fail with a clear error if it's missing.
-
-## Roadmap
-
-- **Auto-switch on model change from pi-agent.** Today each exposed model is its own pi provider on its own port, so selecting a different model in pi's `/model` picker only works for ones that are already running. A planned optional router would front every exposed model on a single athanor-owned port: pi would see one provider with many models, and switching would cause athanor to ensure the selected model is loaded (starting it on demand, respecting supervisor policy) before proxying the request. Same opt-in posture as the control API — off by default, `127.0.0.1` only.
 
 ## Development
 
