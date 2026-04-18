@@ -1,0 +1,51 @@
+import { describe, it, expect, beforeEach } from "vitest"
+import { LlamaAdapter } from "./llama.js"
+import type { LlamaConfig } from "../types/index.js"
+import { llamaEntry } from "./__fixtures.js"
+
+const llama: LlamaConfig = {
+  nGpuLayers: 999,
+  threads: 10,
+  ctxSize: 12288,
+  batchSize: 128,
+  ubatchSize: 64,
+  parallel: 1
+}
+
+describe("LlamaAdapter", () => {
+  let adapter: LlamaAdapter
+  beforeEach(() => { adapter = new LlamaAdapter() })
+
+  it("builds the llama-server command with all flags and --alias", () => {
+    const entry = llamaEntry({
+      path: "/models/model.gguf",
+      port: 8091,
+      piAlias: "test-gguf"
+    })
+    const { cmd, args } = adapter.buildCommand(entry, llama)
+    expect(cmd).toBe("llama-server")
+    expect(args).toEqual([
+      "-m", "/models/model.gguf",
+      "--alias", "test-gguf",
+      "--port", "8091",
+      "--host", "127.0.0.1",
+      "--n-gpu-layers", "999",
+      "--threads", "10",
+      "--ctx-size", "12288",
+      "--batch-size", "128",
+      "--ubatch-size", "64",
+      "--parallel", "1"
+    ])
+  })
+
+  it("falls back to slug when piAlias is not set", () => {
+    const entry = llamaEntry({ piAlias: undefined, slug: "raw" })
+    const { args } = adapter.buildCommand(entry, llama)
+    const i = args.indexOf("--alias")
+    expect(args[i + 1]).toBe("raw")
+  })
+
+  it("returns the llama.cpp health url", () => {
+    expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
+  })
+})

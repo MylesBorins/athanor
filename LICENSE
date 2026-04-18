@@ -1,0 +1,92 @@
+Athanor Private Evaluation License
+
+Copyright (c) 2026 Myles Borins. All rights reserved.
+
+This license governs use of the accompanying software ("the Software"). By
+accessing or using the Software, you ("Recipient") agree to the terms below.
+
+1. Purpose and Intent
+
+   The Software is in a private development phase. This license exists solely
+   to allow a limited set of named individuals to evaluate the Software and
+   provide feedback to the author. Licensing terms are expected to change if
+   and when the project is made public; this license confers no expectation
+   of any future license or continued access.
+
+2. Grant of Rights
+
+   Subject to the restrictions in this license, and only for as long as this
+   license remains in effect, the author grants Recipient a personal,
+   non-exclusive, non-transferable, non-sublicensable, revocable permission
+   to:
+
+   (a) run the Software for personal evaluation and feedback purposes;
+   (b) read and study the source code of the Software; and
+   (c) submit patches, modifications, or other contributions to the author
+       through channels designated by the author.
+
+3. Restrictions
+
+   Recipient shall not, and shall not permit any other party to:
+
+   (a) redistribute the Software, in whole or in part, in source or binary
+       form, by any means, to any party, without the author's prior explicit
+       written permission;
+   (b) use the Software, in whole or in part, for any commercial purpose,
+       including but not limited to sale, paid services, revenue-generating
+       activity, or consideration of any kind;
+   (c) use the Software, in whole or in part, within any organization's
+       products, services, internal tools, infrastructure, workflows, or
+       business operations, whether for-profit or not-for-profit; or
+   (d) create or distribute derivative works, forks, or modifications
+       outside of contributions submitted to the author under Section 4.
+
+4. Contributions
+
+   Any patch, modification, suggestion, or other contribution that Recipient
+   submits to the author in connection with the Software ("Contribution")
+   becomes the sole property of the author upon submission. Recipient hereby
+   irrevocably assigns to the author all right, title, and interest
+   (including all copyright and related rights) in and to each Contribution,
+   and waives any moral rights to the extent permitted by law. Recipient
+   represents that each Contribution is Recipient's original work and that
+   Recipient has the right to make this assignment. Submitting a
+   Contribution constitutes Recipient's agreement to this Section 4.
+
+5. Scope of Access
+
+   Access to the Software is granted to named individuals only and is
+   strictly personal and non-transferable. Recipient shall not share,
+   disclose, publish, or otherwise make available the Software, any portion
+   of the Software, or access credentials or means to obtain the Software,
+   to any third party. A third party wishing to evaluate the Software must
+   obtain their own grant of access directly from the author.
+
+6. Term and Termination
+
+   This license is effective upon Recipient's first access to the Software
+   and remains in effect until revoked. The author may revoke this license
+   at any time, for any reason or no reason, by providing reasonable notice
+   to Recipient through any means reasonably calculated to reach Recipient.
+   Upon revocation, Recipient shall promptly cease all use of the Software
+   and destroy or return all copies of the Software in Recipient's
+   possession or control. Sections 3, 4, 7, and 8 survive termination.
+
+7. No Warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+   NON-INFRINGEMENT.
+
+8. Limitation of Liability
+
+   IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+9. Reservation of Rights
+
+   All rights not expressly granted in this license are reserved by the
+   author. No rights are granted by implication, estoppel, or otherwise.

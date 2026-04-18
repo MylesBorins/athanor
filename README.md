@@ -1,0 +1,499 @@
+# athanor
+
+A local LLM workbench for Apple Silicon. Discover, download, configure, and switch between MLX and llama.cpp models from a single TUI or CLI, while keeping an OpenAI-compatible HTTP endpoint live for downstream tools (pi-agent, editors, etc.).
+
+## What it does
+
+- **Discovers** MLX models in your HuggingFace cache and GGUF files in `~/.models`.
+- **Downloads** new models from HuggingFace via the `hf` CLI.
+- **Runs** them via `mlx_lm.server` or `llama-server`, one or more at a time, each on a stable port.
+- **Supervises** the processes as detached children with per-process log files and automatic reattach.
+- **Publishes** them to a pi-agent catalog (`~/.pi/agent/models.json`) as one custom provider per model, leaving your other (cloud, Ollama, etc.) providers alone.
+- **Exposes** an optional local control API so other tools can ask athanor to activate a model on demand.
+
+## Prerequisites
+
+- macOS on Apple Silicon
+- Node.js ≥ 18
+- `mlx_lm.server` (from [`mlx-lm`](https://github.com/ml-explore/mlx-lm)) — text-only MLX models
+- `mlx_vlm.server` (from [`mlx-vlm`](https://github.com/Blaizzy/mlx-vlm)) — vision/multimodal MLX models; optional if you never run VLMs
+- `llama-server` (from [`llama.cpp`](https://github.com/ggml-org/llama.cpp))
+- `hf` (from [`huggingface_hub`](https://huggingface.co/docs/huggingface_hub/guides/cli)) — only required for `athanor pull`
+
+Run `athanor doctor` at any point to verify all four are on your `PATH`.
+
+## Setup
+
+Install the three runtime helpers athanor shells out to. All three land on your `PATH` and can be verified with `athanor doctor`.
+
+### mlx-lm (MLX runtime)
+
+`mlx-lm` is a Python package; the `mlx_lm.server` entry point is what athanor invokes. A dedicated virtualenv keeps it isolated from your system Python.
+
+```bash
+# with uv (recommended)
+brew install uv
+uv tool install mlx-lm
+# ⇒ `mlx_lm.server` is now on PATH via ~/.local/bin
+
+# or with pipx
+brew install pipx
+pipx install mlx-lm
+
+# or with a plain venv
+python3 -m venv ~/.venvs/mlx && source ~/.venvs/mlx/bin/activate
+pip install -U mlx-lm
+```
+
+Verify:
+
+```bash
+mlx_lm.server --help
+```
+
+MLX requires Apple Silicon and macOS 13.5+. Models are downloaded to `~/.cache/huggingface/hub` on first use.
+
+### mlx-vlm (MLX vision/multimodal runtime)
+
+Required only if you run multimodal MLX models (Qwen2-VL, Qwen2.5-VL, Llama-3.2-Vision, Pixtral, Phi-3-V, LLaVA, Idefics, etc.). Athanor detects VLM-architecture models at scan/pull time (by reading each snapshot's `config.json`) and routes them to `mlx_vlm.server` instead of `mlx_lm.server`.
+
+```bash
+# with uv (same pattern as mlx-lm)
+uv tool install mlx-vlm
+
+# or pipx
+pipx install mlx-vlm
+
+# or pip into the same venv you used for mlx-lm
+pip install -U mlx-vlm
+```
+
+Verify:
+
+```bash
+mlx_vlm.server --help
+```
+
+### llama.cpp (GGUF runtime)
+
+The easiest path on macOS is Homebrew — the bottle is built with Metal enabled, so GPU acceleration works out of the box:
+
+```bash
+brew install llama.cpp
+```
+
+You can also build from source if you want a specific revision or custom flags:
+
+```bash
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+cmake -B build
+cmake --build build --config Release -j
+# copy or symlink build/bin/llama-server onto your PATH
+```
+
+Verify:
+
+```bash
+llama-server --help
+```
+
+### hf (HuggingFace CLI — only for `athanor pull`)
+
+Needed only if you want athanor to download new models from the Hub. Skip if you'll populate `~/.cache/huggingface/hub` by other means (e.g. `mlx_lm.server --model <repo>` auto-downloads on first use).
+
+The Hugging Face Hub team has replaced the legacy `huggingface-cli` command with a new CLI called `hf`. Athanor invokes `hf download`. The recommended install path is the standalone installer, which drops a self-contained `hf` binary onto your `PATH` without touching system Python:
+
+```bash
+curl -LsSf https://hf.co/cli/install.sh | bash
+```
+
+Alternatives:
+
+```bash
+# Homebrew
+brew install hf
+
+# via uvx — runs the latest release on demand, no install step
+uvx hf --help
+
+# via pip (the `hf` entry point ships with huggingface_hub ≥ 0.34)
+pip install -U huggingface_hub
+```
+
+Verify:
+
+```bash
+hf --help
+# optional: log in if you need access to gated/private repos
+hf auth login
+```
+
+### Final check
+
+```bash
+athanor doctor
+# mlx_lm.server:   /Users/you/.local/bin/mlx_lm.server
+# mlx_vlm.server:  /Users/you/.local/bin/mlx_vlm.server
+# llama-server:    /opt/homebrew/bin/llama-server
+# hf:              /Users/you/.local/bin/hf
+```
+
+## Quick start
+
+```bash
+npm install
+
+# one-time: ingest whatever's already on disk
+npm start -- scan
+
+# see what's in the registry
+npm start -- ls
+
+# start a model (by slug)
+npm start -- start qwen-2-5-32b-instruct-4bit
+
+# or drop into the TUI (no args)
+npm start
+```
+
+`npm start` runs the app via `tsx`, so no build step is needed for development. If you want a compiled build or to install the `athanor` binary globally:
+
+```bash
+npm run build        # emit dist/
+npm link             # expose `athanor` on PATH
+athanor ls           # now usable directly
+```
+
+## Concepts
+
+### Registry
+
+`~/.athanor/models.json` is the source of truth. Every model has:
+
+| field       | purpose                                                       |
+| ----------- | ------------------------------------------------------------- |
+| `id`        | stable canonical id (HF repo, repo+file, or `local:…`)        |
+| `slug`      | short user-editable handle (`qwen-32b`)                       |
+| `path`      | on-disk location athanor passes to the runtime                |
+| `runtime`   | `mlx` or `llama.cpp`                                          |
+| `source`    | `{ type: "hf", repo, [revision], [file] }` or `{ type: "local" }` |
+| `port`      | **stable** port allocated once per model, never changes       |
+| `preset`    | per-model overrides that merge on top of global runtime config |
+| `mlxFlavor` | `"lm"` or `"vlm"` — picks which MLX binary to use (MLX only)  |
+| `publish`   | whether pi-agent sees this model                              |
+| `piAlias`   | the name pi-agent uses (defaults to `slug`)                   |
+| `tags`      | free-form labels (`chat`, `coder`, …)                         |
+
+### Stable per-model ports
+
+Each model is bound to a port at first ingest and keeps it forever. This means pi-agent's catalog is configured **once per model**; switching which model is active does not change pi's URLs, only the `status` field athanor writes into each entry.
+
+Port range is configurable (`portRange` in `~/.athanor/config.json`, default 8081–8099).
+
+### MLX flavor routing
+
+Each MLX entry carries an `mlxFlavor`: `"lm"` for text-only models (routed to `mlx_lm.server`) and `"vlm"` for vision/multimodal models (routed to `mlx_vlm.server`). Flavor is detected from the snapshot's `config.json` at scan and pull time — primarily by looking for a `vision_config` block, with fallbacks for known VLM `model_type` values (`qwen2_vl`, `qwen2_5_vl`, `llava*`, `mllama`, `pixtral`, `idefics2/3`, `phi3_v`) and architecture-name patterns such as `Qwen2VLForConditionalGeneration`. In `athanor ls` and `athanor show`, VLM entries display `mlx-vlm` in the runtime column; in pi-agent they render as `[mlx-vlm] <slug> (athanor)`. The provider id stays `athanor-mlx-<slug>` regardless of flavor, so pi URLs don't churn if a model's flavor is later corrected.
+
+### Supervisor and policies
+
+The runtime supervisor manages N concurrent child processes. Three policies:
+
+- `single-active` (default) — starting a model stops any others.
+- `multi-active-lru` — keep up to `supervisor.maxConcurrent` running; evict the least-recently-started.
+- `manual` — never auto-stop; you decide.
+
+Children are started with `detached: true`, stdio redirected to `~/.athanor/logs/<slug>-<pid>.log`, and `unref()`ed so the CLI/TUI can exit without killing them. On next launch athanor reattaches via PID.
+
+Readiness is detected by polling the runtime's health endpoint (`/health` for llama.cpp, `/v1/models` for mlx_lm.server), not by matching stdout strings.
+
+### Observability
+
+The TUI banner shows a second line with system CPU and RAM bars plus the 1-minute load average, refreshed once a second. Each running row in the model list gets a compact suffix `CPU% · RSS · tok/s` (e.g. `340% · 4.2G · 22.5 tok/s`). The CLI mirrors this: `athanor status` adds CPU, RSS, and tok/s columns for every running instance.
+
+Caveats worth knowing:
+
+- **CPU% is per-core, not per-machine**, matching `ps` and Activity Monitor. A runtime using 8 cores reads as ~800%. Divide by `os.cpus().length` yourself if you want a whole-machine number.
+- **RSS is resident set size**, not reserved allocation. On Apple Silicon's unified memory this is the honest "how much of my RAM is this model currently pinning" number.
+- **tok/s is post-request, not live.** Athanor does not sit in the request path — clients connect directly to each runtime's port. The number is parsed from the per-completion timing line the runtime already writes to its log (`eval time = … tokens per second` for llama.cpp, `Generation: … tokens, … tokens-per-sec` for mlx_lm / mlx_vlm), and updates once a generation finishes. While a request is streaming, the most recent completed request's rate is shown. If no completion has happened yet, the column is blank.
+- Sampling is best-effort — if `ps` fails, the log format changes, or timing lines are not yet present, the affected column is hidden rather than showing a wrong number.
+
+### Pi-agent sync
+
+Athanor publishes into pi-agent's [custom providers](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md) system. On every state change it rewrites `~/.pi/agent/models.json`:
+
+- Each exposed athanor model becomes **its own pi provider** named `athanor-<runtime>-<slug>` (e.g. `athanor-mlx-qwen3-32b`, `athanor-llama-llama3-8b`), with `baseUrl` pointing at that model's stable port. One provider per model is required because a pi provider has exactly one `baseUrl` and each athanor model runs on its own port. The runtime segment keeps the backing engine visible in pi's `/model` picker. MLX VLM entries keep the `athanor-mlx-<slug>` provider id (so URLs don't churn if flavor is corrected) but render as `[mlx-vlm] <slug> (athanor)` in pi's model list.
+- Providers whose name does **not** start with `athanor-` are preserved untouched — your OpenAI, Anthropic, Ollama, OpenRouter, etc. entries are safe.
+- Each athanor provider uses `api: "openai-completions"` (both `mlx_lm.server` and `llama-server` are OpenAI-compatible), a placeholder `apiKey: "athanor"` (required but ignored by both runtimes), and `compat: { supportsDeveloperRole: false, supportsReasoningEffort: false }` — the same flags pi's docs recommend for Ollama/vLLM-style local servers.
+- The provider's single model uses an `id` that matches exactly what the runtime was launched with, because `mlx_lm.server` compares the request's `model` field literally and falls back to a HuggingFace lookup on mismatch (see [ml-explore/mlx-lm#1133](https://github.com/ml-explore/mlx-lm/issues/1133)). Concretely:
+  - **MLX HF-sourced models** are launched with `--model <repo>` (e.g. `--model mlx-community/Qwen3-32B-4bit`) and the pi `id` is that same repo string. `mlx_lm.server` resolves the repo from the local HF cache with no network access.
+  - **MLX local models** are launched with `--model <path>` and the pi `id` is that same path.
+  - **llama.cpp models** are launched with `-m <path> --alias <piAlias|slug>` and the pi `id` is that alias. `llama-server` ignores the request's `model` field, so the alias is just what appears in `/v1/models`.
+- `~/.pi/agent/settings.json` is only touched when an athanor model is started as the active default, at which point `defaultProvider` and `defaultModel` are set to point at it. All other settings keys (`theme`, `compaction`, etc.) are preserved.
+
+Example exposed provider (MLX, HF-sourced):
+
+```json
+{
+  "providers": {
+    "athanor-mlx-qwen3-32b": {
+      "baseUrl": "http://127.0.0.1:8081/v1",
+      "api": "openai-completions",
+      "apiKey": "athanor",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        {
+          "id": "mlx-community/Qwen3-32B-4bit",
+          "name": "[mlx] qwen3-32b (athanor)",
+          "input": ["text"]
+        }
+      ]
+    }
+  }
+}
+```
+
+Then in pi: `pi --provider athanor-mlx-qwen3-32b --model mlx-community/Qwen3-32B-4bit`, or just select it from `/model`.
+
+Disable athanor's sync entirely with `"enablePiSync": false` in `~/.athanor/config.json`.
+
+## CLI reference
+
+```
+athanor                          launch the TUI
+athanor scan                     rescan model dirs and update registry
+athanor ls                       list registry entries (with live status)
+athanor status                   list running instances
+athanor show     <id|slug>       inspect a model: runtime, effective config, launch command
+athanor start    <id|slug>       start a model
+athanor stop     [<id|slug>|--all]stop one or all
+athanor restart  <id|slug>       stop + start
+athanor logs     <id|slug> [-n N] tail last N lines of a running model's log
+athanor pull     <repo> [--file F] [--revision R]
+                                 download from HuggingFace and register
+athanor search   [q] [--mlx|--gguf] [--author A] [--sort S] [--limit N]
+                                 search the HuggingFace Hub
+athanor trending [--mlx|--gguf] [--limit N]
+                                 top trending MLX/GGUF models
+athanor preset   <slug> show|set k=v...|unset k...|clear|apply <recipe>
+                                 view or modify a model's preset
+athanor recipes                  list built-in + user recipes and tunable keys
+athanor expose    <id|slug>      include in pi-agent catalog
+athanor hide      <id|slug>      remove from pi-agent catalog
+athanor rm       <id|slug>       remove from registry (must be stopped)
+athanor sync                     manually rewrite pi catalog
+athanor config                   print resolved config and its path
+athanor doctor                   check that required binaries are on PATH
+```
+
+`<id|slug>` accepts either the canonical id or the short slug.
+
+## TUI key bindings
+
+| key        | action                                              |
+| ---------- | --------------------------------------------------- |
+| `↑` / `↓`  | move selection                                      |
+| `⏎`        | start (if idle) / stop (if running) the highlighted model |
+| `r`        | restart the highlighted model                       |
+| `k`        | kill the highlighted model                          |
+| `P`        | toggle pi-agent visibility (expose/hide)            |
+| `d`        | remove the highlighted entry from the registry      |
+| `s`        | rescan and ingest new models                        |
+| `p`        | open the pull modal                                 |
+| `e`        | open the preset editor for the highlighted model    |
+| `/`        | filter the list by substring of slug or id          |
+| `q`        | quit (does **not** stop running models)             |
+
+The bottom pane continuously tails the log file of whichever model is highlighted.
+
+## Configuration
+
+`~/.athanor/config.json`. Missing fields fall back to these defaults:
+
+```json
+{
+  "portRange": { "min": 8081, "max": 8099 },
+  "enablePiSync": true,
+  "modelDirs": {
+    "mlx": "~/.cache/huggingface/hub",
+    "llama": "~/.models"
+  },
+  "mlx": {
+    "prefillStepSize": 256,
+    "promptCacheSize": 1024,
+    "decodeConcurrency": 1
+  },
+  "llama": {
+    "nGpuLayers": 999,
+    "threads": 10,
+    "ctxSize": 12288,
+    "batchSize": 128,
+    "ubatchSize": 64,
+    "parallel": 1
+  },
+  "supervisor": {
+    "policy": "single-active",
+    "maxConcurrent": 1,
+    "startupTimeoutMs": 120000,
+    "healthPollIntervalMs": 500
+  },
+  "controlApi": {
+    "enabled": false,
+    "port": 8079,
+    "host": "127.0.0.1"
+  }
+}
+```
+
+### Per-model presets
+
+`mlx` and `llama` above are **global defaults**. Any model in the registry can override them with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
+
+```bash
+# inspect effective config, launch command, and running state
+athanor show qwen-32b
+
+# set / unset individual fields — kebab-case and camelCase both work
+athanor preset qwen-32b set ctx-size=32768 nGpuLayers=48
+athanor preset qwen-32b unset ctx-size
+athanor preset qwen-32b clear
+
+# apply a named recipe for the model's runtime
+athanor preset qwen-32b apply coding
+
+# list built-in + user recipes and every tunable key per runtime
+athanor recipes
+```
+
+Built-in recipes: `balanced`, `fast`, `quality`, `long-context`, `coding`. Drop your own into `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`); user recipes override built-ins of the same name.
+
+Presets survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxFlavor`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
+
+Under the hood, a preset looks like this in `~/.athanor/models.json` — you can edit it directly if you prefer:
+
+```json
+{
+  "id": "mlx-community/Qwen2.5-32B-Instruct-4bit",
+  "slug": "qwen-32b",
+  "preset": {
+    "runtime": "mlx",
+    "mlx": { "decodeConcurrency": 4, "promptCacheSize": 4096 }
+  }
+}
+```
+
+Restart the model for the preset to take effect.
+
+### Environment variables
+
+- `ATHANOR_HOME` — overrides `~/.athanor`. Useful for running multiple profiles side by side or for tests.
+- `PI_HOME` — overrides `~/.pi`.
+
+## Finding new models
+
+Browse the Hub without leaving the terminal. Both commands query `https://huggingface.co/api/models` with MLX/GGUF tag filters and print a grouped, readable list. No auth is required for public models.
+
+```bash
+# free-text search, both runtimes (default)
+athanor search qwen
+
+# restrict to one runtime
+athanor search coder --mlx
+athanor search llama --gguf
+
+# by author and sort key
+athanor search --author mlx-community --sort downloads --limit 30
+athanor search --author bartowski --gguf --sort likes
+
+# what's hot right now (sorts by HF's trendingScore)
+athanor trending
+athanor trending --mlx --limit 15
+```
+
+Supported sorts: `downloads` (default), `likes`, `trending`, `modified`. Each row shows download count, likes, license, and a relative last-modified time. The footer hints at the follow-up:
+
+```
+→ athanor pull <repo>                 # MLX: downloads the whole repo
+→ athanor pull <repo> --file F.gguf   # GGUF: pick one file
+```
+
+## HuggingFace pull
+
+```bash
+athanor pull mlx-community/Qwen2.5-7B-Instruct-4bit
+athanor pull bartowski/Meta-Llama-3.1-8B-Instruct-GGUF \
+  --file Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+```
+
+What happens:
+
+1. `GET https://huggingface.co/api/models/<repo>` is used to list siblings and decide runtime.
+   - any `.gguf` sibling → `llama.cpp` (you must specify `--file` if more than one exists)
+   - `tags: ["mlx"]` or `mlx` in the repo id → `mlx`
+   - `.safetensors` only, nothing matching MLX → fallback to `mlx`
+2. `hf download` is invoked, output streamed.
+3. On success, a registry entry is created with `publish: true`, a fresh port from `portRange`, and `piAlias: slug`.
+
+
+## Control API (optional)
+
+When `controlApi.enabled` is `true`, athanor exposes a small local HTTP server (default `127.0.0.1:8079`) that other tools can drive:
+
+```
+GET  /status                     running instances + registry summary
+POST /activate      { "id": "<id|slug>" }   start a model (respects supervisor policy)
+POST /deactivate    { "id": "<id|slug>" }   stop a model
+```
+
+This is off by default. Enable it only on trusted machines.
+
+## Troubleshooting
+
+- **`athanor start` hangs or times out.** Check `~/.athanor/logs/<slug>-<pid>.log`. Most startup failures are the runtime itself complaining (missing weights, wrong quant, out of memory). Raise `supervisor.startupTimeoutMs` for very large models.
+- **`port already in use`.** Another process is on the model's stable port. Either stop it, or edit the entry's `port` in `~/.athanor/models.json` and restart.
+- **Pi-agent can't see a new model.** Make sure it's exposed (CLI: `athanor expose <slug>`) and run `athanor sync`. Confirm `~/.pi/agent/models.json` contains a provider named `athanor-<runtime>-<slug>` with the expected `baseUrl`, then open `/model` in pi (the file reloads on open).
+- **Models from other tools disappeared from pi.** They shouldn't — athanor only rewrites providers whose name starts with `athanor-`. If this happens, open an issue with the before/after of `~/.pi/agent/models.json`.
+- **Stale PID in registry.** If a child crashed without athanor noticing, `athanor status` will show nothing running but the port might be held. Run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
+- **`doctor` reports a missing binary.** Install `mlx_lm`, `mlx_vlm`, `llama.cpp`, or `huggingface_hub`, or adjust your shell's `PATH`. `mlx_vlm.server` is only needed if you plan to run VLM models; `athanor start` on a VLM entry will fail with a clear error if it's missing.
+
+## Roadmap
+
+- **Auto-switch on model change from pi-agent.** Today each exposed model is its own pi provider on its own port, so selecting a different model in pi's `/model` picker only works for ones that are already running. A planned optional router would front every exposed model on a single athanor-owned port: pi would see one provider with many models, and switching would cause athanor to ensure the selected model is loaded (starting it on demand, respecting supervisor policy) before proxying the request. Same opt-in posture as the control API — off by default, `127.0.0.1` only.
+
+## Development
+
+```bash
+npm install
+npx tsc --noEmit      # typecheck
+npm run test:run      # vitest run (one shot)
+npm test              # vitest (watch)
+npm run build         # tsc -> dist/
+```
+
+Tests redirect `ATHANOR_HOME` and `PI_HOME` to per-run temporary directories via `test/setup.ts`, so running the suite never touches your real config.
+
+### Layout
+
+```
+src/
+  adapters/     # mlx (lm + vlm) + llama.cpp command builders and health probes
+  cli/          # hand-rolled CLI dispatcher, doctor, output formatting
+  config/       # config file load + defaults
+  control/      # optional HTTP control API (off by default)
+  discovery/    # HF cache scanner + registry ingest (flavor detection lives here)
+  presets/      # preset merge, tunable-key metadata, recipes
+  pull/         # HuggingFace repo inspection and download
+  registry/     # models.json CRUD, slug + port allocation
+  search/       # HuggingFace Hub search + trending
+  supervisor/   # detached process lifecycle, policy, reattach
+  sync/         # namespaced pi-agent catalog merge
+  ui/           # Ink TUI (list, pull modal, preset editor)
+  types/        # shared types
+```
+
+## License
+
+Copyright 2026 Myles Borins. All rights reserved. Private evaluation license — named individuals may run and study the Software and submit contributions to the author; no redistribution, no commercial use, and no use within any organization's products, services, or internal tooling. See [`LICENSE`](./LICENSE).

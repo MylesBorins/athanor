@@ -1,0 +1,31 @@
+{
+  "name": "athanor",
+  "version": "1.0.0",
+  "description": "Local LLM Model Workbench for Apple Silicon - manages MLX and llama.cpp runtimes",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "athanor": "./bin/athanor"
+  },
+  "scripts": {
+    "start": "tsx src/index.tsx",
+    "build": "tsc",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "ink": "^7.0.0",
+    "react": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@vitest/ui": "^4.1.4",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

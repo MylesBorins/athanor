@@ -1,0 +1,93 @@
+import * as fs from "fs"
+import { describe, it, expect, afterEach, beforeEach } from "vitest"
+import { findRecipe, listRecipes, recipeToPreset } from "./recipes.js"
+import { PATHS } from "../config/index.js"
+
+function stash(p: string): string | null {
+  if (!fs.existsSync(p)) return null
+  const s = fs.readFileSync(p, "utf8")
+  fs.unlinkSync(p)
+  return s
+}
+
+function restore(p: string, s: string | null): void {
+  try { fs.unlinkSync(p) } catch { /* not present */ }
+  if (s !== null) {
+    fs.mkdirSync(require("path").dirname(p), { recursive: true })
+    fs.writeFileSync(p, s, "utf8")
+  }
+}
+
+describe("listRecipes", () => {
+  it("includes core built-in recipes", () => {
+    const names = listRecipes().map(r => r.name)
+    expect(names).toContain("balanced")
+    expect(names).toContain("fast")
+    expect(names).toContain("quality")
+    expect(names).toContain("long-context")
+    expect(names).toContain("coding")
+  })
+
+  it("marks the source of built-in recipes", () => {
+    const r = findRecipe("fast")!
+    expect(r.source).toBe("builtin")
+  })
+})
+
+describe("user recipes", () => {
+  let stashed: string | null = null
+  beforeEach(() => { stashed = stash(PATHS.recipes) })
+  afterEach(() => { restore(PATHS.recipes, stashed) })
+
+  it("loads user recipes from ~/.athanor/recipes.json", () => {
+    fs.mkdirSync(require("path").dirname(PATHS.recipes), { recursive: true })
+    fs.writeFileSync(PATHS.recipes, JSON.stringify([
+      { name: "tiny", description: "my tiny", llama: { ctxSize: 2048 } }
+    ]))
+    const tiny = findRecipe("tiny")!
+    expect(tiny.source).toBe("user")
+    expect(tiny.llama?.ctxSize).toBe(2048)
+  })
+
+  it("user recipes override built-ins of the same name", () => {
+    fs.mkdirSync(require("path").dirname(PATHS.recipes), { recursive: true })
+    fs.writeFileSync(PATHS.recipes, JSON.stringify([
+      { name: "fast", description: "override", llama: { ctxSize: 1 } }
+    ]))
+    const fast = findRecipe("fast")!
+    expect(fast.source).toBe("user")
+    expect(fast.description).toBe("override")
+    expect(fast.llama?.ctxSize).toBe(1)
+  })
+
+  it("accepts the wrapped { recipes: [...] } form", () => {
+    fs.mkdirSync(require("path").dirname(PATHS.recipes), { recursive: true })
+    fs.writeFileSync(PATHS.recipes, JSON.stringify({
+      recipes: [{ name: "wrap", description: "w" }]
+    }))
+    expect(findRecipe("wrap")?.source).toBe("user")
+  })
+
+  it("ignores malformed files silently", () => {
+    fs.mkdirSync(require("path").dirname(PATHS.recipes), { recursive: true })
+    fs.writeFileSync(PATHS.recipes, "not json {{{")
+    // Still resolves built-ins.
+    expect(findRecipe("fast")?.source).toBe("builtin")
+  })
+})
+
+describe("recipeToPreset", () => {
+  it("produces an mlx preset when applied to an mlx entry", () => {
+    const p = recipeToPreset(findRecipe("fast")!, "mlx")!
+    expect(p.runtime).toBe("mlx")
+  })
+  it("produces a llama preset when applied to a llama entry", () => {
+    const p = recipeToPreset(findRecipe("fast")!, "llama.cpp")!
+    expect(p.runtime).toBe("llama.cpp")
+  })
+  it("returns undefined for recipes with nothing for that runtime", () => {
+    // balanced has no mlx or llama sections.
+    expect(recipeToPreset(findRecipe("balanced")!, "mlx")).toBeUndefined()
+    expect(recipeToPreset(findRecipe("balanced")!, "llama.cpp")).toBeUndefined()
+  })
+})
