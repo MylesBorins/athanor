@@ -89,7 +89,7 @@ Linked mode does not auto-rebuild. Re-run `npm run build` after pulling changes 
 Run `athanor doctor` first — it prints presence and paths for each dependency and is the source of truth:
 
 - `mlx_lm.server` — required for MLX text models. `uv tool install mlx-lm` (or `pipx install mlx-lm`).
-- `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are load-bearing; see the `Qwen3VLVideoProcessor requires the PyTorch library` note in `README.md`.
+- `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are load-bearing: `mlx-vlm` itself doesn't depend on them, but the `transformers` VLM processors it imports do, so installing `mlx-vlm` alone passes `athanor doctor` and then fails at request time with `Qwen3VLVideoProcessor requires the PyTorch library but it was not found in your environment`. Equivalent forms: `pipx install mlx-vlm && pipx inject mlx-vlm torch torchvision`, or `pip install -U mlx-vlm torch torchvision` in an active venv.
 - `llama-server` — optional, for GGUF models. `brew install llama.cpp` or build from source.
 - `hf` — required for `athanor pull`. `uv tool install huggingface_hub --with hf_transfer` (or `pip install -U huggingface_hub[cli]`).
 
@@ -124,6 +124,26 @@ Quantization reading:
 - **GGUF:** `Q4_K_M` is the balanced default, `Q5_K_M` / `Q6_K` trade size for quality, `Q8_0` is near-lossless but large. Avoid `Q2_*` and `Q3_*` except on tight memory.
 
 After pull, `athanor show <slug>` shows detected capabilities, resolved launch command, and merged preset. For MLX entries where `caps` includes `vlm`, only flip `athanor flavor <slug> vlm` if the user actually needs image input — most VLM repos serve text fine under `mlx_lm.server` without the torch install (see invariant #6).
+
+### Running a model
+
+End-to-end operator flow once a model is in the registry (pulled or scanned):
+
+| Step | Command | Notes |
+|---|---|---|
+| refresh cache | `athanor scan` | idempotent; picks up anything downloaded outside `athanor pull`, e.g. via `hf download` directly |
+| list | `athanor ls` | empty ⇒ curated suggestions; otherwise shows slug, runtime, port, publish state, running state |
+| inspect | `athanor show <slug>` | detected capabilities, resolved launch command, merged preset, current status |
+| start | `athanor start <slug>` | spawns a detached child on the entry's stable port; default policy (`single-active`) stops any currently-running model first |
+| tail logs | `athanor logs <slug> -n 500` | prints the last N lines from `~/.athanor/logs/<slug>-<pid>.log`; for live follow use the TUI |
+| verify endpoint | `curl localhost:<port>/v1/models` | OpenAI-compatible; port is printed by `ls` / `show` / `status` |
+| runtime status | `athanor status` | pid, cpu, rss, tok/s across all running instances |
+| stop | `athanor stop <slug>` | graceful SIGTERM; if the router is on, any in-flight stream drains up to `config.router.drainTimeoutMs` (30s default) first |
+| restart | `athanor restart <slug>` | stop + start; useful after `athanor preset set` changes |
+
+Bare `athanor` (no args) opens the Ink TUI with the same surface. When the registry is empty, the TUI's start screen lists the curated suggestions from `src/pull/suggestions.ts`; pressing `Enter` pulls the selected one inline. Once models exist: `p` pulls, `s` scans, `Enter` toggles start/stop, `tab` hides the selector to scroll logs with `↑ ↓ / page up/down / mouse wheel`, `q` exits.
+
+To make a running model available to `pi-agent` downstream, `athanor expose <slug>` flips its `publish` field and runs a namespaced merge into `~/.pi/agent/models.json` (see invariant #3 and #4). `athanor hide <slug>` reverses it. `athanor sync` re-emits the namespace without changing publish state — useful after upgrading athanor or toggling `config.router.enabled`.
 
 ## How to add things
 
