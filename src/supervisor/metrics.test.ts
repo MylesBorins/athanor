@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest"
 import {
   parseProcStats,
   parseCompletionStats,
+  parseVmStat,
   sampleSystemStats,
   _resetMetricsState
 } from "./metrics.js"
@@ -115,5 +116,43 @@ describe("sampleSystemStats", () => {
     const s = sampleSystemStats()
     expect(s.cpuPct).toBeGreaterThanOrEqual(0)
     expect(s.cpuPct).toBeLessThanOrEqual(100)
+  })
+})
+
+describe("parseVmStat", () => {
+  // Real sample from a 36 GB M-series Mac: pagesize 16k, ~18 GB in
+  // active+wired+compressor, ~16 GB inactive (reclaimable cache).
+  const SAMPLE = [
+    "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+    "Pages free:                               90955.",
+    "Pages active:                            906668.",
+    "Pages inactive:                         1036665.",
+    "Pages speculative:                         5540.",
+    "Pages throttled:                              0.",
+    "Pages wired down:                        170398.",
+    "Pages purgeable:                          33048.",
+    "Pages occupied by compressor:             88982.",
+    ""
+  ].join("\n")
+
+  it("computes used as (active + wired + compressor) × pagesize", () => {
+    const total = 36 * 1024 * 1024 * 1024
+    const m = parseVmStat(SAMPLE, total)!
+    expect(m.totalMemBytes).toBe(total)
+    const expectedUsed = (906668 + 170398 + 88982) * 16384
+    expect(m.usedMemBytes).toBe(expectedUsed)
+    // inactive counts as available, not used
+    const expectedFree = (90955 + 1036665 + 5540) * 16384
+    expect(m.freeMemBytes).toBe(expectedFree)
+  })
+
+  it("never reports used > total", () => {
+    const m = parseVmStat(SAMPLE, 1024)!
+    expect(m.usedMemBytes).toBeLessThanOrEqual(1024)
+    expect(m.freeMemBytes).toBeLessThanOrEqual(1024)
+  })
+
+  it("returns null when the page-size header is missing", () => {
+    expect(parseVmStat("Pages free: 1.", 1024)).toBeNull()
   })
 })

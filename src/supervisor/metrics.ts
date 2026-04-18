@@ -68,6 +68,55 @@ function readCpuTick(): CpuTick {
 
 let prevTick: CpuTick | null = null
 
+// macOS reports very little as truly "free" via os.freemem() because
+// inactive and speculative pages aren't counted as available — even
+// though the kernel reclaims them on demand. That makes `total - free`
+// look like "nearly full" when in reality most of that is cache. btop
+// and Activity Monitor's "Memory Used" both use the breakdown from
+// `vm_stat`: used = (active + wired + compressor) * pagesize; the
+// remainder (free + inactive + speculative) is treated as available.
+//
+// Returns `null` on non-darwin or if parsing fails, in which case the
+// caller falls back to os.freemem().
+export function parseVmStat(
+  stdout: string,
+  totalMemBytes: number
+): Pick<SysStats, "totalMemBytes" | "usedMemBytes" | "freeMemBytes"> | null {
+  const pageMatch = stdout.match(/page size of (\d+) bytes/)
+  if (!pageMatch) return null
+  const pageSize = Number(pageMatch[1])
+  const pages = (label: string): number => {
+    const re = new RegExp(`${label}:[ \\t]+(\\d+)\\.`)
+    const m = stdout.match(re)
+    return m ? Number(m[1]) : 0
+  }
+  const free        = pages("Pages free")
+  const active      = pages("Pages active")
+  const inactive    = pages("Pages inactive")
+  const wired       = pages("Pages wired down")
+  const speculative = pages("Pages speculative")
+  const compressor  = pages("Pages occupied by compressor")
+  const used = (active + wired + compressor) * pageSize
+  const available = (free + inactive + speculative) * pageSize
+  return {
+    totalMemBytes,
+    usedMemBytes: Math.min(totalMemBytes, used),
+    freeMemBytes: Math.min(totalMemBytes, available)
+  }
+}
+
+function sampleDarwinMemory(
+  totalMemBytes: number
+): Pick<SysStats, "totalMemBytes" | "usedMemBytes" | "freeMemBytes"> | null {
+  if (process.platform !== "darwin") return null
+  try {
+    const stdout = execFileSync("vm_stat", [], { encoding: "utf8", timeout: 1500 })
+    return parseVmStat(stdout, totalMemBytes)
+  } catch {
+    return null
+  }
+}
+
 export function sampleSystemStats(): SysStats {
   const tick = readCpuTick()
   let cpuPct = 0
@@ -80,12 +129,14 @@ export function sampleSystemStats(): SysStats {
   }
   prevTick = tick
   const total = os.totalmem()
-  const free = os.freemem()
+  const mem = sampleDarwinMemory(total) ?? {
+    totalMemBytes: total,
+    usedMemBytes: total - os.freemem(),
+    freeMemBytes: os.freemem()
+  }
   return {
     cpuPct,
-    totalMemBytes: total,
-    freeMemBytes: free,
-    usedMemBytes: total - free,
+    ...mem,
     loadAvg1: os.loadavg()[0],
     cpuCount: os.cpus().length
   }
