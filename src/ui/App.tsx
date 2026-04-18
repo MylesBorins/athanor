@@ -19,6 +19,8 @@ import { LogTail } from "./LogTail.js"
 import { LogFocus } from "./LogFocus.js"
 import { PullModal } from "./PullModal.js"
 import { PresetEditor } from "./PresetEditor.js"
+import { Suggestions } from "./Suggestions.js"
+import { SUGGESTIONS, type Suggestion } from "../pull/suggestions.js"
 
 type Mode = "list" | "filter" | "pull" | "preset" | "logs"
 
@@ -39,6 +41,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const [sys, setSys] = useState<SysStats | undefined>()
   const [instStats, setInstStats] = useState<Map<string, InstanceStats>>(new Map())
   const [logScroll, setLogScroll] = useState(0)
+  const [suggIdx, setSuggIdx] = useState(0)
+  const [pullPrefill, setPullPrefill] = useState<Suggestion | undefined>()
   const [dims, setDims] = useState({
     cols: stdout?.columns ?? 100,
     rows: stdout?.rows ?? 30
@@ -300,6 +304,22 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       if (input === "G" || key.end)  { setLogScroll(0); return }
       if (input === "g" || key.home) { setLogScroll(1e9); return }
     }
+    // Empty-registry mode: arrow keys drive the starter-model picker
+    // and ⏎ pulls the highlighted suggestion. Everything else (p, s,
+    // q) still works; actions that need a selected model are no-ops.
+    if (models.length === 0) {
+      if (key.downArrow) { setSuggIdx(i => Math.min(i + 1, SUGGESTIONS.length - 1)); return }
+      if (key.upArrow)   { setSuggIdx(i => Math.max(i - 1, 0)); return }
+      if (key.return) {
+        const s = SUGGESTIONS[suggIdx]
+        if (s) { setPullPrefill(s); setMode("pull") }
+        return
+      }
+      if (input === "s") { rescan(); return }
+      if (input === "p") { setPullPrefill(undefined); setMode("pull"); return }
+      if (input === "q") { exit(); return }
+      return
+    }
     if (key.downArrow) setSelectedIdx(i => Math.min(i + 1, filtered.length - 1))
     else if (key.upArrow) setSelectedIdx(i => Math.max(i - 1, 0))
     else if (key.return) void toggleStartStop()
@@ -309,15 +329,20 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     else if (input === "d") deleteEntry()
     else if (input === "s") rescan()
     else if (input === "/") { setFilter(""); setMode("filter") }
-    else if (input === "p") setMode("pull")
+    else if (input === "p") { setPullPrefill(undefined); setMode("pull") }
     else if (input === "e") { if (selected) setMode("preset") }
     else if (input === "q") exit()
   })
 
   if (mode === "pull") {
     return <PullModal
-      onDone={msg => { setMessage(msg); setModels(listModels()); setMode("list") }}
-      onCancel={() => setMode("list")} />
+      initialRepo={pullPrefill?.repo}
+      initialFile={pullPrefill?.file}
+      onDone={msg => {
+        setMessage(msg); setModels(listModels())
+        setPullPrefill(undefined); setMode("list")
+      }}
+      onCancel={() => { setPullPrefill(undefined); setMode("list") }} />
   }
 
   if (mode === "preset" && selected) {
@@ -367,6 +392,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const listRows = Math.max(4, Math.min(filtered.length + 1, Math.floor(bodyRows * 0.55)))
   const logRows = Math.max(4, bodyRows - listRows)
   const divider = "─".repeat(Math.max(8, dims.cols - 2))
+  const isEmpty = models.length === 0
 
   return (
     <Box flexDirection="column" width={dims.cols} height={dims.rows}>
@@ -375,22 +401,30 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         sys={sys}
       />
       <Text dimColor>{divider}</Text>
-      <Box flexDirection="column" height={listRows} overflow="hidden">
-        <ModelList
-          models={filtered}
-          selectedIndex={selectedIdx}
-          instances={instMap}
-          stats={instStats}
-        />
-      </Box>
-      <Text dimColor>{divider}</Text>
-      <Box flexDirection="column" height={logRows} overflow="hidden">
-        <LogTail logFile={selectedInst?.logFile} lines={logRows - 1} />
-      </Box>
+      {isEmpty
+        ? <Box flexDirection="column" overflow="hidden">
+            <Suggestions selectedIndex={suggIdx} />
+          </Box>
+        : <>
+            <Box flexDirection="column" height={listRows} overflow="hidden">
+              <ModelList
+                models={filtered}
+                selectedIndex={selectedIdx}
+                instances={instMap}
+                stats={instStats}
+              />
+            </Box>
+            <Text dimColor>{divider}</Text>
+            <Box flexDirection="column" height={logRows} overflow="hidden">
+              <LogTail logFile={selectedInst?.logFile} lines={logRows - 1} />
+            </Box>
+          </>}
       <Text dimColor>{divider}</Text>
       {mode === "filter"
         ? <Text>/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
-        : <Text dimColor>↑↓ · ⏎ start/stop · r restart · k kill · P expose/hide · d remove · s scan · p pull · e preset · / filter · tab hide list · q quit</Text>}
+        : isEmpty
+          ? null
+          : <Text dimColor>↑↓ · ⏎ start/stop · r restart · k kill · P expose/hide · d remove · s scan · p pull · e preset · / filter · tab hide list · q quit</Text>}
       {message ? <Text color="yellow">{message}</Text> : null}
     </Box>
   )

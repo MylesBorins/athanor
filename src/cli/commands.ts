@@ -11,6 +11,7 @@ import { supervisor } from "../supervisor/index.js"
 import { syncPi } from "../sync/pi.js"
 import { pull } from "../pull/hf.js"
 import { PullAbortedError } from "../pull/download.js"
+import { SUGGESTIONS } from "../pull/suggestions.js"
 import { tailLog } from "../supervisor/logs.js"
 import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.js"
 import { formatEntryLine, formatUptime } from "./format.js"
@@ -48,7 +49,15 @@ export async function cmdScan(): Promise<void> {
 export function cmdList(): void {
   const models = listModels()
   if (models.length === 0) {
-    warn(`registry empty — run ${style.bold("athanor scan")}`)
+    warn(`registry empty — run ${style.bold("athanor scan")} to pick up existing downloads, or pull a starter model:`)
+    console.log("")
+    for (const s of SUGGESTIONS) {
+      console.log(
+        `  ${style.cyan(sym.bullet)} ${style.bold(s.label.padEnd(28))} ` +
+        `${dim(s.sizeLabel.padEnd(10))}${dim(s.note)}`
+      )
+      console.log(`      ${dim(`athanor pull ${s.repo}`)}`)
+    }
     return
   }
   const active = new Map(supervisor.list().map(i => [i.id, i] as const))

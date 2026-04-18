@@ -7,7 +7,6 @@ import { runCli } from "./cli/index.js"
 import { ensureBaseDirs } from "./config/index.js"
 import { startControlApi, stopControlApi } from "./control/server.js"
 import { startRouter, stopRouter } from "./router/server.js"
-import { listModels } from "./registry/index.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
 
 const ENTER_ALT_SCREEN = "\x1b[?1049h"
@@ -35,9 +34,9 @@ async function main(): Promise<void> {
   let initialMessage: string | undefined
   if (rep.added.length > 0) {
     initialMessage = `scanned: +${rep.added.length} new model${rep.added.length === 1 ? "" : "s"}`
-  } else if (listModels().length === 0) {
-    initialMessage = "no models found on disk — press p to pull one"
   }
+  // Empty-registry hint is handled inline by the Suggestions picker
+  // in App.tsx, so no toast here.
 
   startControlApi()
   startRouter()

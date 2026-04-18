@@ -6,12 +6,22 @@ import { PullAbortedError } from "../pull/download.js"
 export interface PullModalProps {
   onDone: (message: string) => void
   onCancel: () => void
+  // When set, pre-fills the repo field and starts the download
+  // immediately, skipping the repo/file prompts. Used by the empty-
+  // state suggestions picker so `⏎` on a starter model goes straight
+  // to "running".
+  initialRepo?: string
+  initialFile?: string
 }
 
-export const PullModal: React.FC<PullModalProps> = ({ onDone, onCancel }) => {
-  const [repo, setRepo] = useState("")
-  const [file, setFile] = useState("")
-  const [stage, setStage] = useState<"repo" | "file" | "running">("repo")
+export const PullModal: React.FC<PullModalProps> = ({
+  onDone, onCancel, initialRepo, initialFile
+}) => {
+  const [repo, setRepo] = useState(initialRepo ?? "")
+  const [file, setFile] = useState(initialFile ?? "")
+  const [stage, setStage] = useState<"repo" | "file" | "running">(
+    initialRepo ? "running" : "repo"
+  )
   const [lines, setLines] = useState<string[]>([])
   const abortRef = useRef<AbortController | null>(null)
 
@@ -19,6 +29,32 @@ export const PullModal: React.FC<PullModalProps> = ({ onDone, onCancel }) => {
   // mode change, app quit, etc.) abort so the hf child is SIGTERMed
   // instead of being left orphaned.
   useEffect(() => () => { abortRef.current?.abort() }, [])
+
+  function startPull(r: string, f: string | undefined): void {
+    setStage("running")
+    const ctl = new AbortController()
+    abortRef.current = ctl
+    pull({
+      repo: r,
+      file: f,
+      signal: ctl.signal,
+      onLine: l => setLines(prev => {
+        if (prev.length > 0 && prev[prev.length - 1] === l) return prev
+        return [...prev.slice(-8), l]
+      })
+    })
+      .then(res => onDone(`pulled ${res.entry.slug} (port ${res.entry.port})`))
+      .catch(err => {
+        if (err instanceof PullAbortedError) onDone("pull cancelled")
+        else onDone(`pull failed: ${err.message ?? err}`)
+      })
+  }
+
+  // Auto-start the download when the modal is opened with a prefill.
+  useEffect(() => {
+    if (initialRepo) startPull(initialRepo, initialFile?.trim() || undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useInput((input, key) => {
     if (stage === "running") {
@@ -33,23 +69,7 @@ export const PullModal: React.FC<PullModalProps> = ({ onDone, onCancel }) => {
         return
       }
       if (stage === "file") {
-        setStage("running")
-        const ctl = new AbortController()
-        abortRef.current = ctl
-        pull({
-          repo: repo.trim(),
-          file: file.trim() || undefined,
-          signal: ctl.signal,
-          onLine: l => setLines(prev => {
-            if (prev.length > 0 && prev[prev.length - 1] === l) return prev
-            return [...prev.slice(-8), l]
-          })
-        })
-          .then(r => onDone(`pulled ${r.entry.slug} (port ${r.entry.port})`))
-          .catch(err => {
-            if (err instanceof PullAbortedError) onDone("pull cancelled")
-            else onDone(`pull failed: ${err.message ?? err}`)
-          })
+        startPull(repo.trim(), file.trim() || undefined)
         return
       }
     }
