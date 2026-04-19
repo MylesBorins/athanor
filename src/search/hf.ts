@@ -25,6 +25,11 @@ export interface SearchResult {
   tags: string[]
   runtime?: RuntimeType
   license?: string
+  // On-disk size of the model weights in bytes. For GGUF we take
+  // gguf.totalFileSize (when the Hub has indexed it); for MLX/
+  // safetensors we sum parameters dict × bytes-per-dtype. Undefined
+  // for repos the Hub hasn't parsed.
+  sizeBytes?: number
 }
 
 const API = "https://huggingface.co/api/models"
@@ -51,11 +56,41 @@ function runtimeFromTags(id: string, tags: string[]): RuntimeType | undefined {
   return undefined
 }
 
+// Bytes-per-element for safetensors dtype names. Missing entries
+// contribute 0 to the total, which is safer than guessing for a
+// dtype we don't know.
+const DTYPE_BYTES: Record<string, number> = {
+  F64: 8, I64: 8, U64: 8,
+  F32: 4, I32: 4, U32: 4,
+  BF16: 2, F16: 2, I16: 2, U16: 2,
+  I8: 1, U8: 1, BOOL: 1,
+  F8_E4M3: 1, F8_E5M2: 1
+}
+
+function sizeFromSafetensors(st: unknown): number | undefined {
+  if (!st || typeof st !== "object") return undefined
+  const params = (st as { parameters?: unknown }).parameters
+  if (!params || typeof params !== "object") return undefined
+  let total = 0
+  for (const [dtype, count] of Object.entries(params as Record<string, unknown>)) {
+    const bytes = DTYPE_BYTES[dtype]
+    if (bytes && typeof count === "number") total += bytes * count
+  }
+  return total > 0 ? total : undefined
+}
+
+function sizeFromGguf(gg: unknown): number | undefined {
+  if (!gg || typeof gg !== "object") return undefined
+  const n = (gg as { totalFileSize?: unknown }).totalFileSize
+  return typeof n === "number" && n > 0 ? n : undefined
+}
+
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
   return body.map((raw): SearchResult => {
     const b = raw as Record<string, unknown>
     const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
+    const sizeBytes = sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors)
     return {
       id: String(b.id ?? b.modelId ?? ""),
       downloads: typeof b.downloads === "number" ? b.downloads : undefined,
@@ -63,7 +98,8 @@ function parse(body: unknown): SearchResult[] {
       lastModified: typeof b.lastModified === "string" ? b.lastModified : undefined,
       tags,
       runtime: runtimeFromTags(String(b.id ?? ""), tags),
-      license: extractLicense(tags)
+      license: extractLicense(tags),
+      sizeBytes
     }
   }).filter(r => r.id.length > 0)
 }
@@ -76,6 +112,14 @@ async function queryOne(filterTag: string | null, opts: SearchOpts): Promise<Sea
   params.set("sort", sortParam(opts.sort ?? "downloads"))
   params.set("direction", "-1")
   params.set("limit", String(opts.limit ?? 20))
+  // expand[] surfaces per-repo size info: gguf.totalFileSize for
+  // llama.cpp repos, safetensors.parameters for MLX/transformers.
+  // When any expand[] is set, the API switches to an opt-in shape,
+  // so we must also re-request the default fields we rely on.
+  for (const field of [
+    "gguf", "safetensors",
+    "downloads", "likes", "lastModified", "tags"
+  ]) params.append("expand[]", field)
   const url = `${API}?${params.toString()}`
   const res = await fetch(url, { headers: { Accept: "application/json" } })
   if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)

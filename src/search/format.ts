@@ -8,6 +8,14 @@ export function formatCount(n: number | undefined): string {
   return String(n)
 }
 
+export function formatBytes(n: number | undefined): string {
+  if (n === undefined || !Number.isFinite(n) || n < 0) return "?"
+  const u = ["B", "KB", "MB", "GB", "TB"]
+  let v = n; let i = 0
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${u[i]}`
+}
+
 export function formatRelTime(iso: string | undefined): string {
   if (!iso) return ""
   const ms = Date.now() - new Date(iso).getTime()
@@ -27,12 +35,14 @@ export function formatRelTime(iso: string | undefined): string {
 
 export function formatResultRow(r: SearchResult): string {
   const id        = style.bold(r.id)
+  const size      = r.sizeBytes !== undefined ? style.gray(formatBytes(r.sizeBytes)) : style.dim("—")
   const downloads = style.gray(`${formatCount(r.downloads)} ${style.dim("↓")}`)
   const likes     = style.gray(`${formatCount(r.likes)} ${style.dim("♥")}`)
   const license   = r.license ? style.cyan(r.license) : ""
   const ago       = style.gray(formatRelTime(r.lastModified))
   return [
     padEndVisual(id, 48),
+    padEndVisual(size, 9),
     padEndVisual(downloads, 14),
     padEndVisual(likes, 12),
     padEndVisual(license, 18),

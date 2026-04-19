@@ -1,19 +1,32 @@
 import { spawn } from "child_process"
 import * as fs from "fs"
 import * as path from "path"
+import { fileURLToPath } from "url"
+import { resolvePythonForHf } from "./resolve-python.js"
+
+// Events emitted by the hf_pull.py sidecar. The shape mirrors
+// tqdm.format_dict plus a small state machine envelope (resolving →
+// begin → progress* → end, then a final done or error).
+export type ProgressEvent =
+  | { type: "resolving"; repo: string; revision?: string | null }
+  | { type: "begin"; file: string; total: number | null; unit: string }
+  | { type: "progress"; file: string; done: number; total: number | null; rate: number | null; elapsed: number; unit: string }
+  | { type: "end"; file: string; done: number; total: number | null; unit: string }
+  | { type: "done"; path: string }
+  | { type: "error"; message: string }
 
 export interface DownloadOptions {
   repo: string
   localDir: string
   file?: string
   revision?: string
+  // Free-form stderr lines from the sidecar (warnings, tracebacks).
+  // Structured progress is delivered via onEvent instead.
   onLine?: (line: string) => void
-  // When true, inherit stdio so `hf` paints its native tqdm progress bar
-  // directly to the user's terminal. `onLine` is ignored in this mode.
-  inherit?: boolean
-  // Aborts the in-flight download. We SIGTERM the child and, if it has
-  // not exited after a brief grace period, escalate to SIGKILL so a
-  // stuck `hf` (or one of its subprocesses) cannot linger as an orphan.
+  // Structured progress stream. Preferred way to render a UI.
+  onEvent?: (event: ProgressEvent) => void
+  // Aborts the in-flight download. SIGTERM first, SIGKILL after a
+  // grace period so a stuck Python child cannot linger as an orphan.
   signal?: AbortSignal
 }
 
@@ -24,35 +37,77 @@ export class PullAbortedError extends Error {
   }
 }
 
-// `hf download` is a tqdm-based CLI: progress frames are emitted as \r
-// rewrites on a single "line" and only newline-terminate at stage
-// boundaries. Splitting only on \n collapses every intra-stage frame
-// into a single buffered string, so callers see nothing stream until
-// tqdm finally emits a \n. Split on either and drop blanks.
+// Kept for stderr parsing. huggingface_hub occasionally writes
+// tqdm-style warning lines to stderr even with a custom tqdm_class;
+// split on \r or \n and drop empties so each frame surfaces once.
 export function splitHfChunks(text: string): string[] {
   return text.split(/[\r\n]+/).map(l => l.trim()).filter(l => l.length > 0)
+}
+
+function resolveSidecarScript(): string {
+  // Same layout in dev (src/pull/*.ts executed via tsx) and prod
+  // (dist/pull/*.js after tsc + postbuild copy). hf_pull.py lives
+  // next to this module in both cases.
+  return path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "hf_pull.py"
+  )
 }
 
 export function runHfDownload(opts: DownloadOptions): Promise<void> {
   return new Promise((resolve, reject) => {
     if (opts.signal?.aborted) { reject(new PullAbortedError()); return }
     fs.mkdirSync(opts.localDir, { recursive: true })
-    const args = ["download", opts.repo]
-    if (opts.file) args.push(opts.file)
-    if (opts.revision) args.push("--revision", opts.revision)
-    if (opts.file) args.push("--local-dir", opts.localDir)
-    const proc = spawn("hf", args, {
-      stdio: opts.inherit
-        ? ["ignore", "inherit", "inherit"]
-        : ["ignore", "pipe", "pipe"]
-    })
-    if (!opts.inherit) {
-      const emit = (b: Buffer): void => {
-        for (const l of splitHfChunks(b.toString())) opts.onLine?.(l)
-      }
-      proc.stdout?.on("data", emit)
-      proc.stderr?.on("data", emit)
+
+    const python = resolvePythonForHf()
+    if (!python) {
+      reject(new Error(
+        "no Python interpreter found. Install huggingface_hub with: " +
+        "uv tool install huggingface_hub (or pipx install huggingface_hub)"
+      ))
+      return
     }
+
+    const payload = JSON.stringify({
+      repo: opts.repo,
+      revision: opts.revision ?? null,
+      file: opts.file ?? null,
+      // snapshot_download writes to local_dir when set, otherwise
+      // into ~/.cache/huggingface/hub. MLX pulls keep the classic
+      // cache layout so scanner + external hf tools stay consistent;
+      // GGUF pulls use local_dir for a flat file.
+      local_dir: opts.file ? opts.localDir : null
+    })
+
+    const proc = spawn(python, [resolveSidecarScript(), payload], {
+      stdio: ["ignore", "pipe", "pipe"]
+    })
+
+    // NDJSON on stdout: buffer by line, JSON-parse, deliver to
+    // onEvent. Anything that fails to parse falls through to onLine
+    // so it isn't silently dropped.
+    let stdoutBuf = ""
+    let lastError: string | null = null
+    proc.stdout?.on("data", (b: Buffer) => {
+      stdoutBuf += b.toString()
+      for (;;) {
+        const nl = stdoutBuf.indexOf("\n")
+        if (nl < 0) break
+        const line = stdoutBuf.slice(0, nl).trim()
+        stdoutBuf = stdoutBuf.slice(nl + 1)
+        if (!line) continue
+        try {
+          const ev = JSON.parse(line) as ProgressEvent
+          if (ev.type === "error") lastError = ev.message
+          opts.onEvent?.(ev)
+        } catch {
+          opts.onLine?.(line)
+        }
+      }
+    })
+    proc.stderr?.on("data", (b: Buffer) => {
+      for (const l of splitHfChunks(b.toString())) opts.onLine?.(l)
+    })
 
     let aborted = false
     let killTimer: NodeJS.Timeout | null = null
@@ -77,7 +132,7 @@ export function runHfDownload(opts: DownloadOptions): Promise<void> {
       opts.signal?.removeEventListener("abort", onAbort)
       if (aborted) reject(new PullAbortedError())
       else if (code === 0) resolve()
-      else reject(new Error(`hf exited with code ${code}`))
+      else reject(new Error(lastError ?? `hf_pull exited with code ${code}`))
     })
   })
 }

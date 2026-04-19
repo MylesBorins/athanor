@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "start": "tsx src/index.tsx",
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').copyFileSync('src/pull/hf_pull.py','dist/pull/hf_pull.py')\"",
     "prepublishOnly": "npm run build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

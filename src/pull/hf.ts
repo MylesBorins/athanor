@@ -15,7 +15,7 @@ import {
   inferRuntimeFromRepo,
   listGgufFiles
 } from "./api.js"
-import { runHfDownload, resolveMlxSnapshot } from "./download.js"
+import { runHfDownload, resolveMlxSnapshot, type ProgressEvent } from "./download.js"
 import { detectMlxCapabilities } from "../discovery/scanner.js"
 
 export { fetchRepoInfo, inferRuntimeFromRepo, listGgufFiles } from "./api.js"
@@ -29,12 +29,12 @@ export interface PullOptions {
   file?: string
   revision?: string
   onLine?: (line: string) => void
-  // See DownloadOptions.inherit — when true, `hf`'s native progress bar
-  // renders directly to the terminal. Appropriate for CLI, not TUI.
-  inherit?: boolean
-  // See DownloadOptions.signal — aborting will SIGTERM/SIGKILL the hf
-  // child and reject with PullAbortedError. No registry entry is
-  // written on abort.
+  // Structured progress stream from the huggingface_hub sidecar.
+  // Consumers render their own progress UI from these events.
+  onEvent?: (event: ProgressEvent) => void
+  // See DownloadOptions.signal — aborting SIGTERM/SIGKILLs the
+  // sidecar and rejects with PullAbortedError. No registry entry
+  // is written on abort.
   signal?: AbortSignal
 }
 
@@ -73,7 +73,7 @@ export async function pull(opts: PullOptions): Promise<PullResult> {
     file,
     revision: opts.revision,
     onLine: opts.onLine,
-    inherit: opts.inherit,
+    onEvent: opts.onEvent,
     signal: opts.signal
   })
 

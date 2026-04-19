@@ -58,6 +58,46 @@ describe("searchModels", () => {
     expect(calls[0]).toContain("direction=-1")
   })
 
+  it("requests expand[] for size-bearing fields and default metadata", async () => {
+    const calls: string[] = []
+    mockFetch(url => { calls.push(url); return [] })
+    await searchModels({ filter: "mlx" })
+    const u = calls[0]
+    expect(u).toContain("expand%5B%5D=gguf")
+    expect(u).toContain("expand%5B%5D=safetensors")
+    expect(u).toContain("expand%5B%5D=downloads")
+    expect(u).toContain("expand%5B%5D=likes")
+    expect(u).toContain("expand%5B%5D=lastModified")
+    expect(u).toContain("expand%5B%5D=tags")
+  })
+
+  it("derives sizeBytes from safetensors.parameters (MLX)", async () => {
+    mockFetch(() => [{
+      id: "mlx-community/Q",
+      tags: ["mlx"],
+      safetensors: { parameters: { BF16: 1_000_000_000, U32: 500_000_000 }, total: 9_000_000_000 }
+    }])
+    const r = await searchModels({ filter: "mlx" })
+    // BF16: 1e9 * 2 = 2e9, U32: 5e8 * 4 = 2e9, total 4e9
+    expect(r[0].sizeBytes).toBe(4_000_000_000)
+  })
+
+  it("derives sizeBytes from gguf.totalFileSize (llama.cpp)", async () => {
+    mockFetch(() => [{
+      id: "x/Y-GGUF",
+      tags: ["gguf"],
+      gguf: { totalFileSize: 807_694_112, total: 1_200_000_000 }
+    }])
+    const r = await searchModels({ filter: "gguf" })
+    expect(r[0].sizeBytes).toBe(807_694_112)
+  })
+
+  it("leaves sizeBytes undefined when neither field is present", async () => {
+    mockFetch(() => [{ id: "a/b", tags: [] }])
+    const r = await searchModels({ filter: "mlx" })
+    expect(r[0].sizeBytes).toBeUndefined()
+  })
+
   it("extracts license from license:* tags and infers runtime", async () => {
     mockFetch(() => [
       { id: "mlx-community/Q", tags: ["mlx", "license:apache-2.0"], downloads: 1 },

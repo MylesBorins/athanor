@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { formatCount, formatRelTime, formatResultRow } from "./format.js"
+import { formatBytes, formatCount, formatRelTime, formatResultRow } from "./format.js"
 import { stripAnsi } from "../cli/style.js"
 
 describe("formatCount", () => {
@@ -10,6 +10,17 @@ describe("formatCount", () => {
     expect(formatCount(1500)).toBe("1.5k")
     expect(formatCount(12_345)).toBe("12.3k")
     expect(formatCount(2_500_000)).toBe("2.5M")
+  })
+})
+
+describe("formatBytes", () => {
+  it("formats byte counts with binary units", () => {
+    expect(formatBytes(undefined)).toBe("?")
+    expect(formatBytes(0)).toBe("0 B")
+    expect(formatBytes(1023)).toBe("1023 B")
+    expect(formatBytes(1024)).toBe("1.0 KB")
+    expect(formatBytes(1_500_000)).toBe("1.4 MB")
+    expect(formatBytes(4_000_000_000)).toBe("3.7 GB")
   })
 })
 
@@ -28,7 +39,7 @@ describe("formatRelTime", () => {
 })
 
 describe("formatResultRow", () => {
-  it("includes the repo id, counts, license, and a relative time", () => {
+  it("includes the repo id, size, counts, license, and a relative time", () => {
     const row = stripAnsi(formatResultRow({
       id: "mlx-community/Qwen3-32B-4bit",
       tags: ["mlx", "license:apache-2.0"],
@@ -36,9 +47,11 @@ describe("formatResultRow", () => {
       likes: 430,
       lastModified: new Date().toISOString(),
       runtime: "mlx",
-      license: "apache-2.0"
+      license: "apache-2.0",
+      sizeBytes: 16 * 1024 * 1024 * 1024
     }))
     expect(row).toContain("mlx-community/Qwen3-32B-4bit")
+    expect(row).toContain("16 GB")
     expect(row).toContain("12.3k")
     expect(row).toContain("430")
     expect(row).toContain("apache-2.0")

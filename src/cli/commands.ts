@@ -10,7 +10,7 @@ import { ingestDiscovered } from "../discovery/ingest.js"
 import { supervisor } from "../supervisor/index.js"
 import { syncPi } from "../sync/pi.js"
 import { pull } from "../pull/hf.js"
-import { PullAbortedError } from "../pull/download.js"
+import { PullAbortedError, type ProgressEvent } from "../pull/download.js"
 import { SUGGESTIONS } from "../pull/suggestions.js"
 import { tailLog } from "../supervisor/logs.js"
 import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.js"
@@ -23,6 +23,9 @@ import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
 import { findRecipe, listRecipes, recipeToPreset } from "../presets/recipes.js"
 import { listKeys, parseKvTokens, setPresetFields, unsetPresetFields } from "../presets/edit.js"
 import { startRouter, stopRouter } from "../router/server.js"
+import React from "react"
+import { render } from "ink"
+import { SearchBrowser } from "../ui/SearchBrowser.js"
 
 function ok(msg: string): void   { console.log(`${style.green(sym.check)} ${msg}`) }
 function info(msg: string): void { console.log(`${style.cyan(sym.arrow)} ${msg}`) }
@@ -137,16 +140,136 @@ export function cmdLogs(idOrSlug: string, n = 200): void {
   console.log(lines.slice(-n).join("\n"))
 }
 
+function humanBytes(n: number): string {
+  if (!isFinite(n) || n < 0) return "?"
+  const u = ["B", "KB", "MB", "GB", "TB"]
+  let v = n; let i = 0
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)}${u[i]}`
+}
+
+interface CliPullRenderer {
+  onEvent: (e: ProgressEvent) => void
+  finish: () => void
+}
+
+function makeCliPullRenderer(): CliPullRenderer {
+  const byteFiles = new Map<string, { done: number; total: number | null }>()
+  let currentFile = ""
+  let rate: number | null = null
+  let label = "resolving…"
+  let lastLen = 0
+  let lastPaint = 0
+  const isTty = process.stdout.isTTY === true
+  // Throttle paints to ~10Hz. tqdm can fire 50+ events/sec across
+  // parallel files; repainting that often buys nothing visually and
+  // can race with other stdout writers.
+  const minPaintMs = 100
+
+  // Clamp the rewriting line to (cols - 1). A line that exceeds the
+  // terminal width wraps to a second row, and \r only returns to the
+  // start of the current row — the leftover row then becomes
+  // scrollback on the next paint. Recompute on every paint so that
+  // resizing the terminal mid-download doesn't break rendering.
+  function termWidth(): number {
+    return Math.max(20, (process.stdout.columns ?? 80) - 1)
+  }
+
+  function renderLine(width: number): string {
+    const files = [...byteFiles.values()]
+    const totalDone = files.reduce((a, s) => a + s.done, 0)
+    const totalSize = files.reduce((a, s) => a + (s.total ?? 0), 0)
+    const frac = totalSize > 0 ? totalDone / totalSize : 0
+    const pct = totalSize > 0 ? (frac * 100).toFixed(1) + "%" : "…"
+    const rateStr = rate && rate > 0 ? `${humanBytes(rate)}/s` : "—"
+    const doneN = files.filter(s => s.total !== null && s.done >= s.total).length
+    // Build the fixed-width stats suffix first, then size the bar to
+    // fill whatever's left; this way the full line always fits.
+    const stats =
+      ` ${pct}  ${humanBytes(totalDone)}/${totalSize > 0 ? humanBytes(totalSize) : "?"}` +
+      `  ${rateStr}  ${doneN}/${files.length} files`
+    const prefix = `  ${label} `
+    // Remaining width gets split: 60% bar, 40% current-file tail.
+    const remaining = Math.max(8, width - prefix.length - stats.length - 3)
+    const barW = Math.max(6, Math.floor(remaining * 0.6))
+    const tailW = Math.max(0, remaining - barW - 2)
+    const filled = Math.floor(frac * barW)
+    const bar = "█".repeat(filled) + "░".repeat(barW - filled)
+    const tail = tailW > 0 ? `  ${currentFile.slice(0, tailW)}` : ""
+    const out = `${prefix}[${bar}]${stats}${tail}`
+    return out.length > width ? out.slice(0, width) : out
+  }
+
+  function paint(force: boolean): void {
+    const now = Date.now()
+    if (!force && now - lastPaint < minPaintMs) return
+    lastPaint = now
+    if (!isTty) return  // non-TTY uses milestone messages only
+    const width = termWidth()
+    const line = renderLine(width)
+    const pad = " ".repeat(Math.max(0, lastLen - line.length))
+    process.stdout.write("\r" + line + pad)
+    lastLen = line.length
+  }
+
+  // One compact line per event, emitted only to non-TTY streams. Keeps
+  // pipes/CI logs small: resolve + one line per completed file + done.
+  function milestone(text: string): void {
+    if (isTty) return
+    process.stdout.write(text + "\n")
+  }
+
+  return {
+    onEvent: (ev) => {
+      if (ev.type === "resolving") {
+        label = "resolving…"
+        milestone(`resolving ${ev.repo}${ev.revision ? `@${ev.revision}` : ""}…`)
+        paint(true); return
+      }
+      if (ev.type === "done") {
+        label = "finalizing…"
+        paint(true); return
+      }
+      if (ev.type === "error") { /* surfaced via reject */ return }
+      if (ev.unit !== "B") return
+      label = "downloading"
+      currentFile = ev.file
+      if (ev.type === "progress") rate = ev.rate
+      const existing = byteFiles.get(ev.file) ?? { done: 0, total: null }
+      const done = "done" in ev ? ev.done : existing.done
+      const total = ev.total ?? existing.total
+      byteFiles.set(ev.file, { done, total })
+      if (ev.type === "end") {
+        milestone(`  ✓ ${ev.file} (${humanBytes(ev.total ?? ev.done)})`)
+        paint(true)
+      } else {
+        paint(false)
+      }
+    },
+    finish: () => {
+      if (isTty) {
+        paint(true)
+        process.stdout.write("\n")
+      } else {
+        const files = [...byteFiles.values()]
+        const total = files.reduce((a, s) => a + (s.total ?? s.done), 0)
+        milestone(`done · ${files.length} file${files.length === 1 ? "" : "s"} · ${humanBytes(total)}`)
+      }
+    }
+  }
+}
+
+
 export async function cmdPull(repo: string, file?: string, revision?: string): Promise<void> {
-  // inherit=true lets `hf`'s tqdm progress bar paint straight to the
-  // terminal instead of being line-split and reprinted with \n, which
-  // collapsed progress frames into thousands of near-identical lines.
+  // The pull sidecar emits structured ProgressEvents; we render a
+  // single carriage-return-updated line to stdout so the terminal
+  // shows a clean rewriting bar instead of scrollback.
   //
-  // SIGINT/SIGTERM trigger an explicit abort of the hf child. Ctrl-C
-  // normally reaches the whole foreground group, but hf's Python
-  // workers don't always clean up before Node exits, which could
-  // orphan them. Aborting explicitly SIGTERMs the child and escalates
-  // to SIGKILL after a grace window.
+  // SIGINT/SIGTERM trigger an explicit abort. Ctrl-C normally reaches
+  // the whole foreground group, but the sidecar's Python doesn't
+  // always clean up before Node exits, which could orphan it.
+  // Aborting explicitly SIGTERMs the child and escalates to SIGKILL
+  // after a grace window.
   const ctl = new AbortController()
   const onSignal = (sig: NodeJS.Signals): void => {
     warn(`received ${sig}, cancelling pull…`)
@@ -157,7 +280,13 @@ export async function cmdPull(repo: string, file?: string, revision?: string): P
   process.on("SIGINT", onInt)
   process.on("SIGTERM", onTerm)
   try {
-    const res = await pull({ repo, file, revision, inherit: true, signal: ctl.signal })
+    const render = makeCliPullRenderer()
+    const res = await pull({
+      repo, file, revision,
+      signal: ctl.signal,
+      onEvent: render.onEvent
+    })
+    render.finish()
     ok(`pulled ${style.bold(res.entry.slug)} ${dim(`${sym.arrow} ${res.entry.id} (port ${res.entry.port})`)}`)
   } catch (err: unknown) {
     if (err instanceof PullAbortedError) {
@@ -235,12 +364,49 @@ export interface SearchCmdOpts {
   limit?: number
 }
 
+const ENTER_ALT_SCREEN = "\x1b[?1049h"
+const LEAVE_ALT_SCREEN = "\x1b[?1049l"
+const HIDE_CURSOR = "\x1b[?25l"
+const SHOW_CURSOR = "\x1b[?25h"
+
+// Mounts the search TUI, waits for it to exit, restores the terminal.
+// Mirrors the alt-screen/cursor discipline used by the main app so the
+// user's scrollback isn't polluted by the search list.
+async function runSearchTui(opts: SearchCmdOpts): Promise<void> {
+  process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR)
+  const restore = (): void => { process.stdout.write(SHOW_CURSOR + LEAVE_ALT_SCREEN) }
+  let finalMessage: string | undefined
+  const instance = render(
+    React.createElement(SearchBrowser, {
+      initialQuery: opts.query,
+      initialFilter: opts.filter,
+      initialSort: opts.sort,
+      onExit: (msg) => { finalMessage = msg }
+    }),
+    { exitOnCtrlC: true }
+  )
+  try {
+    await instance.waitUntilExit()
+  } finally {
+    restore()
+  }
+  if (finalMessage) ok(finalMessage)
+}
+
 export async function cmdSearch(opts: SearchCmdOpts): Promise<void> {
-  const results = await searchModels(opts)
-  if (results.length === 0) {
-    warn("no results")
+  // In an interactive terminal, render a TUI: responsive list, live
+  // filter/sort cycling, ⏎ to pull. Non-TTY stdin (pipes, CI) falls
+  // back to the grouped-table output so scripts still see stable
+  // text. Stdout-only redirection (e.g. `athanor search > out`) is
+  // treated as non-interactive because a TUI needs keyboard input
+  // regardless of where output lands.
+  const isInteractive = process.stdin.isTTY === true && process.stdout.isTTY === true
+  if (isInteractive) {
+    await runSearchTui(opts)
     return
   }
+  const results = await searchModels(opts)
+  if (results.length === 0) { warn("no results"); return }
   const { mlx, gguf, other } = groupByRuntime(results)
   if (mlx.length) {
     head(`MLX  ${dim(`(${mlx.length})`)}`)
