@@ -1,6 +1,6 @@
 {
   "name": "athanor",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Athanor — personal LLM alchemy",
   "license": "Apache-2.0",
   "main": "dist/index.js",
