@@ -361,7 +361,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     // Tab hides only the model selector — banner and footer stay so
     // global context (system load, keybindings) remains visible. The
     // log pane takes over everything the ModelList used to occupy.
-    const bannerRows = 7
+    const bannerRows = 12
     const dividerRows = 2
     const footerRows = 2
     const focusRows = Math.max(10, dims.rows - bannerRows - dividerRows - footerRows)
@@ -390,9 +390,9 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     )
   }
 
-  // Allocate space: banner is ~7 rows, header row is 1, two rules are 2,
+  // Allocate space: banner is ~12 rows, header row is 1, two rules are 2,
   // list gets the top chunk, log tail gets the bottom chunk, footer is 2.
-  const bannerRows = 7
+  const bannerRows = 12
   const chromeRows = bannerRows + 1 /* stats */ + 2 /* rules */ + 2 /* footer */
   const bodyRows = Math.max(8, dims.rows - chromeRows)
   const listRows = Math.max(4, Math.min(filtered.length + 1, Math.floor(bodyRows * 0.55)))
