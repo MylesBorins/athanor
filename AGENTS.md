@@ -184,4 +184,4 @@ The router in `src/router/server.ts` is live (see invariant #4 and the Router se
 
 ## License
 
-Proprietary. Copyright 2026 Myles Borins. Private evaluation only; no redistribution, no commercial use. See `LICENSE`. Do not add code under an incompatible license without the author's consent.
+Apache License 2.0. Copyright 2026 Myles Borins. See `LICENSE`. Contributions are accepted under the same license (Apache 2.0 Section 5 — inbound = outbound). Do not add code under a license incompatible with Apache 2.0 (e.g. GPL, AGPL, SSPL, or code lifted from a proprietary source) without flagging it explicitly.

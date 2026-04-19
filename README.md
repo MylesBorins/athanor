@@ -592,4 +592,6 @@ src/
 
 ## License
 
-Copyright 2026 Myles Borins. All rights reserved. Private evaluation license — named individuals may run and study the Software and submit contributions to the author; no redistribution, no commercial use, and no use within any organization's products, services, or internal tooling. See [`LICENSE`](./LICENSE).
+Copyright 2026 Myles Borins.
+
+Licensed under the Apache License, Version 2.0. See [`LICENSE`](./LICENSE) for the full text, or <http://www.apache.org/licenses/LICENSE-2.0> for the canonical copy.
