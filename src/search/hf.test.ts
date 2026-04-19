@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { groupByRuntime, searchModels } from "./hf.js"
+import { groupByRuntime, searchModels, searchModelsPage } from "./hf.js"
 
 function mockFetch(bodyFor: (url: string) => unknown): void {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
@@ -7,6 +7,19 @@ function mockFetch(bodyFor: (url: string) => unknown): void {
       status: 200,
       headers: { "Content-Type": "application/json" }
     })
+  }))
+}
+
+// Variant that also lets the mock declare a Link header per-call so
+// pagination tests can drive the cursor flow.
+function mockFetchWithLink(
+  fn: (url: string) => { body: unknown; next?: string }
+): void {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const { body, next } = fn(url)
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    if (next) headers["link"] = `<${next}>; rel="next"`
+    return new Response(JSON.stringify(body), { status: 200, headers })
   }))
 }
 
@@ -56,6 +69,23 @@ describe("searchModels", () => {
     await searchModels({ filter: "mlx", sort: "trending" })
     expect(calls[0]).toContain("sort=trendingScore")
     expect(calls[0]).toContain("direction=-1")
+  })
+
+  it("maps sort='size' to a server-side downloads sort and re-orders client-side desc", async () => {
+    const calls: string[] = []
+    mockFetch(url => {
+      calls.push(url)
+      // Server returns popularity-ranked results; size is unrelated.
+      return [
+        { id: "small", tags: ["mlx"], gguf: { totalFileSize: 500_000_000 } },
+        { id: "huge",  tags: ["mlx"], gguf: { totalFileSize: 70_000_000_000 } },
+        { id: "none",  tags: ["mlx"] },
+        { id: "med",   tags: ["mlx"], gguf: { totalFileSize: 4_000_000_000 } }
+      ]
+    })
+    const r = await searchModels({ filter: "mlx", sort: "size" })
+    expect(calls[0]).toContain("sort=downloads")
+    expect(r.map(x => x.id)).toEqual(["huge", "med", "small", "none"])
   })
 
   it("requests expand[] for size-bearing fields and default metadata", async () => {
@@ -126,6 +156,58 @@ describe("searchModels", () => {
     })
     const r = await searchModels({ filter: "any", limit: 5 })
     expect(r.length).toBe(5)
+  })
+})
+
+describe("searchModelsPage", () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it("returns a cursor when the Link header advertises rel=\"next\"", async () => {
+    mockFetchWithLink(() => ({
+      body: [{ id: "a/b", tags: ["mlx"] }],
+      next: "https://huggingface.co/api/models?cursor=PAGE2"
+    }))
+    const p = await searchModelsPage({ filter: "mlx" })
+    expect(p.results.map(r => r.id)).toEqual(["a/b"])
+    expect(p.cursor?.one).toBe("https://huggingface.co/api/models?cursor=PAGE2")
+  })
+
+  it("follows the cursor verbatim on subsequent calls", async () => {
+    const calls: string[] = []
+    mockFetchWithLink(url => {
+      calls.push(url)
+      if (url.includes("cursor=PAGE2")) return { body: [{ id: "p2/x", tags: ["mlx"] }] }
+      return {
+        body: [{ id: "p1/x", tags: ["mlx"] }],
+        next: "https://huggingface.co/api/models?cursor=PAGE2"
+      }
+    })
+    const first = await searchModelsPage({ filter: "mlx" })
+    const second = await searchModelsPage({ filter: "mlx" }, first.cursor)
+    expect(second.results.map(r => r.id)).toEqual(["p2/x"])
+    expect(second.cursor).toBeUndefined()
+    expect(calls[1]).toBe("https://huggingface.co/api/models?cursor=PAGE2")
+  })
+
+  it("paginates mlx and gguf streams independently for filter='any'", async () => {
+    mockFetchWithLink(url => {
+      if (url.includes("filter=mlx") && !url.includes("cursor")) {
+        return { body: [{ id: "m/1", tags: ["mlx"] }], next: "https://x/?cursor=MLX2" }
+      }
+      if (url.includes("filter=gguf") && !url.includes("cursor")) {
+        return { body: [{ id: "g/1", tags: ["gguf"] }] }   // gguf exhausted on page 1
+      }
+      if (url.includes("cursor=MLX2")) {
+        return { body: [{ id: "m/2", tags: ["mlx"] }] }
+      }
+      return { body: [] }
+    })
+    const p1 = await searchModelsPage({ filter: "any" })
+    expect(p1.cursor?.mlx).toBe("https://x/?cursor=MLX2")
+    expect(p1.cursor?.gguf).toBeUndefined()
+    const p2 = await searchModelsPage({ filter: "any" }, p1.cursor)
+    expect(p2.results.map(r => r.id)).toEqual(["m/2"])
+    expect(p2.cursor).toBeUndefined()
   })
 })
 

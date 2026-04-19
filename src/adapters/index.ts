@@ -36,7 +36,9 @@ export function mergedConfigFor(entry: ModelEntry): MlxConfig | LlamaConfig {
   return { ...cfg.llama, ...override }
 }
 
-export function buildCommandFor(entry: ModelEntry): { cmd: string; args: string[] } {
+export function buildCommandFor(
+  entry: ModelEntry
+): { cmd: string; args: string[]; env?: Record<string, string> } {
   const adapter = getAdapter(entry.runtime)
   const merged = mergedConfigFor(entry)
   return adapter.buildCommand(entry, merged)

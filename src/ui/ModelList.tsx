@@ -35,17 +35,43 @@ function runtimeSuffix(stats?: InstanceStats): string {
   return parts.join(" · ")
 }
 
+// Mid-string truncation with an ellipsis. Used to keep the slug
+// column from overflowing into the next visual row, which would
+// otherwise reflow every row below it on a narrow terminal.
+function truncMid(s: string, max: number): string {
+  if (s.length <= max) return s
+  if (max <= 3) return s.slice(0, max)
+  const head = Math.ceil((max - 1) / 2)
+  const tail = Math.floor((max - 1) / 2)
+  return s.slice(0, head) + "…" + s.slice(s.length - tail)
+}
+
 export interface ModelListProps {
   models: ModelEntry[]
   selectedIndex: number
   instances: Map<string, ActiveInstance>
   stats?: Map<string, InstanceStats>
+  // Terminal width. When omitted we fall back to a generous default
+  // so the existing tests (which don't pass cols) still render the
+  // full slug uncut.
+  cols?: number
 }
 
-export const ModelList: React.FC<ModelListProps> = ({ models, selectedIndex, instances, stats }) => {
+export const ModelList: React.FC<ModelListProps> = ({
+  models, selectedIndex, instances, stats, cols
+}) => {
   if (models.length === 0) {
     return <Text dimColor>registry empty — press `p` to pull a model or `s` to scan</Text>
   }
+  // Budget breakdown for fixed columns to the right of the slug:
+  //   cursor 2 + status 2 + runtime 10 + ":port  " ~8 + "[pi] " 5
+  //   + "pid xxxxx" ~10 + suffix (cpu/rss/tok·s) up to ~28.
+  // We size the slug column to whatever's left, with a 12-char floor
+  // so it stays readable on very narrow terminals.
+  const FIXED_CHROME = 2 + 2 + 10 + 8 + 5 + 10
+  const SUFFIX_MAX   = 28
+  const width = cols ?? 200
+  const slugBudget = Math.max(12, Math.min(40, width - FIXED_CHROME - SUFFIX_MAX))
   return (
     <Box flexDirection="column">
       {models.map((m, i) => {
@@ -53,18 +79,19 @@ export const ModelList: React.FC<ModelListProps> = ({ models, selectedIndex, ins
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
+        const slug = truncMid(m.slug, slugBudget).padEnd(slugBudget)
         return (
-          <Box key={m.id}>
+          <Box key={m.id} width={cols}>
             <Text color={selected ? "cyan" : undefined}>{selected ? "› " : "  "}</Text>
             <Text color={color}>{ch} </Text>
             <Text bold={selected} color={selected ? "cyan" : undefined}>
-              {m.slug.padEnd(26)}
+              {slug}
             </Text>
             <Text dimColor>{m.runtime.padEnd(10)}</Text>
             <Text>:{m.port}  </Text>
             <Text dimColor>{m.publish ? "[pi] " : "     "}</Text>
             <Text dimColor>{inst ? `pid ${inst.pid}` : ""}</Text>
-            {suffix ? <Text dimColor>  {suffix}</Text> : null}
+            {suffix ? <Text dimColor wrap="truncate">  {suffix}</Text> : null}
           </Box>
         )
       })}

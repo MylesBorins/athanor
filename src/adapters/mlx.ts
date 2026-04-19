@@ -24,17 +24,31 @@ function mlxBinary(entry: ModelEntry): string {
   return entry.mlxFlavor === "vlm" ? "mlx_vlm.server" : "mlx_lm.server"
 }
 
+// huggingface_hub re-resolves the snapshot on every launch by default,
+// which means mlx_lm.server / mlx_vlm.server hit the network at startup
+// even when the model is fully cached. HF_HUB_OFFLINE short-circuits
+// that path; TRANSFORMERS_OFFLINE does the same for the transformers
+// processors mlx_vlm imports. Athanor owns the download lifecycle via
+// `athanor pull`, so the runtime should never reach out on its own.
+const MLX_OFFLINE_ENV: Record<string, string> = {
+  HF_HUB_OFFLINE: "1",
+  TRANSFORMERS_OFFLINE: "1"
+}
+
 export class MlxAdapter implements RuntimeAdapter {
   type: RuntimeType = "mlx"
 
-  buildCommand(entry: ModelEntry, merged: MlxConfig): { cmd: string; args: string[] } {
+  buildCommand(
+    entry: ModelEntry,
+    merged: MlxConfig
+  ): { cmd: string; args: string[]; env: Record<string, string> } {
     const common = [
       "--model", mlxModelArg(entry),
       "--port", String(entry.port),
       "--host", "127.0.0.1"
     ]
     if (entry.mlxFlavor === "vlm") {
-      return { cmd: "mlx_vlm.server", args: common }
+      return { cmd: "mlx_vlm.server", args: common, env: MLX_OFFLINE_ENV }
     }
     return {
       cmd: mlxBinary(entry),
@@ -43,7 +57,8 @@ export class MlxAdapter implements RuntimeAdapter {
         "--prefill-step-size", String(merged.prefillStepSize),
         "--prompt-cache-size", String(merged.promptCacheSize),
         "--decode-concurrency", String(merged.decodeConcurrency)
-      ]
+      ],
+      env: MLX_OFFLINE_ENV
     }
   }
 

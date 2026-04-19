@@ -418,6 +418,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
                 selectedIndex={selectedIdx}
                 instances={instMap}
                 stats={instStats}
+                cols={dims.cols}
               />
             </Box>
             <Text dimColor>{divider}</Text>

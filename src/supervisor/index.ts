@@ -62,12 +62,16 @@ export class Supervisor {
       )
     }
 
-    const { cmd, args } = buildCommandFor(entry)
+    const { cmd, args, env: adapterEnv } = buildCommandFor(entry)
     const stdoutLog = openLogFile(entry.slug, process.pid)
     try {
       const proc = spawn(cmd, args, {
         detached: true,
-        stdio: ["ignore", stdoutLog.fd, stdoutLog.fd]
+        stdio: ["ignore", stdoutLog.fd, stdoutLog.fd],
+        // Adapter env is layered onto the parent env so runtime-specific
+        // switches (HF_HUB_OFFLINE for MLX, etc.) take effect without
+        // dropping PATH or other inherited vars the binaries need.
+        env: adapterEnv ? { ...process.env, ...adapterEnv } : process.env
       })
       fs.closeSync(stdoutLog.fd)
       if (!proc.pid) {

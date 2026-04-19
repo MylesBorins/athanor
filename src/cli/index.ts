@@ -169,7 +169,7 @@ function parseSearchOpts(rest: string[]): {
   const author = getFlag(args, "--author")
   const sortRaw = getFlag(args, "--sort")
   const limitRaw = getFlag(args, "--limit")
-  const sort = (["downloads", "likes", "trending", "modified"] as const)
+  const sort = (["downloads", "likes", "trending", "modified", "size"] as const)
     .find(s => s === sortRaw) as SearchSort | undefined
   const limit = limitRaw ? Number(limitRaw) : undefined
   // Remaining positional tokens (not following a consumed flag) form

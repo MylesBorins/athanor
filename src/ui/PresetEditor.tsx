@@ -100,6 +100,19 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       } catch (err) { setNotice(`error: ${errMsg(err)}`) }
     }
     else if (input === "c") { persist({ preset: undefined }, "preset cleared") }
+    else if (input === "v" && entry.runtime === "mlx") {
+      // Toggle MLX flavor (lm <-> vlm). Mirrors cmdFlavor: warn when
+      // flipping to vlm on a model that has no detected vision tower,
+      // and append a restart hint when the model is currently running
+      // since the change only takes effect on a fresh spawn.
+      const next = entry.mlxFlavor === "vlm" ? "lm" : "vlm"
+      const noVlmCap = !(entry.mlxCapabilities ?? []).includes("vlm")
+      const running = supervisor.list().some(i => i.id === entry.id)
+      const warn = next === "vlm" && noVlmCap
+        ? " · ⚠ no vision tower detected, mlx_vlm.server may fail to load" : ""
+      const restart = running ? " · restart to apply" : ""
+      persist({ mlxFlavor: next }, `flavor → mlx-${next}${warn}${restart}`)
+    }
     else if (input && /^[1-9]$/.test(input)) {
       const idx = Number(input) - 1
       const r = recipes[idx]
@@ -113,12 +126,23 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
     return <Box borderStyle="round" padding={1}><Text color="red">model not found</Text></Box>
   }
 
-  const runtimeLabel = entry.runtime === "mlx" && entry.mlxFlavor === "vlm"
-    ? "mlx-vlm" : entry.runtime
+  // For MLX entries, surface the active server explicitly (lm vs vlm)
+  // and flag the underlying vision capability when present so the user
+  // knows whether `v` will succeed.
+  const isMlx     = entry.runtime === "mlx"
+  const isVlm     = isMlx && entry.mlxFlavor === "vlm"
+  const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
+  const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
 
   return (
     <Box flexDirection="column" borderStyle="round" padding={1}>
-      <Text><Text bold>Preset</Text>: {entry.slug} <Text dimColor>({runtimeLabel})</Text></Text>
+      <Text>
+        <Text bold>Preset</Text>: {entry.slug}{" "}
+        <Text dimColor>({runtimeLabel})</Text>
+        {isMlx && hasVlmCap && !isVlm
+          ? <Text dimColor>{"  "}<Text color="cyan">vision tower detected</Text> — press <Text bold>v</Text> to switch to mlx-vlm</Text>
+          : null}
+      </Text>
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>Tunable keys  (value · override marked with *)</Text>
         {keys.map((k, i) => {
@@ -149,7 +173,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       <Box marginTop={1}>
         {edit
           ? <Text>editing <Text bold>{edit.jsonName}</Text> = <Text color="cyan">{edit.buffer || "_"}</Text>  <Text dimColor>(⏎ save · esc cancel)</Text></Text>
-          : <Text dimColor>↑↓ nav · ⏎ edit · u unset · c clear · 1-9 recipe · esc close</Text>}
+          : <Text dimColor>↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-9 recipe · esc close</Text>}
       </Box>
       {notice ? <Text color="yellow">{notice}</Text> : null}
     </Box>

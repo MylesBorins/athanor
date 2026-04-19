@@ -7,7 +7,9 @@ import type { RuntimeType } from "../types/index.js"
 // "gguf" are both widely-applied tags on the Hub.
 
 export type SearchFilter = "mlx" | "gguf" | "any"
-export type SearchSort = "downloads" | "likes" | "trending" | "modified"
+// "size" has no server-side equivalent on the Hub API; we ask the
+// server for popularity-ranked candidates and re-sort client-side.
+export type SearchSort = "downloads" | "likes" | "trending" | "modified" | "size"
 
 export interface SearchOpts {
   query?: string
@@ -40,7 +42,21 @@ function sortParam(sort: SearchSort): string {
     case "likes":     return "likes"
     case "trending":  return "trendingScore"
     case "modified":  return "lastModified"
+    // No server-side size sort. Use downloads to bias toward results
+    // that actually carry size metadata, then re-sort in sortBySize.
+    case "size":      return "downloads"
   }
+}
+
+// Stable client-side sort by sizeBytes descending. Entries without a
+// known size (the Hub hasn't indexed safetensors/gguf metadata) sink
+// to the bottom rather than disappearing from the result list.
+function sortBySize(rs: SearchResult[]): SearchResult[] {
+  return [...rs].sort((a, b) => {
+    const av = a.sizeBytes ?? -1
+    const bv = b.sizeBytes ?? -1
+    return bv - av
+  })
 }
 
 function extractLicense(tags: string[]): string | undefined {
@@ -104,14 +120,20 @@ function parse(body: unknown): SearchResult[] {
   }).filter(r => r.id.length > 0)
 }
 
-async function queryOne(filterTag: string | null, opts: SearchOpts): Promise<SearchResult[]> {
+// HF returns 50 results per page when expand[] is set; sending a
+// larger limit is silently capped. Asking for the cap minimizes the
+// number of round-trips needed to reach the underlying-biggest models
+// the user is scrolling toward.
+const PAGE_SIZE = 50
+
+function buildSearchUrl(filterTag: string | null, opts: SearchOpts): string {
   const params = new URLSearchParams()
   if (opts.query)  params.set("search", opts.query)
   if (opts.author) params.set("author", opts.author)
   if (filterTag)   params.set("filter", filterTag)
   params.set("sort", sortParam(opts.sort ?? "downloads"))
   params.set("direction", "-1")
-  params.set("limit", String(opts.limit ?? 20))
+  params.set("limit", String(opts.limit ?? PAGE_SIZE))
   // expand[] surfaces per-repo size info: gguf.totalFileSize for
   // llama.cpp repos, safetensors.parameters for MLX/transformers.
   // When any expand[] is set, the API switches to an opt-in shape,
@@ -120,10 +142,31 @@ async function queryOne(filterTag: string | null, opts: SearchOpts): Promise<Sea
     "gguf", "safetensors",
     "downloads", "likes", "lastModified", "tags"
   ]) params.append("expand[]", field)
-  const url = `${API}?${params.toString()}`
+  return `${API}?${params.toString()}`
+}
+
+// Pulls the rel="next" target out of a Link header. The Hub uses the
+// RFC 5988 form `<url>; rel="next", <url>; rel="prev"`.
+function parseLinkNext(link: string | null): string | undefined {
+  if (!link) return undefined
+  for (const part of link.split(",")) {
+    const m = part.trim().match(/^<([^>]+)>\s*;\s*rel="?next"?$/)
+    if (m) return m[1]
+  }
+  return undefined
+}
+
+async function fetchPage(url: string): Promise<{ results: SearchResult[]; next?: string }> {
   const res = await fetch(url, { headers: { Accept: "application/json" } })
   if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)
-  return parse(await res.json())
+  const results = parse(await res.json())
+  const next = parseLinkNext(res.headers.get("link"))
+  return { next, results }
+}
+
+async function queryOne(filterTag: string | null, opts: SearchOpts): Promise<SearchResult[]> {
+  const { results } = await fetchPage(buildSearchUrl(filterTag, opts))
+  return results
 }
 
 function dedupe(results: SearchResult[]): SearchResult[] {
@@ -141,22 +184,83 @@ function dedupe(results: SearchResult[]): SearchResult[] {
 // returns results ordered with the primary sort key descending.
 export async function searchModels(opts: SearchOpts = {}): Promise<SearchResult[]> {
   const filter = opts.filter ?? "any"
-  if (filter === "mlx")  return queryOne("mlx",  opts)
-  if (filter === "gguf") return queryOne("gguf", opts)
-  const [mlx, gguf] = await Promise.all([
-    queryOne("mlx",  opts),
-    queryOne("gguf", opts)
-  ])
-  // Interleave and dedupe. Preserve per-query order (which the API
-  // already sorted for us).
-  const merged: SearchResult[] = []
-  const max = Math.max(mlx.length, gguf.length)
-  for (let i = 0; i < max; i++) {
-    if (mlx[i]) merged.push(mlx[i])
-    if (gguf[i]) merged.push(gguf[i])
+  const isSize = opts.sort === "size"
+  let merged: SearchResult[]
+  if (filter === "mlx")  merged = await queryOne("mlx",  opts)
+  else if (filter === "gguf") merged = await queryOne("gguf", opts)
+  else {
+    const [mlx, gguf] = await Promise.all([
+      queryOne("mlx",  opts),
+      queryOne("gguf", opts)
+    ])
+    // Interleave and dedupe. Preserve per-query order (which the API
+    // already sorted for us).
+    merged = []
+    const max = Math.max(mlx.length, gguf.length)
+    for (let i = 0; i < max; i++) {
+      if (mlx[i]) merged.push(mlx[i])
+      if (gguf[i]) merged.push(gguf[i])
+    }
+    merged = dedupe(merged)
   }
-  return dedupe(merged).slice(0, opts.limit ?? 20)
+  if (isSize) merged = sortBySize(merged)
+  return merged.slice(0, opts.limit ?? 20)
 }
+
+// Opaque cursor passed back to searchModelsPage to fetch the next
+// page. For filter=any we paginate the mlx and gguf streams
+// independently; either side may exhaust before the other.
+export interface SearchCursor {
+  one?:  string
+  mlx?:  string
+  gguf?: string
+}
+
+export interface SearchPage {
+  results: SearchResult[]
+  // When undefined, all underlying streams are exhausted.
+  cursor?: SearchCursor
+}
+
+// Fetch one page of results. On the first call, omit `cursor`; the
+// returned cursor (if any) is opaque and should be passed back on the
+// next call. Caller is responsible for accumulating pages and for any
+// post-sort that doesn't have a server-side equivalent (size).
+export async function searchModelsPage(
+  opts: SearchOpts = {},
+  cursor?: SearchCursor
+): Promise<SearchPage> {
+  const filter = opts.filter ?? "any"
+  if (filter === "mlx" || filter === "gguf") {
+    const url = cursor?.one ?? buildSearchUrl(filter, opts)
+    const { results, next } = await fetchPage(url)
+    return { results, cursor: next ? { one: next } : undefined }
+  }
+  // filter === "any": paginate both streams, interleave fresh pages.
+  const mlxUrl  = cursor?.mlx  ?? (cursor ? undefined : buildSearchUrl("mlx",  opts))
+  const ggufUrl = cursor?.gguf ?? (cursor ? undefined : buildSearchUrl("gguf", opts))
+  const [mlx, gguf] = await Promise.all([
+    mlxUrl  ? fetchPage(mlxUrl)  : Promise.resolve({ results: [] as SearchResult[], next: undefined }),
+    ggufUrl ? fetchPage(ggufUrl) : Promise.resolve({ results: [] as SearchResult[], next: undefined })
+  ])
+  const merged: SearchResult[] = []
+  const max = Math.max(mlx.results.length, gguf.results.length)
+  for (let i = 0; i < max; i++) {
+    if (mlx.results[i])  merged.push(mlx.results[i])
+    if (gguf.results[i]) merged.push(gguf.results[i])
+  }
+  const next: SearchCursor = {}
+  if (mlx.next)  next.mlx  = mlx.next
+  if (gguf.next) next.gguf = gguf.next
+  return {
+    results: dedupe(merged),
+    cursor: (next.mlx || next.gguf) ? next : undefined
+  }
+}
+
+// Re-export the size sorter so the TUI can re-apply it after each
+// page merge without duplicating the comparator.
+export { sortBySize }
 
 export function groupByRuntime(results: SearchResult[]): {
   mlx: SearchResult[]

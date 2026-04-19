@@ -31,6 +31,13 @@ describe("MlxAdapter", () => {
     ])
   })
 
+  it("sets HF_HUB_OFFLINE and TRANSFORMERS_OFFLINE so the runtime never re-pulls", () => {
+    const lm  = adapter.buildCommand(mlxEntry({ mlxFlavor: "lm"  }), mlx)
+    const vlm = adapter.buildCommand(mlxEntry({ mlxFlavor: "vlm" }), mlx)
+    expect(lm.env).toEqual({ HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" })
+    expect(vlm.env).toEqual({ HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1" })
+  })
+
   it("passes the filesystem path to --model for local-only models", () => {
     const entry = mlxEntry({
       path: "/models/local-mlx",

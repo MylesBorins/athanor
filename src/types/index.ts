@@ -97,7 +97,7 @@ export interface RuntimeAdapter {
   buildCommand(
     entry: ModelEntry,
     merged: MlxConfig | LlamaConfig
-  ): { cmd: string; args: string[] }
+  ): { cmd: string; args: string[]; env?: Record<string, string> }
 
   healthUrl(port: number): string
 }
