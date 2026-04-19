@@ -104,7 +104,7 @@ async function proxy(
     try {
       // Web ReadableStream -> Node Readable -> chunked http response.
       // Preserves SSE framing because we never buffer to a string.
-      await pipeline(Readable.fromWeb(upstream.body as any), res)
+      await pipeline(Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]), res)
     } catch {
       // Client disconnected or upstream errored mid-stream; both ends
       // are closed by pipeline on rejection.

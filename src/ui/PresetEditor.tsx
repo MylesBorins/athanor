@@ -21,6 +21,11 @@ export interface PresetEditorProps {
 // from the saved preset so Esc cleanly discards.
 type EditState = { jsonName: string; buffer: string } | null
 
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
 function presetValueFor(entry: ModelEntry, jsonName: string): number | undefined {
   if (!entry.preset || entry.preset.runtime !== entry.runtime) return undefined
   const bag = entry.preset.runtime === "mlx" ? entry.preset.mlx : entry.preset.llama
@@ -62,14 +67,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
           const preset = setPresetFields(entry, [[edit.jsonName, edit.buffer]])
           persist({ preset }, `set ${edit.jsonName}=${edit.buffer}`)
           setEdit(null)
-        } catch (err: any) { setNotice(`error: ${err.message ?? err}`) }
+        } catch (err) { setNotice(`error: ${errMsg(err)}`) }
         return
       }
       if (key.backspace || key.delete) {
         setEdit(e => e ? { ...e, buffer: e.buffer.slice(0, -1) } : e)
         return
       }
-      if (input && /^[0-9.\-]$/.test(input)) {
+      if (input && /^[0-9.-]$/.test(input)) {
         setEdit(e => e ? { ...e, buffer: e.buffer + input } : e)
       }
       return
@@ -92,7 +97,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       try {
         const preset = unsetPresetFields(entry, [spec.jsonName])
         persist({ preset }, `unset ${spec.jsonName}`)
-      } catch (err: any) { setNotice(`error: ${err.message ?? err}`) }
+      } catch (err) { setNotice(`error: ${errMsg(err)}`) }
     }
     else if (input === "c") { persist({ preset: undefined }, "preset cleared") }
     else if (input && /^[1-9]$/.test(input)) {

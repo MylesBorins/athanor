@@ -16,11 +16,11 @@ export async function fetchRepoInfo(repo: string, revision?: string): Promise<Hf
   const url = `https://huggingface.co/api/models/${repo}${rev}`
   const res = await fetch(url, { headers: { Accept: "application/json" } })
   if (!res.ok) throw new Error(`HF API ${res.status} for ${repo}`)
-  const body = await res.json() as any
+  const body = await res.json() as Record<string, unknown>
   return {
-    id: body.id ?? repo,
-    tags: Array.isArray(body.tags) ? body.tags : [],
-    siblings: Array.isArray(body.siblings) ? body.siblings : []
+    id: typeof body.id === "string" ? body.id : repo,
+    tags: Array.isArray(body.tags) ? body.tags as string[] : [],
+    siblings: Array.isArray(body.siblings) ? body.siblings as HfRepoInfo["siblings"] : []
   }
 }
 

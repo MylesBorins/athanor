@@ -301,8 +301,8 @@ export function cmdShow(idOrSlug: string): void {
     const override = entry.preset
       && entry.preset.runtime === entry.runtime
       && (entry.preset.runtime === "mlx"
-          ? (entry.preset.mlx as any)[k] !== undefined
-          : (entry.preset.llama as any)[k] !== undefined)
+          ? (entry.preset.mlx as Record<string, unknown>)[k] !== undefined
+          : (entry.preset.llama as Record<string, unknown>)[k] !== undefined)
     const marker = override ? style.yellow(" *") : "  "
     console.log(`  ${k.padEnd(20)} ${String(v)}${marker}`)
   }

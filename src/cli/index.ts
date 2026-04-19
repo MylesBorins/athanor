@@ -115,6 +115,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
           console.error(`${style.red("✗")} unknown preset subcommand: ${style.bold(sub)}`)
           process.exit(1)
       }
+      return true
     }
     case "expose":      cmdExpose(required(rest[0], "id|slug"), true); return true
     case "hide":        cmdExpose(required(rest[0], "id|slug"), false); return true

@@ -117,14 +117,14 @@ export function unsetPresetFields(
   const drop = new Set(keys.map(k => findKey(runtime, k).jsonName))
   const preset = entry.preset
   if (runtime === "mlx" && preset.runtime === "mlx") {
-    const next = { ...preset.mlx }
-    for (const k of drop) delete (next as any)[k]
+    const next = { ...preset.mlx } as Record<string, unknown>
+    for (const k of drop) delete next[k]
     if (Object.keys(next).length === 0) return undefined
-    return { runtime: "mlx", mlx: next }
+    return { runtime: "mlx", mlx: next as Partial<MlxConfig> }
   }
   if (preset.runtime !== "llama.cpp") return undefined
-  const next = { ...preset.llama }
-  for (const k of drop) delete (next as any)[k]
+  const next = { ...preset.llama } as Record<string, unknown>
+  for (const k of drop) delete next[k]
   if (Object.keys(next).length === 0) return undefined
-  return { runtime: "llama.cpp", llama: next }
+  return { runtime: "llama.cpp", llama: next as Partial<LlamaConfig> }
 }

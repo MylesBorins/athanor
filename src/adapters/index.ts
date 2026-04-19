@@ -39,7 +39,7 @@ export function mergedConfigFor(entry: ModelEntry): MlxConfig | LlamaConfig {
 export function buildCommandFor(entry: ModelEntry): { cmd: string; args: string[] } {
   const adapter = getAdapter(entry.runtime)
   const merged = mergedConfigFor(entry)
-  return adapter.buildCommand(entry, merged as any)
+  return adapter.buildCommand(entry, merged)
 }
 
 // Identifier the runtime accepts in OpenAI-compatible requests. Must

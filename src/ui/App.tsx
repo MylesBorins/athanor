@@ -24,6 +24,11 @@ import { SUGGESTIONS, type Suggestion } from "../pull/suggestions.js"
 
 type Mode = "list" | "filter" | "pull" | "preset" | "logs"
 
+function errMsg(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
 export interface AppProps {
   initialMessage?: string
 }
@@ -134,7 +139,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   // Entering logs mode, swapping models, or a log file changing under
   // us resets the view back to tail so the user isn't left paused on
   // stale content.
-  useEffect(() => { setLogScroll(0) }, [selectedInst?.logFile, mode === "logs"])
+  const inLogsMode = mode === "logs"
+  useEffect(() => { setLogScroll(0) }, [selectedInst?.logFile, inLogsMode])
 
   // Mouse wheel support. Ink has no mouse support, so we enable SGR
   // mouse reporting ourselves and parse wheel events off stdin. Refs
@@ -233,8 +239,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         setMessage(`${selected.slug} ready on :${started.port}`)
       }
       setInstances(supervisor.list())
-    } catch (err: any) {
-      setMessage(`error: ${err.message ?? err}`)
+    } catch (err) {
+      setMessage(`error: ${errMsg(err)}`)
     }
   }
 
@@ -246,8 +252,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       syncPi({ activeDefault: inst, instances: supervisor.list() })
       setInstances(supervisor.list())
       setMessage(`${selected.slug} ready on :${inst.port}`)
-    } catch (err: any) {
-      setMessage(`error: ${err.message ?? err}`)
+    } catch (err) {
+      setMessage(`error: ${errMsg(err)}`)
     }
   }
 

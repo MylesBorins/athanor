@@ -113,17 +113,20 @@ function expandHome(dir: string): string {
 }
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
-  const out: any = Array.isArray(base) ? [...(base as any)] : { ...base }
-  for (const key of Object.keys(override || {})) {
-    const b = (base as any)?.[key]
-    const o = (override as any)[key]
+  type Bag = Record<string, unknown>
+  const src = (base ?? {}) as Bag
+  const ov = (override ?? {}) as Bag
+  const out: Bag = Array.isArray(base) ? [...(base as unknown[])] as unknown as Bag : { ...src }
+  for (const key of Object.keys(ov)) {
+    const b = src[key]
+    const o = ov[key]
     if (o && typeof o === "object" && !Array.isArray(o) && b && typeof b === "object") {
-      out[key] = deepMerge(b, o)
+      out[key] = deepMerge(b as object, o as Partial<object>)
     } else if (o !== undefined) {
       out[key] = o
     }
   }
-  return out
+  return out as T
 }
 
 export function loadConfig(): Config {

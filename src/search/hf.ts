@@ -53,7 +53,8 @@ function runtimeFromTags(id: string, tags: string[]): RuntimeType | undefined {
 
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
-  return body.map((b: any): SearchResult => {
+  return body.map((raw): SearchResult => {
+    const b = raw as Record<string, unknown>
     const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
     return {
       id: String(b.id ?? b.modelId ?? ""),
