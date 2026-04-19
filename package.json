@@ -33,6 +33,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
+    "@vitest/coverage-v8": "^4.1.4",
     "@vitest/ui": "^4.1.4",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
