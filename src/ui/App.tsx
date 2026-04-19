@@ -20,9 +20,15 @@ import { LogFocus } from "./LogFocus.js"
 import { PullModal } from "./PullModal.js"
 import { PresetEditor } from "./PresetEditor.js"
 import { Suggestions } from "./Suggestions.js"
+import { SearchBrowser } from "./SearchBrowser.js"
 import { SUGGESTIONS, type Suggestion } from "../pull/suggestions.js"
 
-type Mode = "list" | "filter" | "pull" | "preset" | "logs"
+type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search"
+
+// How long a status message stays on screen before auto-dismissing.
+// Long enough to read a success/error line, short enough that it
+// doesn't linger and obscure subsequent context.
+const MESSAGE_TTL_MS = 4000
 
 function errMsg(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -60,6 +66,15 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     stdout.on("resize", onResize)
     return () => { stdout.off("resize", onResize) }
   }, [stdout])
+
+  // Auto-dismiss the status message after a short delay so it doesn't
+  // linger past its relevance. Setting a new message resets the timer
+  // because the effect re-runs on each `message` change.
+  useEffect(() => {
+    if (!message) return
+    const t = setTimeout(() => setMessage(""), MESSAGE_TTL_MS)
+    return () => { clearTimeout(t) }
+  }, [message])
 
   useEffect(() => {
     const tick = (): void => {
@@ -282,7 +297,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   }
 
   useInput((input, key) => {
-    if (mode === "pull" || mode === "preset") return
+    if (mode === "pull" || mode === "preset" || mode === "search") return
     // Mouse wheel events arrive as SGR sequences ("\x1b[<64;10;20M")
     // that Ink may split across multiple useInput calls — including a
     // lone key.escape for the leading ESC byte, which would otherwise
@@ -323,6 +338,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       }
       if (input === "s") { rescan(); return }
       if (input === "p") { setPullPrefill(undefined); setMode("pull"); return }
+      if (input === "S") { setMode("search"); return }
       if (input === "q") { exit(); return }
       return
     }
@@ -336,6 +352,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     else if (input === "s") rescan()
     else if (input === "/") { setFilter(""); setMode("filter") }
     else if (input === "p") { setPullPrefill(undefined); setMode("pull") }
+    else if (input === "S") setMode("search")
     else if (input === "e") { if (selected) setMode("preset") }
     else if (input === "q") exit()
   })
@@ -355,6 +372,20 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     return <PresetEditor
       entryId={selected.id}
       onClose={msg => { if (msg) setMessage(msg); setModels(listModels()); setMode("list") }} />
+  }
+
+  if (mode === "search") {
+    // Embedded variant: onExit lands us back in list mode instead of
+    // terminating the Ink app. SearchBrowser owns its own PullModal
+    // flow, so new models land in the registry before we return.
+    return <SearchBrowser
+      embedded
+      onExit={msg => {
+        if (msg) setMessage(msg)
+        setModels(listModels())
+        setMode("list")
+      }}
+    />
   }
 
   if (mode === "logs") {
@@ -385,15 +416,17 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
           : <Box height={focusRows}><Text dimColor>no model selected</Text></Box>}
         <Text dimColor>{divider}</Text>
         <Text dimColor>wheel/↑↓ scroll · PgUp/PgDn page · g top · G/End tail · r restart · k kill · ⏎ start/stop · tab list · q quit</Text>
-        {message ? <Text color="yellow">{message}</Text> : null}
+        <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
       </Box>
     )
   }
 
   // Allocate space: banner is ~12 rows, header row is 1, two rules are 2,
-  // list gets the top chunk, log tail gets the bottom chunk, footer is 2.
+  // list gets the top chunk, log tail gets the bottom chunk, footer is 2,
+  // plus a reserved 1-row status line so transient messages don't push
+  // the rest of the layout off the bottom of the screen.
   const bannerRows = 12
-  const chromeRows = bannerRows + 1 /* stats */ + 2 /* rules */ + 2 /* footer */
+  const chromeRows = bannerRows + 1 /* stats */ + 2 /* rules */ + 2 /* footer */ + 1 /* message */
   const bodyRows = Math.max(8, dims.rows - chromeRows)
   const listRows = Math.max(4, Math.min(filtered.length + 1, Math.floor(bodyRows * 0.55)))
   const logRows = Math.max(4, bodyRows - listRows)
@@ -430,9 +463,9 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       {mode === "filter"
         ? <Text>/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
         : isEmpty
-          ? null
-          : <Text dimColor>↑↓ · ⏎ start/stop · r restart · k kill · P expose/hide · d remove · s scan · p pull · e preset · / filter · tab hide list · q quit</Text>}
-      {message ? <Text color="yellow">{message}</Text> : null}
+          ? <Text dimColor>↑↓ · ⏎ pull suggestion · p pull repo · S search · s scan · q quit</Text>
+          : <Text dimColor>↑↓ · ⏎ start/stop · r restart · k kill · P expose/hide · d remove · s scan · p pull · S search · e preset · / filter · tab hide list · q quit</Text>}
+      <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
     </Box>
   )
 }

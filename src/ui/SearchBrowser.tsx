@@ -59,6 +59,11 @@ export interface SearchBrowserProps {
   // or when a pull finishes. In CLI mode this triggers process exit;
   // in the main TUI it routes back to the list view.
   onExit: (message?: string) => void
+  // When true, do not call Ink's useApp().exit() on close — the
+  // parent app owns the lifecycle and will just switch modes. The
+  // standalone `athanor search` CLI leaves this undefined so the
+  // process terminates as expected.
+  embedded?: boolean
 }
 
 type Mode = "edit" | "browse" | "pull"
@@ -146,7 +151,7 @@ function Header({ cols, layout, sort }: { cols: number; layout: Layout; sort: Se
 }
 
 export const SearchBrowser: React.FC<SearchBrowserProps> = ({
-  initialQuery, initialFilter, initialSort, onExit
+  initialQuery, initialFilter, initialSort, onExit, embedded
 }) => {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -294,9 +299,14 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   useEffect(() => {
     if (!stdin || !stdout || !isRawModeSupported) return
     setRawMode(true)
+    // When embedded, the parent App already owns the SGR mouse mode
+    // and will tear it down on its own unmount. Writing the disable
+    // sequence here on close would strip the parent's reporting as
+    // a side effect, so we skip the toggle entirely and just attach
+    // our data listener.
     const enable  = "\x1b[?1000h\x1b[?1006h"
     const disable = "\x1b[?1006l\x1b[?1000l"
-    stdout.write(enable)
+    if (!embedded) stdout.write(enable)
     const handler = (data: Buffer): void => {
       const s = data.toString("utf8")
       // SGR mouse: ESC [ < Cb ; Cx ; Cy (M=press, m=release).
@@ -332,6 +342,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     let cleaned = false
     const cleanup = (): void => {
       if (cleaned) return; cleaned = true
+      if (embedded) return
       try { stdout.write(disable) } catch { /* stdout may be closed */ }
     }
     process.on("exit", cleanup)
@@ -345,7 +356,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       process.off("SIGHUP",  onSig)
       cleanup()
     }
-  }, [stdin, stdout, setRawMode, isRawModeSupported])
+  }, [stdin, stdout, setRawMode, isRawModeSupported, embedded])
 
   useInput((input, key) => {
     if (mode === "pull") return
@@ -359,7 +370,9 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       if (mode === "edit" && initialQuery === undefined && results.length > 0) {
         setMode("browse"); return
       }
-      onExit(); exit(); return
+      onExit()
+      if (!embedded) exit()
+      return
     }
     if (mode === "edit") {
       if (key.return) { setMode("browse"); return }

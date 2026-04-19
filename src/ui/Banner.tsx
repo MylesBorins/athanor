@@ -80,7 +80,7 @@ export const Banner: React.FC<BannerProps> = ({ status, sys }) => {
         <Text bold color="#ffb347">
           A T H A N O R
         </Text>
-        <Text dimColor>slow fire for local models</Text>
+        <Text dimColor>personal LLM alchemy</Text>
         <Text> </Text>
         <Text dimColor>{status ?? ""}</Text>
         {sys ? (
