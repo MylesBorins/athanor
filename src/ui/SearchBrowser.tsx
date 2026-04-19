@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink"
 import {
   searchModelsPage,
-  sortBySize,
+  sortByKey,
   type SearchCursor,
   type SearchFilter,
   type SearchResult,
@@ -206,7 +206,12 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       .then(p => {
         if (cancelled) return
         for (const r of p.results) seenIdsRef.current.add(r.id)
-        const ordered = sort === "size" ? sortBySize(p.results) : p.results
+        // searchModelsPage already globally sorts filter="any" pages;
+        // for single-filter + sort=size the server uses popularity so
+        // we re-order client-side here. Other single-filter sorts come
+        // back server-sorted and pass through unchanged.
+        const needsSort = filter === "any" || sort === "size"
+        const ordered = needsSort ? sortByKey(sort, p.results) : p.results
         setResults(ordered)
         setCursor(p.cursor)
         setSelectedIdx(0); setScrollOff(0)
@@ -219,8 +224,12 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
 
   // Fetch the next page and merge it in. Guarded by loadingMore so a
   // burst of scroll keypresses can't fan out into parallel fetches.
-  // For sort=size we re-apply sortBySize across the union; other sorts
-  // preserve the order the API returned.
+  // For filter="any" we re-apply the active sort across the union on
+  // every page add, because subsequent mlx/gguf pages can contain
+  // entries that outrank rows already shown from the other stream.
+  // For single-filter sort=size we also re-sort (server returns by
+  // popularity); other single-filter sorts are already monotonic
+  // across pages.
   const loadingMoreRef = useRef(false)
   const loadMore = (): void => {
     if (loadingMoreRef.current) return
@@ -238,7 +247,8 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
         }
         setResults(prev => {
           const merged = prev.concat(fresh)
-          return sort === "size" ? sortBySize(merged) : merged
+          const needsSort = filter === "any" || sort === "size"
+          return needsSort ? sortByKey(sort, merged) : merged
         })
         setCursor(p.cursor)
       })

@@ -13,25 +13,32 @@ type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean }
 
 // Warm stone/brick tone for the furnace body. BRICK is the base color
 // for every structural line (chimney, walls, grate, base) so the
-// furnace reads as masonry rather than UI chrome.
+// furnace reads as masonry rather than UI chrome. Chamber interiors
+// are left open so the philosopher's egg and fire glow read clearly
+// against empty space.
 const BRICK = "#a08a66"
 const SHIMMER = "#d4a56a"
 const EGG = "#ffd27a"
 
 const FURNACE: Seg[][] = [
+  // Heat shimmer drifting above the chimney
   [{ text: "         ~ ~      ", color: SHIMMER, dim: true }],
   [{ text: "          ~       ", color: SHIMMER, dim: true }],
+  // Chimney
   [{ text: "        ╔═══╗     ", color: BRICK }],
   [{ text: "        ║   ║     ", color: BRICK }],
+  // Upper chamber with flared shoulders and the philosopher's egg
   [{ text: "   ╔════╩═══╩════╗", color: BRICK }],
   [{ text: "   ║             ║", color: BRICK }],
   [
     { text: "   ║      ", color: BRICK },
-    { text: "◯", color: EGG, bold: true },
+    { text: "◉", color: EGG, bold: true },
     { text: "      ║", color: BRICK }
   ],
   [{ text: "   ║             ║", color: BRICK }],
+  // Grate separating chamber from fire
   [{ text: "   ╠═════════════╣", color: BRICK }],
+  // Fire chamber with coal gradient
   [
     { text: "   ║   ", color: BRICK },
     { text: "░", color: "#7a1a0a" },
@@ -43,6 +50,7 @@ const FURNACE: Seg[][] = [
     { text: "░", color: "#7a1a0a" },
     { text: "   ║", color: BRICK }
   ],
+  // Vented base
   [{ text: "   ╚══════╦══════╝", color: BRICK }],
   [{ text: "          ╨       ", color: BRICK }]
 ]

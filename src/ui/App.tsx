@@ -76,6 +76,27 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     return () => { clearTimeout(t) }
   }, [message])
 
+  // Auto-focus the first running model the first time we see the
+  // registry populated. We defer to an effect (rather than the
+  // useState factory) because the supervisor may not have hydrated
+  // its persisted instance list synchronously at mount. Fires at most
+  // once per session — subsequent ticks leave the user's selection
+  // alone.
+  const initialFocusDone = useRef(false)
+  useEffect(() => {
+    if (initialFocusDone.current) return
+    if (models.length === 0) return
+    const idx = models.findIndex(m => instances.some(i => i.id === m.id))
+    if (idx >= 0) {
+      initialFocusDone.current = true
+      setSelectedIdx(idx)
+    } else if (instances.length > 0) {
+      // Instances present but none match a model — flag as done so
+      // we don't re-scan on every tick.
+      initialFocusDone.current = true
+    }
+  }, [models, instances])
+
   useEffect(() => {
     const tick = (): void => {
       const insts = supervisor.list()
@@ -167,7 +188,25 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   useEffect(() => { modeRef.current = mode }, [mode])
   const filteredLenRef = useRef(filtered.length)
   useEffect(() => { filteredLenRef.current = filtered.length }, [filtered.length])
+  const dimsRef = useRef(dims)
+  useEffect(() => { dimsRef.current = dims }, [dims])
   const lastMouseAtRef = useRef(0)
+
+  // Compute the 1-based Y coordinate of the last row of the model
+  // list pane. Used to route wheel events: anything below this row
+  // targets the log tail, anything at or above targets list selection.
+  // Must match the chromeRows math further below — banner (12) +
+  // divider (1) = 13 rows of chrome above the list. Kept in sync
+  // with the FURNACE row count in Banner.tsx.
+  function listEndY(): number {
+    const rows = dimsRef.current.rows
+    const filteredLen = filteredLenRef.current
+    const bannerRows = 12
+    const chromeRows = bannerRows + 1 + 2 + 2 + 1
+    const bodyRows = Math.max(8, rows - chromeRows)
+    const listRows = Math.max(4, Math.min(filteredLen + 1, Math.floor(bodyRows * 0.55)))
+    return bannerRows + 1 + listRows
+  }
 
   useEffect(() => {
     if (!stdin || !stdout || !isRawModeSupported) return
@@ -185,7 +224,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       // SGR mouse: ESC [ < Cb ; Cx ; Cy (M=press, m=release). Wheel
       // events have bit 6 set in Cb; bit 0 picks up vs down
       // (64 = wheel up, 65 = wheel down, 68/69 with shift, etc.).
-      const re = /\x1b\[<(\d+);\d+;\d+[Mm]/g
+      const re = /\x1b\[<(\d+);(\d+);(\d+)[Mm]/g
       let match: RegExpExecArray | null
       let sawMouse = false
       while ((match = re.exec(s)) !== null) {
@@ -193,19 +232,28 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         const cb = parseInt(match[1], 10)
         if ((cb & 64) === 0) continue
         const down = (cb & 1) === 1
+        const y = parseInt(match[3], 10)
         if (modeRef.current === "logs") {
+          // Full-screen log focus mode: whole screen scrolls the log.
           if (down) setLogScroll(o => Math.max(0, o - LOG_WHEEL_STEP))
           else      setLogScroll(o => o + LOG_WHEEL_STEP)
         } else if (modeRef.current === "list") {
-          // Move the list cursor one entry per wheel notch so
-          // trackpad/mouse behavior matches single-step arrow keys.
-          const len = filteredLenRef.current
-          if (len === 0) continue
-          setSelectedIdx(i =>
-            down
-              ? Math.min(i + 1, len - 1)
-              : Math.max(i - 1, 0)
-          )
+          // Split view: route wheel events by hover region. Scrolling
+          // while hovered over the log tail should never move the
+          // model selection, and vice versa.
+          const overLogs = y > listEndY()
+          if (overLogs) {
+            if (down) setLogScroll(o => Math.max(0, o - LOG_WHEEL_STEP))
+            else      setLogScroll(o => o + LOG_WHEEL_STEP)
+          } else {
+            const len = filteredLenRef.current
+            if (len === 0) continue
+            setSelectedIdx(i =>
+              down
+                ? Math.min(i + 1, len - 1)
+                : Math.max(i - 1, 0)
+            )
+          }
         }
       }
       if (sawMouse) lastMouseAtRef.current = Date.now()
@@ -421,10 +469,11 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     )
   }
 
-  // Allocate space: banner is ~12 rows, header row is 1, two rules are 2,
-  // list gets the top chunk, log tail gets the bottom chunk, footer is 2,
-  // plus a reserved 1-row status line so transient messages don't push
-  // the rest of the layout off the bottom of the screen.
+  // Allocate space: banner is 12 rows (see FURNACE in Banner.tsx),
+  // header row is 1, two rules are 2, list gets the top chunk, log
+  // tail gets the bottom chunk, footer is 2, plus a reserved 1-row
+  // status line so transient messages don't push the rest of the
+  // layout off the bottom of the screen.
   const bannerRows = 12
   const chromeRows = bannerRows + 1 /* stats */ + 2 /* rules */ + 2 /* footer */ + 1 /* message */
   const bodyRows = Math.max(8, dims.rows - chromeRows)

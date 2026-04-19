@@ -24,6 +24,10 @@ export interface SearchResult {
   downloads?: number
   likes?: number
   lastModified?: string
+  // Hub-computed trending score; returned when the caller requests
+  // it via expand[] or sort=trendingScore. Used by client-side sort
+  // when merging mlx + gguf streams under filter="any".
+  trendingScore?: number
   tags: string[]
   runtime?: RuntimeType
   license?: string
@@ -48,15 +52,34 @@ function sortParam(sort: SearchSort): string {
   }
 }
 
-// Stable client-side sort by sizeBytes descending. Entries without a
-// known size (the Hub hasn't indexed safetensors/gguf metadata) sink
-// to the bottom rather than disappearing from the result list.
+// Numeric value for the active sort key. Missing fields return -1 so
+// entries the Hub hasn't indexed sink to the bottom instead of being
+// hoisted to the top (which would happen with a `?? 0` default when
+// counts are non-negative).
+function sortValue(sort: SearchSort, r: SearchResult): number {
+  switch (sort) {
+    case "downloads": return r.downloads ?? -1
+    case "likes":     return r.likes ?? -1
+    case "trending":  return r.trendingScore ?? -1
+    case "modified":  return r.lastModified ? Date.parse(r.lastModified) : -1
+    case "size":      return r.sizeBytes ?? -1
+  }
+}
+
+// Client-side sort used to globally merge the mlx + gguf streams when
+// filter="any" (each stream is server-sorted independently, so a
+// simple interleave leaves the union out of order on the active key).
+// Also used by the TUI to re-sort across paginated page boundaries
+// for the same reason. Descending in all cases.
+export function sortByKey(sort: SearchSort, rs: SearchResult[]): SearchResult[] {
+  return [...rs].sort((a, b) => sortValue(sort, b) - sortValue(sort, a))
+}
+
+// Retained as a thin alias so existing callers that specifically want
+// a size sort (e.g. single-filter TUI loads where the server sort is
+// popularity) read clearly at the call site.
 function sortBySize(rs: SearchResult[]): SearchResult[] {
-  return [...rs].sort((a, b) => {
-    const av = a.sizeBytes ?? -1
-    const bv = b.sizeBytes ?? -1
-    return bv - av
-  })
+  return sortByKey("size", rs)
 }
 
 function extractLicense(tags: string[]): string | undefined {
@@ -112,6 +135,7 @@ function parse(body: unknown): SearchResult[] {
       downloads: typeof b.downloads === "number" ? b.downloads : undefined,
       likes: typeof b.likes === "number" ? b.likes : undefined,
       lastModified: typeof b.lastModified === "string" ? b.lastModified : undefined,
+      trendingScore: typeof b.trendingScore === "number" ? b.trendingScore : undefined,
       tags,
       runtime: runtimeFromTags(String(b.id ?? ""), tags),
       license: extractLicense(tags),
@@ -140,7 +164,7 @@ function buildSearchUrl(filterTag: string | null, opts: SearchOpts): string {
   // so we must also re-request the default fields we rely on.
   for (const field of [
     "gguf", "safetensors",
-    "downloads", "likes", "lastModified", "tags"
+    "downloads", "likes", "lastModified", "tags", "trendingScore"
   ]) params.append("expand[]", field)
   return `${API}?${params.toString()}`
 }
@@ -181,10 +205,14 @@ function dedupe(results: SearchResult[]): SearchResult[] {
 }
 
 // Runs one or two API calls depending on the filter, de-dupes, and
-// returns results ordered with the primary sort key descending.
+// returns results ordered with the primary sort key descending. For
+// filter="any" the mlx and gguf streams each arrive pre-sorted by the
+// server on their own axis; the client-side sortByKey is what makes
+// the merged result set a true global ordering rather than a
+// round-robin interleave of two independent sorts.
 export async function searchModels(opts: SearchOpts = {}): Promise<SearchResult[]> {
   const filter = opts.filter ?? "any"
-  const isSize = opts.sort === "size"
+  const sort   = opts.sort   ?? "downloads"
   let merged: SearchResult[]
   if (filter === "mlx")  merged = await queryOne("mlx",  opts)
   else if (filter === "gguf") merged = await queryOne("gguf", opts)
@@ -193,17 +221,10 @@ export async function searchModels(opts: SearchOpts = {}): Promise<SearchResult[
       queryOne("mlx",  opts),
       queryOne("gguf", opts)
     ])
-    // Interleave and dedupe. Preserve per-query order (which the API
-    // already sorted for us).
-    merged = []
-    const max = Math.max(mlx.length, gguf.length)
-    for (let i = 0; i < max; i++) {
-      if (mlx[i]) merged.push(mlx[i])
-      if (gguf[i]) merged.push(gguf[i])
-    }
-    merged = dedupe(merged)
+    merged = dedupe([...mlx, ...gguf])
+    merged = sortByKey(sort, merged)
   }
-  if (isSize) merged = sortBySize(merged)
+  if (filter !== "any" && sort === "size") merged = sortBySize(merged)
   return merged.slice(0, opts.limit ?? 20)
 }
 
@@ -224,43 +245,40 @@ export interface SearchPage {
 
 // Fetch one page of results. On the first call, omit `cursor`; the
 // returned cursor (if any) is opaque and should be passed back on the
-// next call. Caller is responsible for accumulating pages and for any
-// post-sort that doesn't have a server-side equivalent (size).
+// next call. For filter="any" the merged page is globally sorted by
+// the active key across both streams; the caller is still responsible
+// for re-sorting the union across page boundaries (see SearchBrowser).
 export async function searchModelsPage(
   opts: SearchOpts = {},
   cursor?: SearchCursor
 ): Promise<SearchPage> {
   const filter = opts.filter ?? "any"
+  const sort   = opts.sort   ?? "downloads"
   if (filter === "mlx" || filter === "gguf") {
     const url = cursor?.one ?? buildSearchUrl(filter, opts)
     const { results, next } = await fetchPage(url)
     return { results, cursor: next ? { one: next } : undefined }
   }
-  // filter === "any": paginate both streams, interleave fresh pages.
+  // filter === "any": paginate both streams, then globally sort the
+  // combined page by the active key. A round-robin interleave would
+  // show "popular-mlx, popular-gguf, 2nd-mlx, 2nd-gguf, …" which is
+  // what makes the original result order look like two lists glued
+  // together rather than a single ranked list.
   const mlxUrl  = cursor?.mlx  ?? (cursor ? undefined : buildSearchUrl("mlx",  opts))
   const ggufUrl = cursor?.gguf ?? (cursor ? undefined : buildSearchUrl("gguf", opts))
   const [mlx, gguf] = await Promise.all([
     mlxUrl  ? fetchPage(mlxUrl)  : Promise.resolve({ results: [] as SearchResult[], next: undefined }),
     ggufUrl ? fetchPage(ggufUrl) : Promise.resolve({ results: [] as SearchResult[], next: undefined })
   ])
-  const merged: SearchResult[] = []
-  const max = Math.max(mlx.results.length, gguf.results.length)
-  for (let i = 0; i < max; i++) {
-    if (mlx.results[i])  merged.push(mlx.results[i])
-    if (gguf.results[i]) merged.push(gguf.results[i])
-  }
+  const merged = sortByKey(sort, dedupe([...mlx.results, ...gguf.results]))
   const next: SearchCursor = {}
   if (mlx.next)  next.mlx  = mlx.next
   if (gguf.next) next.gguf = gguf.next
   return {
-    results: dedupe(merged),
+    results: merged,
     cursor: (next.mlx || next.gguf) ? next : undefined
   }
 }
-
-// Re-export the size sorter so the TUI can re-apply it after each
-// page merge without duplicating the comparator.
-export { sortBySize }
 
 export function groupByRuntime(results: SearchResult[]): {
   mlx: SearchResult[]
