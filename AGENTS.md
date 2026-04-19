@@ -4,7 +4,7 @@ Orientation for contributors and AI agents working on athanor. Read this before 
 
 ## What athanor is
 
-A local LLM workbench for Apple Silicon. It scans the Hugging Face cache, registers MLX and `llama.cpp` (GGUF) models in `~/.athanor/models.json`, assigns each one a **stable port**, supervises detached child processes, and exposes models to [pi-agent](https://github.com/badlogic/pi-mono) as one custom provider per model. Surfaces are an Ink TUI (`athanor`) and a hand-rolled CLI (`athanor <cmd>`).
+Athanor — personal LLM alchemy on Apple Silicon. It scans the Hugging Face cache, registers MLX and `llama.cpp` (GGUF) models in `~/.athanor/models.json`, assigns each one a **stable port**, supervises detached child processes, and exposes models to [pi-agent](https://github.com/badlogic/pi-mono) as one custom provider per model. Surfaces are an Ink TUI (`athanor`) and a hand-rolled CLI (`athanor <cmd>`).
 
 Not a library. Not a daemon. No network listeners except the runtime children themselves (and an optional local control API, off by default).
 

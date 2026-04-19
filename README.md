@@ -1,6 +1,6 @@
 # athanor
 
-A local LLM workbench for Apple Silicon. Discover, download, configure, and switch between MLX and llama.cpp models from a single TUI or CLI, while keeping an OpenAI-compatible HTTP endpoint live for downstream tools (pi-agent, editors, etc.).
+**Athanor — personal LLM alchemy.** Discover, download, configure, and switch between MLX and llama.cpp models on Apple Silicon from a single TUI or CLI, while keeping an OpenAI-compatible HTTP endpoint live for downstream tools (pi-agent, editors, etc.).
 
 ## What it does
 

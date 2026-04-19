@@ -1,7 +1,7 @@
 {
   "name": "athanor",
   "version": "1.0.0",
-  "description": "Local LLM Model Workbench for Apple Silicon - manages MLX and llama.cpp runtimes",
+  "description": "Athanor — personal LLM alchemy",
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "type": "module",
