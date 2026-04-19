@@ -2,37 +2,26 @@ import React from "react"
 import { Box, Text } from "ink"
 import type { SysStats } from "../supervisor/metrics.js"
 
-// An athanor is an alchemical furnace — a slow, continuous fire used
-// to transmute matter over long durations. Rendered here as a two-
-// chamber furnace: the philosopher's egg sits in the upper chamber,
-// a bed of coals glows through the grate below, and flames rise from
-// the chimney mouth. Layout is exactly 7 rows to match bannerRows in
-// App.tsx; changing the height requires updating both callers.
-type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean }
-
-const FURNACE: Seg[][] = [
-  [{ text: "     ) ( )    ", color: "#ffc766" }],
-  [{ text: "    )( ) )( ) ", color: "#ff6b1a" }],
-  [{ text: "   ┏━━━━━━━━━┓", dim: true }],
-  [
-    { text: "   ┃    ", dim: true },
-    { text: "◯", color: "#ffd27a", bold: true },
-    { text: "    ┃", dim: true }
-  ],
-  [{ text: "   ┣━━━━━━━━━┫", dim: true }],
-  [
-    { text: "   ┃ ", dim: true },
-    { text: "░", color: "#7a1a0a" },
-    { text: "▒", color: "#c73a1a" },
-    { text: "▓", color: "#ff7a2a" },
-    { text: "█", color: "#ffb347", bold: true },
-    { text: "▓", color: "#ff7a2a" },
-    { text: "▒", color: "#c73a1a" },
-    { text: "░", color: "#7a1a0a" },
-    { text: " ┃", dim: true }
-  ],
-  [{ text: "   ┗━━━━┻━━━━┛", dim: true }]
+// An athanor is an alchemical furnace — a slow, continuous fire used to
+// transmute matter over long periods. The glyph below is a stylized
+// furnace with rising flames.
+const FURNACE = [
+  "    )   )  (  ",
+  "   (   ) ) ) )",
+  "    ) (((  ( (",
+  "   ┏━━━━━━━━━┓",
+  "   ┃ ░▒▓█▓▒░ ┃",
+  "   ┗━━━━┳━━━━┛",
+  "        ┻       "
 ]
+
+const FLAME_COLORS = ["#ff6b1a", "#ff8c2a", "#ffb347"]
+
+function flameColorFor(line: string, idx: number): string | undefined {
+  // the first three lines are flames; color them by row for a gradient
+  if (idx < 3) return FLAME_COLORS[idx] ?? "#ff6b1a"
+  return undefined
+}
 
 export function bar(pct: number, width = 10): string {
   const clamped = Math.max(0, Math.min(100, pct))
@@ -55,11 +44,9 @@ export const Banner: React.FC<BannerProps> = ({ status, sys }) => {
   return (
     <Box flexDirection="row">
       <Box flexDirection="column" marginRight={2}>
-        {FURNACE.map((segs, i) => (
-          <Text key={i}>
-            {segs.map((s, j) => (
-              <Text key={j} color={s.color} bold={s.bold} dimColor={s.dim}>{s.text}</Text>
-            ))}
+        {FURNACE.map((line, i) => (
+          <Text key={i} color={flameColorFor(line, i)} dimColor={i >= 3}>
+            {line}
           </Text>
         ))}
       </Box>
