@@ -35,6 +35,26 @@ function runtimeSuffix(stats?: InstanceStats): string {
   return parts.join(" · ")
 }
 
+function sourceLabel(m: ModelEntry): string {
+  return m.source.type === "hf" ? `hf:${m.source.repo}` : "local"
+}
+
+function recencyLabel(lastUsedAt?: number): string {
+  if (!lastUsedAt) return "never"
+  const deltaMs = Math.max(0, Date.now() - lastUsedAt)
+  const minutes = Math.floor(deltaMs / 60000)
+  if (minutes < 1) return "now"
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo`
+  const years = Math.floor(days / 365)
+  return `${years}y`
+}
+
 // Mid-string truncation with an ellipsis. Used to keep the slug
 // column from overflowing into the next visual row, which would
 // otherwise reflow every row below it on a narrow terminal.
@@ -65,13 +85,14 @@ export const ModelList: React.FC<ModelListProps> = ({
   }
   // Budget breakdown for fixed columns to the right of the slug:
   //   cursor 2 + status 2 + runtime 10 + ":port  " ~8 + "[pi] " 5
-  //   + "pid xxxxx" ~10 + suffix (cpu/rss/tok·s) up to ~28.
+  //   + "pid xxxxx" ~10 + recency ~7 + source up to ~28 + suffix up to ~28.
   // We size the slug column to whatever's left, with a 12-char floor
   // so it stays readable on very narrow terminals.
-  const FIXED_CHROME = 2 + 2 + 10 + 8 + 5 + 10
+  const FIXED_CHROME = 2 + 2 + 10 + 8 + 5 + 10 + 7
+  const SOURCE_MAX   = 28
   const SUFFIX_MAX   = 28
   const width = cols ?? 200
-  const slugBudget = Math.max(12, Math.min(40, width - FIXED_CHROME - SUFFIX_MAX))
+  const slugBudget = Math.max(12, Math.min(40, width - FIXED_CHROME - SOURCE_MAX - SUFFIX_MAX))
   return (
     <Box flexDirection="column">
       {models.map((m, i) => {
@@ -80,6 +101,8 @@ export const ModelList: React.FC<ModelListProps> = ({
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
         const slug = truncMid(m.slug, slugBudget).padEnd(slugBudget)
+        const recency = recencyLabel(m.lastUsedAt).padStart(5)
+        const source = truncMid(sourceLabel(m), SOURCE_MAX)
         return (
           <Box key={m.id} width={cols}>
             <Text color={selected ? "cyan" : undefined}>{selected ? "› " : "  "}</Text>
@@ -91,6 +114,8 @@ export const ModelList: React.FC<ModelListProps> = ({
             <Text>:{m.port}  </Text>
             <Text dimColor>{m.publish ? "[pi] " : "     "}</Text>
             <Text dimColor>{inst ? `pid ${inst.pid}` : ""}</Text>
+            <Text dimColor>  {recency}</Text>
+            <Text dimColor wrap="truncate">  {source}</Text>
             {suffix ? <Text dimColor wrap="truncate">  {suffix}</Text> : null}
           </Box>
         )

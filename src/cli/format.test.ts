@@ -60,18 +60,24 @@ describe("statusBadge", () => {
 })
 
 describe("formatEntryLine", () => {
-  it("includes the slug, runtime, port, and [pi] when published", () => {
+  it("includes the slug, runtime, port, [pi], and source when published", () => {
     const line = formatEntryLine(entry({ publish: true, sizeBytes: 1024 * 1024 }))
     expect(line).toContain("y-slug")
     expect(line).toContain("mlx")
     expect(line).toContain(":8081")
     expect(line).toContain("[pi]")
     expect(line).toContain("1.0 MB")
+    expect(line).toContain("hf:x/y")
   })
 
   it("omits the [pi] tag when not published", () => {
     const line = formatEntryLine(entry({ publish: false }))
     expect(line).not.toContain("[pi]")
+  })
+
+  it("shows local as the source label for local entries", () => {
+    const line = formatEntryLine(entry({ source: { type: "local" } }))
+    expect(line).toContain("local")
   })
 
   it("appends the active status marker when an instance is provided", () => {

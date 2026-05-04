@@ -1,4 +1,5 @@
 import { listModels, getModel } from "../registry/index.js"
+import { sortModelsByRecentUse } from "../registry/sort.js"
 import { supervisor } from "../supervisor/index.js"
 import { scanModelsAndReport, removeModelEntry, restartModel, setFlavor, setPublished, startModel, stopModel, syncPiNow } from "../app/models.js"
 import { SUGGESTIONS } from "../pull/suggestions.js"
@@ -26,7 +27,7 @@ export async function cmdScan(): Promise<void> {
 }
 
 export function cmdList(): void {
-  const models = listModels()
+  const models = sortModelsByRecentUse(listModels(), supervisor.list())
   if (models.length === 0) {
     warn(`registry empty — run ${style.bold("athanor scan")} to pick up existing downloads, or pull a starter model:`)
     console.log("")

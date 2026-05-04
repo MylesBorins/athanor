@@ -29,6 +29,22 @@ function formatRss(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`
 }
 
+function formatLastUsed(lastUsedAt?: number): string {
+  if (!lastUsedAt) return "never"
+  const deltaMs = Math.max(0, Date.now() - lastUsedAt)
+  const minutes = Math.floor(deltaMs / 60000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo ago`
+  const years = Math.floor(days / 365)
+  return `${years}y ago`
+}
+
 export interface LogFocusProps {
   entry: ModelEntry
   instance?: ActiveInstance
@@ -108,6 +124,7 @@ export const LogFocus: React.FC<LogFocusProps> = ({
             <Text dimColor>  tok/s </Text><Text>{stats.completion.tokPerSec.toFixed(1)}</Text>
           </>
         ) : <Text dimColor>  tok/s —</Text>}
+        <Text dimColor>  used </Text><Text>{formatLastUsed(entry.lastUsedAt)}</Text>
         <Text dimColor>  log </Text>
         <Text color={paused ? "yellow" : undefined}>{scrollLabel}</Text>
       </Box>

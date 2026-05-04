@@ -1,6 +1,12 @@
 import type { ModelEntry, ActiveInstance } from "../types/index.js"
 import { padEndVisual, style, statusGlyph, sym } from "./style.js"
 
+function sourceLabel(entry: ModelEntry): string {
+  return entry.source.type === "hf"
+    ? `hf:${entry.source.repo}`
+    : "local"
+}
+
 export function formatBytes(bytes?: number): string {
   if (!bytes) return "?"
   const units = ["B", "KB", "MB", "GB", "TB"]
@@ -37,6 +43,7 @@ export function formatEntryLine(entry: ModelEntry, inst?: ActiveInstance): strin
   const pub = entry.publish ? style.magenta("[pi]") : style.gray("    ")
   const tuned = entry.preset ? style.yellow("[tuned]") : style.gray("       ")
   const size = entry.sizeBytes ? style.gray(formatBytes(entry.sizeBytes)) : ""
+  const source = style.gray(sourceLabel(entry))
   return [
     padEndVisual(marker, 11),
     padEndVisual(slug, 32),
@@ -44,6 +51,7 @@ export function formatEntryLine(entry: ModelEntry, inst?: ActiveInstance): strin
     padEndVisual(port, 7),
     padEndVisual(pub, 5),
     padEndVisual(tuned, 8),
-    size
+    padEndVisual(size, 10),
+    source
   ].join("  ")
 }

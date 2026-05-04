@@ -67,6 +67,19 @@ describe("parseCompletionStats", () => {
     expect(s).toMatchObject({ tokens: 250, tokPerSec: 20.66 })
   })
 
+  it("matches mlx summaries with lowercase generated wording", () => {
+    const chunk = "info: generated 384 tokens in 17.5s (21.94 tok/s)"
+    const s = parseCompletionStats(chunk)
+    expect(s).toMatchObject({ tokens: 384, tokPerSec: 21.94 })
+  })
+
+  it("matches llama eval-time lines with tok/s spelling", () => {
+    const chunk = "eval time = 1000.00 ms / 50 tokens (20.00 ms per token, 50.00 tok/s)"
+    const s = parseCompletionStats(chunk)
+    expect(s).toMatchObject({ tokens: 50, tokPerSec: 50.0 })
+    expect(s!.elapsedMs).toBeCloseTo(1000, 2)
+  })
+
   it("picks the most recent completion when both formats appear", () => {
     const chunk = [
       "       eval time =   10000.00 ms /   100 tokens (  100.00 ms per token,    10.00 tokens per second)",

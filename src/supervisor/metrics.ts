@@ -146,14 +146,15 @@ export function _resetMetricsState(): void {
   prevTick = null
 }
 
-// llama-server emits a two-line timing block per request. We match only
-// the decode phase ("eval time"), not the prefill ("prompt eval time").
-const RE_LLAMA = /(?:^|\n)[ \t]*eval time[ \t]*=[ \t]*([\d.]+)[ \t]*ms[ \t]*\/[ \t]*(\d+)[ \t]*tokens[^\n]*?([\d.]+)[ \t]*tokens per second/g
+// llama-server emits a timing block per request. We match only the decode
+// phase ("eval time"), not the prefill ("prompt eval time"). The wording
+// of the rate field varies by version: "tokens per second", "tok/s", etc.
+const RE_LLAMA = /(?:^|\n)[ \t]*eval time[ \t]*=[ \t]*([\d.]+)[ \t]*ms[ \t]*\/[ \t]*(\d+)[ \t]*tokens[^\n]*?([\d.]+)[ \t]*(?:tokens per second|tokens?\/sec|tok\/sec|tok\/s)/gi
 
-// mlx_lm and mlx_vlm print a single-line summary. Format varies slightly
-// by version: "Generation: N tokens, X tokens-per-sec",
-// "Generation: N tokens in Ys (X tokens/sec)", etc.
-const RE_MLX = /Generation:[ \t]*(\d+)[ \t]*tokens[^\n]*?([\d.]+)[ \t]*(?:tokens[- _]per[- _]sec(?:ond)?|tokens?\/sec|tok\/sec|tok\/s)/gi
+// mlx_lm and mlx_vlm print a single-line summary, but the prefix and token
+// wording vary by version. Accept the common "Generation:" line as well as
+// looser "generated N tokens" variants and multiple rate spellings.
+const RE_MLX = /(?:Generation:|generated\s+)(?:[^\n]*?\b)?(\d+)[ \t]*tokens?[^\n]*?([\d.]+)[ \t]*(?:tokens[- _]per[- _]sec(?:ond)?|tokens?\/sec|tok\/sec|tok\/s)/gi
 
 function lastMatch(re: RegExp, chunk: string): RegExpExecArray | null {
   re.lastIndex = 0
