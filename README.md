@@ -162,6 +162,24 @@ athanor doctor
 
 ## Quick start
 
+### Fastest path
+
+If you want one working local text model quickly on a typical 16 GB+ Apple Silicon Mac:
+
+```bash
+npm install
+npm start -- doctor
+npm start -- pull mlx-community/Qwen3.5-9B-MLX-4bit
+npm start -- start qwen3-5-9b-mlx-4bit
+npm start -- expose qwen3-5-9b-mlx-4bit
+```
+
+Then in pi-agent, select provider `athanor-mlx-qwen3-5-9b-mlx-4bit` and model `mlx-community/Qwen3.5-9B-MLX-4bit`.
+
+If you only want text chat, you do **not** need `mlx_vlm.server`; `mlx_lm.server` is enough even for many VLM-tagged repos when used as text-only models.
+
+### Full quick start
+
 ```bash
 npm install
 
