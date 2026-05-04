@@ -1,8 +1,16 @@
 {
   "name": "athanor",
   "version": "0.1.0",
-  "description": "personal LLM alchemy",
+  "description": "Personal LLM alchemy for Apple Silicon: discover, run, and publish MLX and llama.cpp models",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mylesborins/athanor.git"
+  },
+  "homepage": "https://github.com/mylesborins/athanor#readme",
+  "bugs": {
+    "url": "https://github.com/mylesborins/athanor/issues"
+  },
   "main": "dist/index.js",
   "type": "module",
   "bin": {
