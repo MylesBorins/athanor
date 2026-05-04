@@ -11,7 +11,7 @@ import {
   pidAlive,
   savePersistedInstances
 } from "./state.js"
-import { updateModel } from "../registry/index.js"
+import { touchModelLastUsed } from "../registry/index.js"
 import { awaitIdle } from "./inflight.js"
 
 export class Supervisor {
@@ -104,7 +104,7 @@ export class Supervisor {
         })
         instance.status = "running"
         this.persist()
-        updateModel(entry.id, { lastUsedAt: Date.now() })
+        touchModelLastUsed(entry.id, Date.now())
         return instance
       } catch (err) {
         instance.status = "error"

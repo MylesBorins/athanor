@@ -6,7 +6,11 @@ import {
   loadRegistry,
   removeModel,
   saveRegistry,
+  setModelFlavor,
+  setModelPreset,
+  setModelPublish,
   snapshot,
+  touchModelLastUsed,
   updateModel,
   upsertModel
 } from "./index.js"
@@ -89,6 +93,32 @@ describe("registry CRUD", () => {
       upsertModel(entry({ id: "long/id", slug: "short" }))
       const next = updateModel("short", { publish: false })
       expect(next?.id).toBe("long/id")
+    })
+  })
+
+  describe("semantic mutation helpers", () => {
+    it("sets publish via a dedicated helper", () => {
+      upsertModel(entry({ id: "a", slug: "a" }))
+      const next = setModelPublish("a", false)
+      expect(next?.publish).toBe(false)
+    })
+
+    it("sets flavor via a dedicated helper", () => {
+      upsertModel(entry({ id: "a", slug: "a" }))
+      const next = setModelFlavor("a", "vlm")
+      expect(next?.mlxFlavor).toBe("vlm")
+    })
+
+    it("sets preset via a dedicated helper", () => {
+      upsertModel(entry({ id: "a", slug: "a" }))
+      const next = setModelPreset("a", { runtime: "mlx", mlx: { decodeConcurrency: 4 } })
+      expect(next?.preset).toEqual({ runtime: "mlx", mlx: { decodeConcurrency: 4 } })
+    })
+
+    it("touches lastUsedAt via a dedicated helper", () => {
+      upsertModel(entry({ id: "a", slug: "a" }))
+      const next = touchModelLastUsed("a", 123)
+      expect(next?.lastUsedAt).toBe(123)
     })
   })
 

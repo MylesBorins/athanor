@@ -1,0 +1,133 @@
+import * as path from "path"
+import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js"
+import {
+  allocatePort,
+  loadRegistry,
+  saveRegistry,
+  slugify,
+  snapshot,
+  uniqueSlug
+} from "./index.js"
+
+export interface RegistryMaterializeResult {
+  entry: ModelEntry
+  created: boolean
+  changed: boolean
+}
+
+export interface RegistryMaterializeInput {
+  id: string
+  name: string
+  path: string
+  runtime: RuntimeType
+  source: ModelEntry["source"]
+  sizeBytes?: number
+  mlxCapabilities?: ModelEntry["mlxCapabilities"]
+}
+
+export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMaterializeInput {
+  return {
+    id: d.id,
+    name: d.name,
+    path: d.path,
+    runtime: d.runtime,
+    source: d.source,
+    sizeBytes: d.sizeBytes,
+    mlxCapabilities: d.runtime === "mlx" ? d.mlxCapabilities : undefined
+  }
+}
+
+export function pullToMaterializeInput(
+  repo: string,
+  file: string | undefined,
+  revision: string | undefined,
+  runtime: RuntimeType,
+  resolvedPath: string,
+  mlxCapabilities?: ModelEntry["mlxCapabilities"]
+): RegistryMaterializeInput {
+  return {
+    id: file ? `${repo}:${file}` : repo,
+    name: file ? path.basename(file, ".gguf") : repo,
+    path: resolvedPath,
+    runtime,
+    source: { type: "hf", repo, revision, file },
+    mlxCapabilities: runtime === "mlx" ? mlxCapabilities : undefined
+  }
+}
+
+// Shared entry materialization policy for both discovery ingest and
+// explicit pull. This is the single place that decides which fields
+// are refreshed from the filesystem/network (`path`, `sizeBytes`,
+// detected `mlxCapabilities`) versus which fields are user-owned and
+// therefore preserved (`slug`, `port`, `publish`, `piAlias`, `preset`,
+// `tags`, `mlxFlavor`). Keep this aligned with the non-destructive
+// scan invariant from AGENTS.md.
+export function materializeRegistryEntry(input: RegistryMaterializeInput): RegistryMaterializeResult {
+  const reg = loadRegistry()
+  const snap = snapshot(reg)
+  const existing = reg.models.find(m => m.id === input.id)
+
+  if (existing) {
+    const changed = updateExistingEntry(existing, input)
+    if (changed) saveRegistry(reg)
+    return { entry: existing, created: false, changed }
+  }
+
+  const desiredSlug = slugify(input.name)
+  const slug = uniqueSlug(desiredSlug, snap.slugs)
+  const port = allocatePort(snap.ports)
+  const entry: ModelEntry = {
+    id: input.id,
+    slug,
+    path: input.path,
+    runtime: input.runtime,
+    source: input.source,
+    port,
+    publish: true,
+    piAlias: slug,
+    sizeBytes: input.sizeBytes,
+    addedAt: Date.now(),
+    ...(input.runtime === "mlx" && input.mlxCapabilities && input.mlxCapabilities.length > 0
+      ? { mlxCapabilities: input.mlxCapabilities }
+      : {})
+  }
+  reg.models.push(entry)
+  saveRegistry(reg)
+  return { entry, created: true, changed: true }
+}
+
+// Update only materialized facts about an existing model. Never touch
+// user intent fields here; callers rely on re-scan and re-pull being
+// additive/non-destructive.
+function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInput): boolean {
+  let changed = false
+
+  if (existing.path !== input.path) {
+    existing.path = input.path
+    changed = true
+  }
+
+  if (input.sizeBytes !== undefined && existing.sizeBytes !== input.sizeBytes) {
+    existing.sizeBytes = input.sizeBytes
+    changed = true
+  }
+
+  if (input.runtime === "mlx") {
+    const nextCaps = input.mlxCapabilities ?? []
+    const prevCaps = existing.mlxCapabilities ?? []
+    if (!capsEqual(prevCaps, nextCaps)) {
+      if (nextCaps.length > 0) existing.mlxCapabilities = nextCaps
+      else delete existing.mlxCapabilities
+      changed = true
+    }
+  }
+
+  return changed
+}
+
+function capsEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const sa = [...a].sort()
+  const sb = [...b].sort()
+  return sa.every((v, i) => v === sb[i])
+}

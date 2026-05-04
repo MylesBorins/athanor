@@ -85,9 +85,25 @@ describe("recipeToPreset", () => {
     const p = recipeToPreset(findRecipe("fast")!, "llama.cpp")!
     expect(p.runtime).toBe("llama.cpp")
   })
-  it("returns undefined for recipes with nothing for that runtime", () => {
-    // balanced has no mlx or llama sections.
-    expect(recipeToPreset(findRecipe("balanced")!, "mlx")).toBeUndefined()
-    expect(recipeToPreset(findRecipe("balanced")!, "llama.cpp")).toBeUndefined()
+
+  it("ships explicit built-in context bands", () => {
+    expect(findRecipe("fast")?.mlx?.promptCacheSize).toBe(8192)
+    expect(findRecipe("balanced")?.mlx?.promptCacheSize).toBe(16384)
+    expect(findRecipe("quality")?.mlx?.promptCacheSize).toBe(32768)
+    expect(findRecipe("coding")?.mlx?.promptCacheSize).toBe(32768)
+    expect(findRecipe("long-context")?.mlx?.promptCacheSize).toBe(65536)
+
+    expect(findRecipe("fast")?.llama?.ctxSize).toBe(8192)
+    expect(findRecipe("balanced")?.llama?.ctxSize).toBe(16384)
+    expect(findRecipe("quality")?.llama?.ctxSize).toBe(32768)
+    expect(findRecipe("coding")?.llama?.ctxSize).toBe(32768)
+    expect(findRecipe("long-context")?.llama?.ctxSize).toBe(65536)
+  })
+
+  it("keeps mlx and llama context bands aligned across built-ins", () => {
+    for (const name of ["fast", "balanced", "quality", "coding", "long-context"]) {
+      const recipe = findRecipe(name)!
+      expect(recipe.mlx?.promptCacheSize).toBe(recipe.llama?.ctxSize)
+    }
   })
 })

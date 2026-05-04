@@ -1,264 +1,69 @@
-import * as fs from "fs"
-import { loadConfig, PATHS } from "../config/index.js"
+import { pullModel } from "../app/models.js"
+import { PullAbortedError } from "../pull/download.js"
+import { style, sym } from "./style.js"
+import { makeCliPullRenderer } from "./pull-renderer.js"
 import {
-  getModel,
-  listModels,
-  removeModel,
-  updateModel
-} from "../registry/index.js"
-import { ingestDiscovered } from "../discovery/ingest.js"
-import { supervisor } from "../supervisor/index.js"
-import { syncPi } from "../sync/pi.js"
-import { pull } from "../pull/hf.js"
-import { PullAbortedError, type ProgressEvent } from "../pull/download.js"
-import { SUGGESTIONS } from "../pull/suggestions.js"
-import { tailLog } from "../supervisor/logs.js"
-import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.js"
-import { formatEntryLine, formatUptime } from "./format.js"
-import { which } from "./doctor.js"
-import { style, sym, statusGlyph, padEndVisual } from "./style.js"
-import { searchModels, groupByRuntime, type SearchFilter, type SearchSort } from "../search/hf.js"
-import { formatResultRow } from "../search/format.js"
-import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
-import { findRecipe, listRecipes, recipeToPreset } from "../presets/recipes.js"
-import { listKeys, parseKvTokens, setPresetFields, unsetPresetFields } from "../presets/edit.js"
-import { startRouter, stopRouter } from "../router/server.js"
-import React from "react"
-import { render } from "ink"
-import { SearchBrowser } from "../ui/SearchBrowser.js"
+  cmdExpose,
+  cmdFlavor,
+  cmdList,
+  cmdLogs,
+  cmdRestart,
+  cmdRm,
+  cmdScan,
+  cmdShow,
+  cmdStart,
+  cmdStatus,
+  cmdStop,
+  cmdSync
+} from "./model-commands.js"
+import {
+  cmdPresetApply,
+  cmdPresetClear,
+  cmdPresetSet,
+  cmdPresetShow,
+  cmdPresetUnset,
+  cmdRecipes
+} from "./preset-commands.js"
+import {
+  cmdConfig,
+  cmdDoctor,
+  cmdRouter,
+  cmdSearch,
+  type SearchCmdOpts
+} from "./system-commands.js"
+import { warn, dim, ok } from "./shared.js"
 
-function ok(msg: string): void   { console.log(`${style.green(sym.check)} ${msg}`) }
-function info(msg: string): void { console.log(`${style.cyan(sym.arrow)} ${msg}`) }
-function warn(msg: string): void { console.log(`${style.yellow(sym.warn)} ${msg}`) }
-function head(msg: string): void { console.log(style.bold(msg)) }
-function dim(msg: string): string { return style.gray(msg) }
+export {
+  cmdExpose,
+  cmdFlavor,
+  cmdList,
+  cmdLogs,
+  cmdRestart,
+  cmdRm,
+  cmdScan,
+  cmdShow,
+  cmdStart,
+  cmdStatus,
+  cmdStop,
+  cmdSync
+} from "./model-commands.js"
 
-export async function cmdScan(): Promise<void> {
-  const rep = ingestDiscovered()
-  const parts = [
-    `${style.green("+" + rep.added.length)} new`,
-    `${style.yellow(String(rep.updatedPath.length))} path-updated`,
-    `${dim(String(rep.unchanged) + " unchanged")}`
-  ]
-  ok(`scan complete  ${parts.join("  ")}`)
-  for (const e of rep.added) {
-    console.log(
-      `  ${style.green(sym.bullet)} ${style.bold(e.slug.padEnd(30))} ` +
-      `${style.cyan(e.runtime.padEnd(10))} ${dim(":" + e.port)}`
-    )
-  }
-}
+export {
+  cmdPresetApply,
+  cmdPresetClear,
+  cmdPresetSet,
+  cmdPresetShow,
+  cmdPresetUnset,
+  cmdRecipes
+} from "./preset-commands.js"
 
-export function cmdList(): void {
-  const models = listModels()
-  if (models.length === 0) {
-    warn(`registry empty — run ${style.bold("athanor scan")} to pick up existing downloads, or pull a starter model:`)
-    console.log("")
-    for (const s of SUGGESTIONS) {
-      console.log(
-        `  ${style.cyan(sym.bullet)} ${style.bold(s.label.padEnd(28))} ` +
-        `${dim(s.sizeLabel.padEnd(10))}${dim(s.note)}`
-      )
-      console.log(`      ${dim(`athanor pull ${s.repo}`)}`)
-    }
-    return
-  }
-  const active = new Map(supervisor.list().map(i => [i.id, i] as const))
-  head(`${models.length} model${models.length === 1 ? "" : "s"}`)
-  for (const m of models) console.log("  " + formatEntryLine(m, active.get(m.id)))
-}
-
-export function cmdStatus(): void {
-  const instances = supervisor.list()
-  if (instances.length === 0) { info("no running instances"); return }
-  head(`${instances.length} running`)
-  const proc = sampleProcessStats(instances.map(i => i.pid))
-  for (const i of instances) {
-    const p = proc.get(i.pid)
-    const comp = parseCompletionStats(tailLog(i.logFile, 16384))
-    const cpu = p ? `${p.cpuPct.toFixed(0)}%` : "?"
-    const rss = p
-      ? (p.rssBytes / 1024 / 1024 / 1024 >= 1
-          ? `${(p.rssBytes / 1024 / 1024 / 1024).toFixed(1)}G`
-          : `${(p.rssBytes / 1024 / 1024).toFixed(0)}M`)
-      : "?"
-    const tps = comp ? `${comp.tokPerSec.toFixed(1)} tok/s` : dim("— tok/s")
-    const line = [
-      padEndVisual(`${statusGlyph(i.status)} ${i.status}`, 11),
-      padEndVisual(style.bold(i.slug), 32),
-      padEndVisual(style.cyan(i.runtime), 10),
-      padEndVisual(dim(`:${i.port}`), 7),
-      padEndVisual(dim(`up ${formatUptime(i.startedAt)}`), 10),
-      padEndVisual(cpu, 6),
-      padEndVisual(rss, 6),
-      tps
-    ].join("  ")
-    console.log("  " + line)
-  }
-}
-
-export async function cmdStart(idOrSlug: string): Promise<void> {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const inst = await supervisor.start(entry)
-  syncPi({ activeDefault: inst, instances: supervisor.list() })
-  ok(`started ${style.bold(entry.slug)} ${dim(`pid=${inst.pid} port=${inst.port}`)}`)
-}
-
-export async function cmdStop(idOrSlug?: string): Promise<void> {
-  if (!idOrSlug || idOrSlug === "--all") {
-    await supervisor.stopAll()
-    syncPi({ instances: [] })
-    ok("stopped all")
-    return
-  }
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  await supervisor.stop(entry.id)
-  syncPi({ instances: supervisor.list() })
-  ok(`stopped ${style.bold(entry.slug)}`)
-}
-
-export async function cmdRestart(idOrSlug: string): Promise<void> {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const inst = await supervisor.restart(entry)
-  syncPi({ activeDefault: inst, instances: supervisor.list() })
-  ok(`restarted ${style.bold(entry.slug)} ${dim(`pid=${inst.pid}`)}`)
-}
-
-export function cmdLogs(idOrSlug: string, n = 200): void {
-  const inst = supervisor.list().find(i => i.id === idOrSlug || i.slug === idOrSlug)
-  if (!inst) {
-    const entry = getModel(idOrSlug)
-    if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-    warn("no running instance; no log available")
-    return
-  }
-  const text = tailLog(inst.logFile, Math.max(1024, n * 120))
-  const lines = text.split("\n")
-  console.log(lines.slice(-n).join("\n"))
-}
-
-function humanBytes(n: number): string {
-  if (!isFinite(n) || n < 0) return "?"
-  const u = ["B", "KB", "MB", "GB", "TB"]
-  let v = n; let i = 0
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
-  return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)}${u[i]}`
-}
-
-interface CliPullRenderer {
-  onEvent: (e: ProgressEvent) => void
-  finish: () => void
-}
-
-function makeCliPullRenderer(): CliPullRenderer {
-  const byteFiles = new Map<string, { done: number; total: number | null }>()
-  let currentFile = ""
-  let rate: number | null = null
-  let label = "resolving…"
-  let lastLen = 0
-  let lastPaint = 0
-  const isTty = process.stdout.isTTY === true
-  // Throttle paints to ~10Hz. tqdm can fire 50+ events/sec across
-  // parallel files; repainting that often buys nothing visually and
-  // can race with other stdout writers.
-  const minPaintMs = 100
-
-  // Clamp the rewriting line to (cols - 1). A line that exceeds the
-  // terminal width wraps to a second row, and \r only returns to the
-  // start of the current row — the leftover row then becomes
-  // scrollback on the next paint. Recompute on every paint so that
-  // resizing the terminal mid-download doesn't break rendering.
-  function termWidth(): number {
-    return Math.max(20, (process.stdout.columns ?? 80) - 1)
-  }
-
-  function renderLine(width: number): string {
-    const files = [...byteFiles.values()]
-    const totalDone = files.reduce((a, s) => a + s.done, 0)
-    const totalSize = files.reduce((a, s) => a + (s.total ?? 0), 0)
-    const frac = totalSize > 0 ? totalDone / totalSize : 0
-    const pct = totalSize > 0 ? (frac * 100).toFixed(1) + "%" : "…"
-    const rateStr = rate && rate > 0 ? `${humanBytes(rate)}/s` : "—"
-    const doneN = files.filter(s => s.total !== null && s.done >= s.total).length
-    // Build the fixed-width stats suffix first, then size the bar to
-    // fill whatever's left; this way the full line always fits.
-    const stats =
-      ` ${pct}  ${humanBytes(totalDone)}/${totalSize > 0 ? humanBytes(totalSize) : "?"}` +
-      `  ${rateStr}  ${doneN}/${files.length} files`
-    const prefix = `  ${label} `
-    // Remaining width gets split: 60% bar, 40% current-file tail.
-    const remaining = Math.max(8, width - prefix.length - stats.length - 3)
-    const barW = Math.max(6, Math.floor(remaining * 0.6))
-    const tailW = Math.max(0, remaining - barW - 2)
-    const filled = Math.floor(frac * barW)
-    const bar = "█".repeat(filled) + "░".repeat(barW - filled)
-    const tail = tailW > 0 ? `  ${currentFile.slice(0, tailW)}` : ""
-    const out = `${prefix}[${bar}]${stats}${tail}`
-    return out.length > width ? out.slice(0, width) : out
-  }
-
-  function paint(force: boolean): void {
-    const now = Date.now()
-    if (!force && now - lastPaint < minPaintMs) return
-    lastPaint = now
-    if (!isTty) return  // non-TTY uses milestone messages only
-    const width = termWidth()
-    const line = renderLine(width)
-    const pad = " ".repeat(Math.max(0, lastLen - line.length))
-    process.stdout.write("\r" + line + pad)
-    lastLen = line.length
-  }
-
-  // One compact line per event, emitted only to non-TTY streams. Keeps
-  // pipes/CI logs small: resolve + one line per completed file + done.
-  function milestone(text: string): void {
-    if (isTty) return
-    process.stdout.write(text + "\n")
-  }
-
-  return {
-    onEvent: (ev) => {
-      if (ev.type === "resolving") {
-        label = "resolving…"
-        milestone(`resolving ${ev.repo}${ev.revision ? `@${ev.revision}` : ""}…`)
-        paint(true); return
-      }
-      if (ev.type === "done") {
-        label = "finalizing…"
-        paint(true); return
-      }
-      if (ev.type === "error") { /* surfaced via reject */ return }
-      if (ev.unit !== "B") return
-      label = "downloading"
-      currentFile = ev.file
-      if (ev.type === "progress") rate = ev.rate
-      const existing = byteFiles.get(ev.file) ?? { done: 0, total: null }
-      const done = "done" in ev ? ev.done : existing.done
-      const total = ev.total ?? existing.total
-      byteFiles.set(ev.file, { done, total })
-      if (ev.type === "end") {
-        milestone(`  ✓ ${ev.file} (${humanBytes(ev.total ?? ev.done)})`)
-        paint(true)
-      } else {
-        paint(false)
-      }
-    },
-    finish: () => {
-      if (isTty) {
-        paint(true)
-        process.stdout.write("\n")
-      } else {
-        const files = [...byteFiles.values()]
-        const total = files.reduce((a, s) => a + (s.total ?? s.done), 0)
-        milestone(`done · ${files.length} file${files.length === 1 ? "" : "s"} · ${humanBytes(total)}`)
-      }
-    }
-  }
-}
-
+export {
+  cmdConfig,
+  cmdDoctor,
+  cmdRouter,
+  cmdSearch
+} from "./system-commands.js"
+export type { SearchCmdOpts } from "./system-commands.js"
 
 export async function cmdPull(repo: string, file?: string, revision?: string): Promise<void> {
   // The pull sidecar emits structured ProgressEvents; we render a
@@ -281,7 +86,7 @@ export async function cmdPull(repo: string, file?: string, revision?: string): P
   process.on("SIGTERM", onTerm)
   try {
     const render = makeCliPullRenderer()
-    const res = await pull({
+    const res = await pullModel({
       repo, file, revision,
       signal: ctl.signal,
       onEvent: render.onEvent
@@ -300,291 +105,3 @@ export async function cmdPull(repo: string, file?: string, revision?: string): P
   }
 }
 
-export function cmdExpose(idOrSlug: string, expose: boolean): void {
-  const entry = updateModel(idOrSlug, { publish: expose })
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  syncPi({ instances: supervisor.list() })
-  const tag = expose ? style.magenta("[pi]") : style.gray("[-]")
-  ok(`${style.bold(entry.slug)} ${tag} ${dim(expose ? "exposed" : "hidden")}`)
-}
-
-export function cmdFlavor(idOrSlug: string, value: string): void {
-  if (value !== "lm" && value !== "vlm") {
-    throw new Error(`flavor must be lm or vlm, got ${value}`)
-  }
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  if (entry.runtime !== "mlx") {
-    throw new Error(`flavor only applies to mlx entries (${entry.slug} is ${entry.runtime})`)
-  }
-  if (entry.mlxFlavor === value) {
-    info(`${style.bold(entry.slug)} already ${style.cyan(value)}`)
-    return
-  }
-  if (value === "vlm" && !(entry.mlxCapabilities ?? []).includes("vlm")) {
-    warn(`${style.bold(entry.slug)} has no detected vision tower — mlx_vlm.server will likely fail at load`)
-  }
-  const updated = updateModel(entry.id, { mlxFlavor: value })!
-  syncPi({ instances: supervisor.list() })
-  const label = value === "vlm" ? "mlx-vlm" : "mlx-lm"
-  ok(`${style.bold(updated.slug)} flavor → ${style.cyan(label)}`)
-  const running = supervisor.list().some(i => i.id === updated.id)
-  if (running) info(`restart to apply: ${style.bold(`athanor restart ${updated.slug}`)}`)
-}
-
-export function cmdRm(idOrSlug: string): void {
-  const inst = supervisor.list().find(i => i.id === idOrSlug || i.slug === idOrSlug)
-  if (inst) throw new Error(`cannot remove ${idOrSlug}: currently running (stop it first)`)
-  if (!removeModel(idOrSlug)) throw new Error(`unknown model: ${idOrSlug}`)
-  syncPi({ instances: supervisor.list() })
-  ok(`removed ${style.bold(idOrSlug)}`)
-}
-
-export function cmdSync(): void {
-  const instances = supervisor.list()
-  const active = instances[0]
-  syncPi({ activeDefault: active, instances })
-  const n = listModels().filter(m => m.publish).length
-  ok(`pi sync: ${style.bold(String(n))} model${n === 1 ? "" : "s"} exposed`)
-}
-
-export function cmdConfig(): void {
-  const cfg = loadConfig()
-  head("config")
-  console.log(`  ${dim("path")}  ${PATHS.config}`)
-  console.log()
-  console.log(JSON.stringify(cfg, null, 2))
-}
-
-export interface SearchCmdOpts {
-  query?: string
-  filter?: SearchFilter
-  author?: string
-  sort?: SearchSort
-  limit?: number
-}
-
-const ENTER_ALT_SCREEN = "\x1b[?1049h"
-const LEAVE_ALT_SCREEN = "\x1b[?1049l"
-const HIDE_CURSOR = "\x1b[?25l"
-const SHOW_CURSOR = "\x1b[?25h"
-
-// Mounts the search TUI, waits for it to exit, restores the terminal.
-// Mirrors the alt-screen/cursor discipline used by the main app so the
-// user's scrollback isn't polluted by the search list.
-async function runSearchTui(opts: SearchCmdOpts): Promise<void> {
-  process.stdout.write(ENTER_ALT_SCREEN + HIDE_CURSOR)
-  const restore = (): void => { process.stdout.write(SHOW_CURSOR + LEAVE_ALT_SCREEN) }
-  let finalMessage: string | undefined
-  const instance = render(
-    React.createElement(SearchBrowser, {
-      initialQuery: opts.query,
-      initialFilter: opts.filter,
-      initialSort: opts.sort,
-      onExit: (msg) => { finalMessage = msg }
-    }),
-    { exitOnCtrlC: true }
-  )
-  try {
-    await instance.waitUntilExit()
-  } finally {
-    restore()
-  }
-  if (finalMessage) ok(finalMessage)
-}
-
-export async function cmdSearch(opts: SearchCmdOpts): Promise<void> {
-  // In an interactive terminal, render a TUI: responsive list, live
-  // filter/sort cycling, ⏎ to pull. Non-TTY stdin (pipes, CI) falls
-  // back to the grouped-table output so scripts still see stable
-  // text. Stdout-only redirection (e.g. `athanor search > out`) is
-  // treated as non-interactive because a TUI needs keyboard input
-  // regardless of where output lands.
-  const isInteractive = process.stdin.isTTY === true && process.stdout.isTTY === true
-  if (isInteractive) {
-    await runSearchTui(opts)
-    return
-  }
-  const results = await searchModels(opts)
-  if (results.length === 0) { warn("no results"); return }
-  const { mlx, gguf, other } = groupByRuntime(results)
-  if (mlx.length) {
-    head(`MLX  ${dim(`(${mlx.length})`)}`)
-    for (const r of mlx) console.log("  " + formatResultRow(r))
-    console.log()
-  }
-  if (gguf.length) {
-    head(`GGUF  ${dim(`(${gguf.length}) — llama.cpp`)}`)
-    for (const r of gguf) console.log("  " + formatResultRow(r))
-    console.log()
-  }
-  if (other.length) {
-    head(`other  ${dim(`(${other.length})`)}`)
-    for (const r of other) console.log("  " + formatResultRow(r))
-    console.log()
-  }
-  console.log(dim("next:"))
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold("athanor pull <repo>")}                 ${dim("# MLX: downloads the whole repo")}`)
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold("athanor pull <repo> --file F.gguf")}   ${dim("# GGUF: pick one file")}`)
-}
-
-export function cmdShow(idOrSlug: string): void {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const inst = supervisor.list().find(i => i.id === entry.id)
-  const merged = mergedConfigFor(entry) as unknown as Record<string, unknown>
-  const { cmd, args } = buildCommandFor(entry)
-
-  const runtimeLabel = entry.runtime === "mlx" && entry.mlxFlavor === "vlm"
-    ? "mlx-vlm"
-    : entry.runtime
-  head(entry.slug)
-  console.log(`  ${dim("id")}       ${entry.id}`)
-  console.log(`  ${dim("runtime")}  ${style.cyan(runtimeLabel)}`)
-  console.log(`  ${dim("path")}     ${entry.path}`)
-  console.log(`  ${dim("port")}     ${entry.port}`)
-  console.log(`  ${dim("exposed")}  ${entry.publish ? style.magenta("yes (pi)") : "no"}`)
-  console.log(`  ${dim("source")}   ${entry.source.type === "hf" ? `hf:${entry.source.repo}` : "local"}`)
-  if (entry.runtime === "mlx") {
-    const caps = entry.mlxCapabilities ?? []
-    const capsLabel = caps.length > 0 ? caps.join(", ") : dim("(none detected)")
-    console.log(`  ${dim("caps")}     ${capsLabel}`)
-    if (caps.includes("vlm") && entry.mlxFlavor !== "vlm") {
-      console.log(`  ${dim("hint")}     ${style.yellow("vision-capable")} — enable with ${style.bold(`athanor flavor ${entry.slug} vlm`)}`)
-    }
-  }
-  const status = inst ? `${statusGlyph(inst.status)} ${inst.status}` : `${style.gray(sym.idle)} idle`
-  console.log(`  ${dim("status")}   ${status}`)
-  console.log()
-
-  head("effective config")
-  if (entry.preset) {
-    console.log(dim(`  preset active (overrides global defaults)`))
-  } else {
-    console.log(dim("  no preset — using global defaults"))
-  }
-  for (const [k, v] of Object.entries(merged)) {
-    const override = entry.preset
-      && entry.preset.runtime === entry.runtime
-      && (entry.preset.runtime === "mlx"
-          ? (entry.preset.mlx as Record<string, unknown>)[k] !== undefined
-          : (entry.preset.llama as Record<string, unknown>)[k] !== undefined)
-    const marker = override ? style.yellow(" *") : "  "
-    console.log(`  ${k.padEnd(20)} ${String(v)}${marker}`)
-  }
-  console.log()
-
-  head("command")
-  console.log(`  ${style.bold(cmd)} ${args.join(" ")}`)
-  console.log()
-
-  head("tune")
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset set ${entry.slug} key=value ...`)}`)
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset apply ${entry.slug} <recipe>`)}`)
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor recipes`)}  ${dim("# list available recipes")}`)
-  if (entry.runtime === "mlx") {
-    console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor flavor ${entry.slug} lm|vlm`)}  ${dim("# force mlx_lm vs mlx_vlm server")}`)
-  }
-}
-
-export function cmdPresetShow(idOrSlug: string): void {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  head(`preset: ${entry.slug}`)
-  if (!entry.preset) { console.log("  " + dim("(none)")); return }
-  console.log(JSON.stringify(entry.preset, null, 2)
-    .split("\n").map(l => "  " + l).join("\n"))
-}
-
-export function cmdPresetSet(idOrSlug: string, tokens: string[]): void {
-  if (tokens.length === 0) throw new Error("expected one or more key=value pairs")
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const preset = setPresetFields(entry, parseKvTokens(tokens))
-  updateModel(entry.id, { preset })
-  syncPi({ instances: supervisor.list() })
-  ok(`${style.bold(entry.slug)} preset updated ${dim(`(${tokens.length} field${tokens.length === 1 ? "" : "s"})`)}`)
-  info(`restart to apply: ${style.bold(`athanor restart ${entry.slug}`)}`)
-}
-
-export function cmdPresetUnset(idOrSlug: string, keys: string[]): void {
-  if (keys.length === 0) throw new Error("expected one or more keys")
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const preset = unsetPresetFields(entry, keys)
-  updateModel(entry.id, { preset })
-  syncPi({ instances: supervisor.list() })
-  ok(`${style.bold(entry.slug)} preset ${preset ? "updated" : "cleared"}`)
-}
-
-export function cmdPresetClear(idOrSlug: string): void {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  updateModel(entry.id, { preset: undefined })
-  syncPi({ instances: supervisor.list() })
-  ok(`${style.bold(entry.slug)} preset cleared`)
-}
-
-export function cmdPresetApply(idOrSlug: string, recipeName: string): void {
-  const entry = getModel(idOrSlug)
-  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const recipe = findRecipe(recipeName)
-  if (!recipe) throw new Error(`unknown recipe: ${recipeName}. Try 'athanor recipes'`)
-  const preset = recipeToPreset(recipe, entry.runtime)
-  updateModel(entry.id, { preset })
-  syncPi({ instances: supervisor.list() })
-  const tag = preset ? style.bold(recipeName) : `${style.bold(recipeName)} ${dim("(no-op for " + entry.runtime + ")")}`
-  ok(`${style.bold(entry.slug)} ← recipe ${tag}`)
-  if (preset) info(`restart to apply: ${style.bold(`athanor restart ${entry.slug}`)}`)
-}
-
-export function cmdRecipes(): void {
-  const recipes = listRecipes()
-  head(`recipes (${recipes.length})`)
-  const widest = Math.max(...recipes.map(r => r.name.length))
-  for (const r of recipes) {
-    const tag = r.source === "user" ? style.magenta(" [user]") : style.gray(" [builtin]")
-    console.log(`  ${style.bold(r.name.padEnd(widest))}${tag}  ${dim(r.description)}`)
-  }
-  console.log()
-  head("tunable keys")
-  for (const rt of ["mlx", "llama.cpp"] as const) {
-    console.log(`  ${style.cyan(rt)}`)
-    for (const k of listKeys(rt)) {
-      console.log(`    ${style.bold(k.aliases[0]!.padEnd(22))} ${dim(k.help)}`)
-    }
-  }
-}
-
-export async function cmdRouter(opts: { host?: string; port?: number }): Promise<void> {
-  const cfg = loadConfig()
-  const host = opts.host ?? cfg.router.host
-  const port = opts.port ?? cfg.router.port
-  const server = startRouter({ host, port, force: true, silent: true })
-  if (!server) throw new Error("router already running in this process")
-  ok(`athanor router listening on ${style.bold(`http://${host}:${port}`)}`)
-  info(`exposed models: ${listModels().filter(m => m.publish).length} — ${dim("Ctrl-C to stop")}`)
-  await new Promise<void>(resolve => {
-    const shutdown = (): void => { void stopRouter().then(resolve) }
-    process.once("SIGINT", shutdown)
-    process.once("SIGTERM", shutdown)
-  })
-}
-
-export async function cmdDoctor(): Promise<void> {
-  const bins = ["mlx_lm.server", "mlx_vlm.server", "llama-server", "hf"]
-  head("binaries")
-  const widest = Math.max(...bins.map(b => b.length))
-  for (const b of bins) {
-    const p = await which(b)
-    const mark = p ? style.green(sym.check) : style.red(sym.cross)
-    const val = p ? dim(p) : style.red("NOT FOUND")
-    console.log(`  ${mark} ${b.padEnd(widest)}  ${val}`)
-  }
-  console.log()
-  head("paths")
-  const label = (s: string): string => dim(s.padEnd(8))
-  console.log(`  ${label("config")}  ${fs.existsSync(PATHS.config) ? PATHS.config : dim("(default, not written)")}`)
-  console.log(`  ${label("registry")}  ${fs.existsSync(PATHS.registry) ? PATHS.registry : dim("(empty)")}`)
-  console.log(`  ${label("logs")}  ${PATHS.logsDir}`)
-}

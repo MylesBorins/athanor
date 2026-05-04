@@ -95,6 +95,44 @@ describe("pi sync (provider-per-model)", () => {
     expect(written.providers["my-openrouter"].baseUrl).toBe("https://openrouter.ai/api/v1")
   })
 
+  it("syncs contextWindow from effective merged runtime config", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: true, addedAt: 0 },
+        { id: "b.gguf", slug: "b", path: "/m/b.gguf", runtime: "llama.cpp",
+          source: { type: "local" }, port: 8082,
+          publish: true, addedAt: 0 }
+      ]
+    }))
+    const { syncPi } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
+    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(16384)
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(16384)
+  })
+
+  it("prefers explicit preset overrides over defaults when syncing contextWindow", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: true, addedAt: 0,
+          preset: { runtime: "mlx", mlx: { promptCacheSize: 32768 } } },
+        { id: "b.gguf", slug: "b", path: "/m/b.gguf", runtime: "llama.cpp",
+          source: { type: "local" }, port: 8082,
+          publish: true, addedAt: 0,
+          preset: { runtime: "llama.cpp", llama: { ctxSize: 8192 } } }
+      ]
+    }))
+    const { syncPi } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
+    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(32768)
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(8192)
+  })
+
   it("pi model id matches what each runtime accepts", async () => {
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [

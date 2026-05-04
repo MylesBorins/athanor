@@ -49,6 +49,19 @@ test/setup.ts   # redirects ATHANOR_HOME and PI_HOME to a tmp dir per run
 
 Entry points: `bin/athanor` → `dist/index.js` (built) or `npm start` (tsx) → `src/index.tsx`, which dispatches to TUI or `src/cli/index.ts` based on argv.
 
+## Context files
+
+Keep reusable architecture context under `context/`.
+
+- `context/ARCH_MAP.md` — compressed architecture map for routine work
+- `context/ARCH_REVIEW.md` — deeper review notes, findings, and phased plan
+
+Context discipline:
+- consult `context/ARCH_MAP.md` first for normal coding tasks
+- avoid re-reading the entire repository unless the task is cross-cutting, the map is stale, or the user asks for a fresh architectural review
+- prefer incremental context: changed files, directly related modules, and affected invariants
+- after meaningful architectural refactors, update the relevant file(s) under `context/`
+
 ## Development
 
 ```bash

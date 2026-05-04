@@ -285,7 +285,8 @@ Example exposed provider (MLX, HF-sourced):
         {
           "id": "mlx-community/Qwen3-32B-4bit",
           "name": "[mlx] qwen3-32b (athanor)",
-          "input": ["text"]
+          "input": ["text"],
+          "contextWindow": 16384
         }
       ]
     }
@@ -311,7 +312,7 @@ athanor restart  <id|slug>       stop + start
 athanor logs     <id|slug> [-n N] tail last N lines of a running model's log
 athanor pull     <repo> [--file F] [--revision R]
                                  download from HuggingFace and register
-athanor search   [q] [--mlx|--gguf] [--author A] [--sort S] [--limit N]
+athanor search   [q] [--mlx|--gguf|--any] [--author A] [--sort S] [--limit N]
                                  search the HuggingFace Hub
 athanor trending [--mlx|--gguf] [--limit N]
                                  top trending MLX/GGUF models
@@ -379,16 +380,16 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
     "llama": "~/.models"
   },
   "mlx": {
-    "prefillStepSize": 256,
-    "promptCacheSize": 1024,
+    "prefillStepSize": 512,
+    "promptCacheSize": 16384,
     "decodeConcurrency": 1
   },
   "llama": {
     "nGpuLayers": 999,
-    "threads": 10,
-    "ctxSize": 12288,
-    "batchSize": 128,
-    "ubatchSize": 64,
+    "threads": 8,
+    "ctxSize": 16384,
+    "batchSize": 512,
+    "ubatchSize": 256,
     "parallel": 1
   },
   "supervisor": {
@@ -405,14 +406,15 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
   "router": {
     "enabled": false,
     "port": 8080,
-    "host": "127.0.0.1"
+    "host": "127.0.0.1",
+    "drainTimeoutMs": 30000
   }
 }
 ```
 
 ### Per-model presets
 
-`mlx` and `llama` above are **global defaults**. Any model in the registry can override them with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
+`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 16K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
 
 ```bash
 # inspect effective config, launch command, and running state
@@ -430,9 +432,17 @@ athanor preset qwen-32b apply coding
 athanor recipes
 ```
 
-Built-in recipes: `balanced`, `fast`, `quality`, `long-context`, `coding`. Drop your own into `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`); user recipes override built-ins of the same name.
+Built-in recipes: `balanced`, `fast`, `quality`, `long-context`, `coding`.
 
-Presets survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxFlavor`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
+- `balanced` — recommended default, 16K context
+- `fast` — lower latency, 8K context
+- `quality` — larger 32K context for more stable long reasoning
+- `coding` — 32K context for multi-file and agent workflows
+- `long-context` — 64K context, higher memory use
+
+`balanced` is an explicit preset recipe; clearing a preset is a separate action (`athanor preset <slug> clear`). Drop your own into `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`); user recipes override built-ins of the same name.
+
+Presets survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxCapabilities`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
 
 Under the hood, a preset looks like this in `~/.athanor/models.json` — you can edit it directly if you prefer:
 
@@ -442,12 +452,14 @@ Under the hood, a preset looks like this in `~/.athanor/models.json` — you can
   "slug": "qwen-32b",
   "preset": {
     "runtime": "mlx",
-    "mlx": { "decodeConcurrency": 4, "promptCacheSize": 4096 }
+    "mlx": { "decodeConcurrency": 1, "prefillStepSize": 512, "promptCacheSize": 32768 }
   }
 }
 ```
 
 Restart the model for the preset to take effect.
+
+pi-agent receives the model's effective served context window from athanor's merged runtime configuration (global defaults plus any per-model preset), so pi metadata matches the actual launch settings rather than only explicit override fields.
 
 ### Environment variables
 
@@ -475,7 +487,7 @@ athanor trending
 athanor trending --mlx --limit 15
 ```
 
-Supported sorts: `downloads` (default), `likes`, `trending`, `modified`. Each row shows download count, likes, license, and a relative last-modified time. The footer hints at the follow-up:
+Supported sorts: `downloads` (default), `likes`, `trending`, `modified`, `size`. Each row shows download count, likes, license, and a relative last-modified time. The footer hints at the follow-up:
 
 ```
 → athanor pull <repo>                 # MLX: downloads the whole repo
@@ -529,7 +541,7 @@ POST /v1/embeddings        { "model": ... } same
 Enable it by adding to `~/.athanor/config.json`:
 
 ```json
-{ "router": { "enabled": true, "port": 8080, "host": "127.0.0.1" } }
+{ "router": { "enabled": true, "port": 8080, "host": "127.0.0.1", "drainTimeoutMs": 30000 } }
 ```
 
 With router mode on, pi sync emits only the aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime's model id (the HF repo for MLX, the launch alias for llama.cpp), the athanor slug, or the canonical id; all three are resolved. Unknown models return `404`.
@@ -579,7 +591,7 @@ src/
   cli/          # hand-rolled CLI dispatcher, doctor, output formatting
   config/       # config file load + defaults
   control/      # optional HTTP control API (off by default)
-  discovery/    # HF cache scanner + registry ingest (flavor detection lives here)
+  discovery/    # HF cache scanner + registry ingest (MLX capability detection lives here)
   presets/      # preset merge, tunable-key metadata, recipes
   pull/         # HuggingFace repo inspection and download
   registry/     # models.json CRUD, slug + port allocation

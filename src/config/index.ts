@@ -77,16 +77,16 @@ export const DEFAULT_CONFIG: Config = {
     llama: "~/.models"
   },
   mlx: {
-    prefillStepSize: 256,
-    promptCacheSize: 1024,
+    prefillStepSize: 512,
+    promptCacheSize: 16384,
     decodeConcurrency: 1
   },
   llama: {
     nGpuLayers: 999,
-    threads: 10,
-    ctxSize: 12288,
-    batchSize: 128,
-    ubatchSize: 64,
+    threads: 8,
+    ctxSize: 16384,
+    batchSize: 512,
+    ubatchSize: 256,
     parallel: 1
   },
   supervisor: {
@@ -112,6 +112,131 @@ function expandHome(dir: string): string {
   return dir.replace(/^~/, os.homedir())
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v)
+}
+
+function validPort(n: unknown): n is number {
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 65535
+}
+
+function positiveNumber(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0
+}
+
+function nonNegativeNumber(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0
+}
+
+function sanitizeConfig(config: Config): Config {
+  const next: Config = {
+    ...config,
+    modelDirs: { ...config.modelDirs },
+    portRange: { ...config.portRange },
+    mlx: { ...config.mlx },
+    llama: { ...config.llama },
+    supervisor: { ...config.supervisor },
+    controlApi: { ...config.controlApi },
+    router: { ...config.router }
+  }
+
+  if (!validPort(next.portRange.min) || !validPort(next.portRange.max)
+      || next.portRange.min > next.portRange.max) {
+    console.error("Invalid config.portRange; using defaults")
+    next.portRange = { ...DEFAULT_CONFIG.portRange }
+  }
+
+  if (!positiveNumber(next.mlx.prefillStepSize)) {
+    console.error("Invalid config.mlx.prefillStepSize; using default")
+    next.mlx.prefillStepSize = DEFAULT_CONFIG.mlx.prefillStepSize
+  }
+  if (!positiveNumber(next.mlx.promptCacheSize)) {
+    console.error("Invalid config.mlx.promptCacheSize; using default")
+    next.mlx.promptCacheSize = DEFAULT_CONFIG.mlx.promptCacheSize
+  }
+  if (!positiveNumber(next.mlx.decodeConcurrency)) {
+    console.error("Invalid config.mlx.decodeConcurrency; using default")
+    next.mlx.decodeConcurrency = DEFAULT_CONFIG.mlx.decodeConcurrency
+  }
+
+  if (!nonNegativeNumber(next.llama.nGpuLayers)) {
+    console.error("Invalid config.llama.nGpuLayers; using default")
+    next.llama.nGpuLayers = DEFAULT_CONFIG.llama.nGpuLayers
+  }
+  if (!positiveNumber(next.llama.threads)) {
+    console.error("Invalid config.llama.threads; using default")
+    next.llama.threads = DEFAULT_CONFIG.llama.threads
+  }
+  if (!positiveNumber(next.llama.ctxSize)) {
+    console.error("Invalid config.llama.ctxSize; using default")
+    next.llama.ctxSize = DEFAULT_CONFIG.llama.ctxSize
+  }
+  if (!positiveNumber(next.llama.batchSize)) {
+    console.error("Invalid config.llama.batchSize; using default")
+    next.llama.batchSize = DEFAULT_CONFIG.llama.batchSize
+  }
+  if (!positiveNumber(next.llama.ubatchSize)) {
+    console.error("Invalid config.llama.ubatchSize; using default")
+    next.llama.ubatchSize = DEFAULT_CONFIG.llama.ubatchSize
+  }
+  if (!positiveNumber(next.llama.parallel)) {
+    console.error("Invalid config.llama.parallel; using default")
+    next.llama.parallel = DEFAULT_CONFIG.llama.parallel
+  }
+
+  const policies = new Set(["single-active", "multi-active-lru", "manual"])
+  if (!policies.has(next.supervisor.policy)) {
+    console.error("Invalid config.supervisor.policy; using default")
+    next.supervisor.policy = DEFAULT_CONFIG.supervisor.policy
+  }
+  if (!positiveNumber(next.supervisor.maxConcurrent)) {
+    console.error("Invalid config.supervisor.maxConcurrent; using default")
+    next.supervisor.maxConcurrent = DEFAULT_CONFIG.supervisor.maxConcurrent
+  }
+  if (!positiveNumber(next.supervisor.startupTimeoutMs)) {
+    console.error("Invalid config.supervisor.startupTimeoutMs; using default")
+    next.supervisor.startupTimeoutMs = DEFAULT_CONFIG.supervisor.startupTimeoutMs
+  }
+  if (!positiveNumber(next.supervisor.healthPollIntervalMs)) {
+    console.error("Invalid config.supervisor.healthPollIntervalMs; using default")
+    next.supervisor.healthPollIntervalMs = DEFAULT_CONFIG.supervisor.healthPollIntervalMs
+  }
+
+  if (typeof next.controlApi.host !== "string" || next.controlApi.host.length === 0) {
+    console.error("Invalid config.controlApi.host; using default")
+    next.controlApi.host = DEFAULT_CONFIG.controlApi.host
+  }
+  if (!validPort(next.controlApi.port)) {
+    console.error("Invalid config.controlApi.port; using default")
+    next.controlApi.port = DEFAULT_CONFIG.controlApi.port
+  }
+
+  if (typeof next.router.host !== "string" || next.router.host.length === 0) {
+    console.error("Invalid config.router.host; using default")
+    next.router.host = DEFAULT_CONFIG.router.host
+  }
+  if (!validPort(next.router.port)) {
+    console.error("Invalid config.router.port; using default")
+    next.router.port = DEFAULT_CONFIG.router.port
+  }
+  if (!nonNegativeNumber(next.router.drainTimeoutMs)) {
+    console.error("Invalid config.router.drainTimeoutMs; using default")
+    next.router.drainTimeoutMs = DEFAULT_CONFIG.router.drainTimeoutMs
+  }
+
+  if (typeof next.enablePiSync !== "boolean") next.enablePiSync = DEFAULT_CONFIG.enablePiSync
+  if (typeof next.controlApi.enabled !== "boolean") next.controlApi.enabled = DEFAULT_CONFIG.controlApi.enabled
+  if (typeof next.router.enabled !== "boolean") next.router.enabled = DEFAULT_CONFIG.router.enabled
+  if (typeof next.modelDirs.mlx !== "string" || next.modelDirs.mlx.length === 0) {
+    next.modelDirs.mlx = DEFAULT_CONFIG.modelDirs.mlx
+  }
+  if (typeof next.modelDirs.llama !== "string" || next.modelDirs.llama.length === 0) {
+    next.modelDirs.llama = DEFAULT_CONFIG.modelDirs.llama
+  }
+
+  return next
+}
+
 function deepMerge<T>(base: T, override: Partial<T>): T {
   type Bag = Record<string, unknown>
   const src = (base ?? {}) as Bag
@@ -133,8 +258,9 @@ export function loadConfig(): Config {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, "utf8")
-      const loaded = JSON.parse(data) as Partial<Config>
-      return deepMerge(DEFAULT_CONFIG, loaded)
+      const parsed = JSON.parse(data) as unknown
+      const loaded = isRecord(parsed) ? parsed as Partial<Config> : {}
+      return sanitizeConfig(deepMerge(DEFAULT_CONFIG, loaded))
     }
   } catch (err) {
     console.error(`Failed to load config: ${err}`)

@@ -4,7 +4,7 @@ import * as os from "os"
 import type { ActiveInstance, ModelEntry, RuntimeType } from "../types/index.js"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
-import { runtimeModelId } from "../adapters/index.js"
+import { mergedConfigFor, runtimeModelId } from "../adapters/index.js"
 
 // pi-agent stores both models and settings under ~/.pi/agent/.
 // Schema reference: docs/models.md and docs/settings.md in the
@@ -95,6 +95,17 @@ function modelIdFor(entry: ModelEntry): string {
   return runtimeModelId(entry)
 }
 
+function effectiveContextWindow(config: { ctxSize?: number; promptCacheSize?: number }): number | undefined {
+  return config.ctxSize ?? config.promptCacheSize
+}
+
+function contextWindowFor(entry: ModelEntry): number | undefined {
+  // pi should advertise the effective served context, not only explicit
+  // per-model overrides. That keeps pi's planner aligned with the
+  // runtime's actual launch args when a model inherits global defaults.
+  return effectiveContextWindow(mergedConfigFor(entry))
+}
+
 function runtimeLabel(entry: ModelEntry): string {
   if (entry.runtime === "mlx" && entry.mlxFlavor === "vlm") return "mlx-vlm"
   return entry.runtime
@@ -122,7 +133,8 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
     models: [{
       id: modelIdFor(entry),
       name: displayNameFor(entry),
-      input: ["text"]
+      input: ["text"],
+      contextWindow: contextWindowFor(entry)
     }],
     // Informational fields. pi ignores unknown keys; we round-trip
     // them so users can see what athanor wrote.
@@ -182,7 +194,8 @@ function runtimeRouterProviderFor(
     models: entries.map(e => ({
       id: modelIdFor(e),
       name: displayNameFor(e),
-      input: ["text"]
+      input: ["text"],
+      contextWindow: contextWindowFor(e)
     })),
     athanorRouter: true,
     athanorRuntime: runtime
@@ -193,6 +206,9 @@ function providerNameForRuntime(runtime: RuntimeType): string {
   return runtime === "llama.cpp" ? ATHANOR_LLAMA_PROVIDER : ATHANOR_MLX_PROVIDER
 }
 
+// Re-emit only athanor's namespace into pi's config files. Non-athanor
+// providers/settings must round-trip untouched. This function is the
+// sole writer for athanor-managed pi state.
 export function syncPi(inputs: SyncInputs = {}): void {
   const config = loadConfig()
   if (!config.enablePiSync) return
@@ -205,6 +221,10 @@ export function syncPi(inputs: SyncInputs = {}): void {
   syncSettings(entries, inputs.activeDefault, config.router)
 }
 
+// Provider emission follows one of two mutually exclusive shapes:
+// router off => one provider per published model
+// router on  => up to two runtime aggregators (mlx, llama.cpp)
+// Never emit both shapes in the same sync.
 function syncModels(
   entries: ModelEntry[],
   instanceById: Map<string, ActiveInstance>,
@@ -249,6 +269,9 @@ function syncModels(
   atomicWrite(PI_MODELS_PATH, JSON.stringify(out, null, 2))
 }
 
+// Settings writes are intentionally narrow: only defaultProvider and
+// defaultModel are touched, and only when a caller supplies an active
+// default instance. Absent an active default, settings are left alone.
 function syncSettings(
   entries: ModelEntry[],
   active: ActiveInstance | undefined,

@@ -3,7 +3,7 @@ import type { Server } from "http"
 import { loadConfig } from "../config/index.js"
 import { getModel, listModels } from "../registry/index.js"
 import { supervisor } from "../supervisor/index.js"
-import { syncPi } from "../sync/pi.js"
+import { startModel, stopModel } from "../app/models.js"
 
 interface RequestBody {
   id?: string
@@ -41,9 +41,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!id) return sendJson(res, 400, { error: "id required" })
     const entry = getModel(id)
     if (!entry) return sendJson(res, 404, { error: `unknown model ${id}` })
-    const inst = await supervisor.start(entry)
-    syncPi({ activeDefault: inst, instances: supervisor.list() })
-    sendJson(res, 200, { instance: inst })
+    const { instance } = await startModel(id)
+    sendJson(res, 200, { instance })
     return
   }
   if (req.method === "POST" && url.pathname === "/deactivate") {
@@ -51,8 +50,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!id) return sendJson(res, 400, { error: "id required" })
     const entry = getModel(id)
     if (!entry) return sendJson(res, 404, { error: `unknown model ${id}` })
-    await supervisor.stop(entry.id)
-    syncPi({ instances: supervisor.list() })
+    await stopModel(entry.id)
     sendJson(res, 200, { ok: true })
     return
   }

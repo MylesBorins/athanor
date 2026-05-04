@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react"
 import { Box, Text, useInput } from "ink"
 import type { ModelEntry } from "../types/index.js"
-import { getModel, updateModel } from "../registry/index.js"
+import { getModel } from "../registry/index.js"
 import { mergedConfigFor } from "../adapters/index.js"
 import { supervisor } from "../supervisor/index.js"
-import { syncPi } from "../sync/pi.js"
+import { setFlavor, setPreset } from "../app/models.js"
 import {
   listKeys,
   setPresetFields,
@@ -51,9 +51,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
     setNotice(msg)
   }
 
-  function persist(patch: Partial<ModelEntry>, msg: string): void {
-    updateModel(entryId, patch)
-    syncPi({ instances: supervisor.list() })
+  function persistPreset(preset: ModelEntry["preset"], msg: string): void {
+    setPreset(entryId, preset)
+    refresh(msg)
+  }
+
+  function persistFlavor(mlxFlavor: ModelEntry["mlxFlavor"], msg: string): void {
+    setFlavor(entryId, mlxFlavor)
     refresh(msg)
   }
 
@@ -65,7 +69,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       if (key.return) {
         try {
           const preset = setPresetFields(entry, [[edit.jsonName, edit.buffer]])
-          persist({ preset }, `set ${edit.jsonName}=${edit.buffer}`)
+          persistPreset(preset, `set ${edit.jsonName}=${edit.buffer}`)
           setEdit(null)
         } catch (err) { setNotice(`error: ${errMsg(err)}`) }
         return
@@ -96,10 +100,10 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       if (!spec) return
       try {
         const preset = unsetPresetFields(entry, [spec.jsonName])
-        persist({ preset }, `unset ${spec.jsonName}`)
+        persistPreset(preset, `unset ${spec.jsonName}`)
       } catch (err) { setNotice(`error: ${errMsg(err)}`) }
     }
-    else if (input === "c") { persist({ preset: undefined }, "preset cleared") }
+    else if (input === "c") { persistPreset(undefined, "preset cleared") }
     else if (input === "v" && entry.runtime === "mlx") {
       // Toggle MLX flavor (lm <-> vlm). Mirrors cmdFlavor: warn when
       // flipping to vlm on a model that has no detected vision tower,
@@ -111,14 +115,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
       const warn = next === "vlm" && noVlmCap
         ? " · ⚠ no vision tower detected, mlx_vlm.server may fail to load" : ""
       const restart = running ? " · restart to apply" : ""
-      persist({ mlxFlavor: next }, `flavor → mlx-${next}${warn}${restart}`)
+      persistFlavor(next, `flavor → mlx-${next}${warn}${restart}`)
     }
     else if (input && /^[1-9]$/.test(input)) {
       const idx = Number(input) - 1
       const r = recipes[idx]
       if (!r) return
       const preset = recipeToPreset(r, entry.runtime)
-      persist({ preset }, `recipe: ${r.name}`)
+      persistPreset(preset, `recipe: ${r.name}`)
     }
   })
 

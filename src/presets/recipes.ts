@@ -24,35 +24,37 @@ export interface Recipe {
 const BUILTINS: Recipe[] = [
   {
     name: "balanced",
-    description: "Global defaults (no overrides).",
+    description: "Recommended default. Good for most chat, coding, and agent workflows.",
+    mlx: { prefillStepSize: 512, promptCacheSize: 16384, decodeConcurrency: 1 },
+    llama: { ctxSize: 16384, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   },
   {
     name: "fast",
-    description: "Latency-first. Smaller context and caches, more batch throughput.",
-    mlx: { decodeConcurrency: 2, promptCacheSize: 512, prefillStepSize: 512 },
-    llama: { ctxSize: 8192, batchSize: 256, ubatchSize: 128, parallel: 2 },
+    description: "Lower latency, smaller context. May forget earlier turns sooner.",
+    mlx: { prefillStepSize: 256, promptCacheSize: 8192, decodeConcurrency: 1 },
+    llama: { ctxSize: 8192, batchSize: 256, ubatchSize: 128, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   },
   {
     name: "quality",
-    description: "Longer context and larger prompt cache. Slower, more accurate long outputs.",
-    mlx: { decodeConcurrency: 1, promptCacheSize: 4096, prefillStepSize: 128 },
-    llama: { ctxSize: 16384, batchSize: 128, ubatchSize: 64, parallel: 1 },
+    description: "Larger context for more stable long reasoning. Slightly higher memory use.",
+    mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 },
+    llama: { ctxSize: 32768, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   },
   {
     name: "long-context",
-    description: "Maximum context for RAG / long docs. Uses more memory.",
-    mlx: { promptCacheSize: 8192, prefillStepSize: 128, decodeConcurrency: 1 },
-    llama: { ctxSize: 65536, batchSize: 128, ubatchSize: 64, parallel: 1 },
+    description: "Maximum context for large documents and long conversations. May be slow or unstable on 16 GB Macs.",
+    mlx: { prefillStepSize: 512, promptCacheSize: 65536, decodeConcurrency: 1 },
+    llama: { ctxSize: 65536, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   },
   {
     name: "coding",
-    description: "Balanced for coding assistants: wide context, modest parallelism.",
-    mlx: { promptCacheSize: 4096, prefillStepSize: 256, decodeConcurrency: 2 },
-    llama: { ctxSize: 32768, batchSize: 256, ubatchSize: 128, parallel: 2 },
+    description: "Optimized for multi-file and agent workflows with larger context.",
+    mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 },
+    llama: { ctxSize: 32768, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   }
 ]
@@ -93,10 +95,8 @@ export function findRecipe(name: string): Recipe | undefined {
   return listRecipes().find(r => r.name === name)
 }
 
-// Produces a preset for a specific runtime from a recipe. Returns
-// undefined if the recipe has nothing to say about that runtime
-// (applying `balanced` to an mlx model, for instance, clears the
-// preset).
+// Produces a preset for a specific runtime from a recipe. Built-ins are
+// explicit, stored presets; clearing a preset is a separate action.
 export function recipeToPreset(
   recipe: Recipe,
   runtime: RuntimeType

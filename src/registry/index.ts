@@ -70,6 +70,28 @@ export function updateModel(
   return merged
 }
 
+export function setModelPublish(idOrSlug: string, publish: boolean): ModelEntry | undefined {
+  return updateModel(idOrSlug, { publish })
+}
+
+export function setModelFlavor(
+  idOrSlug: string,
+  mlxFlavor: ModelEntry["mlxFlavor"]
+): ModelEntry | undefined {
+  return updateModel(idOrSlug, { mlxFlavor })
+}
+
+export function setModelPreset(
+  idOrSlug: string,
+  preset: ModelEntry["preset"]
+): ModelEntry | undefined {
+  return updateModel(idOrSlug, { preset })
+}
+
+export function touchModelLastUsed(idOrSlug: string, at = Date.now()): ModelEntry | undefined {
+  return updateModel(idOrSlug, { lastUsedAt: at })
+}
+
 export function removeModel(idOrSlug: string): boolean {
   const reg = loadRegistry()
   const before = reg.models.length

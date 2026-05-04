@@ -1,5 +1,5 @@
 import * as fs from "fs"
-import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { DEFAULT_CONFIG, loadConfig, saveConfig, PATHS, type Config } from "./index.js"
 
 describe("Config", () => {
@@ -49,8 +49,13 @@ describe("Config", () => {
 
     it("exposes default mlx and llama knobs", () => {
       const c = loadConfig()
-      expect(c.mlx.prefillStepSize).toBe(256)
+      expect(c.mlx.prefillStepSize).toBe(512)
+      expect(c.mlx.promptCacheSize).toBe(16384)
       expect(c.llama.nGpuLayers).toBe(999)
+      expect(c.llama.threads).toBe(8)
+      expect(c.llama.ctxSize).toBe(16384)
+      expect(c.llama.batchSize).toBe(512)
+      expect(c.llama.ubatchSize).toBe(256)
     })
   })
 
@@ -81,6 +86,56 @@ describe("Config", () => {
       expect(loaded.enablePiSync).toBe(false)
       expect(loaded.portRange).toEqual(DEFAULT_CONFIG.portRange)
       expect(loaded.supervisor.policy).toBe("single-active")
+    })
+
+    it("sanitizes invalid numeric config values back to defaults", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      fs.writeFileSync(
+        PATHS.config,
+        JSON.stringify({
+          portRange: { min: 9005, max: 9000 },
+          mlx: { promptCacheSize: -1, decodeConcurrency: 0 },
+          llama: { ctxSize: -10, threads: 0, nGpuLayers: -1 },
+          supervisor: { maxConcurrent: 0, startupTimeoutMs: -1 },
+          controlApi: { port: 70000 },
+          router: { port: 0, drainTimeoutMs: -5 }
+        }),
+        "utf8"
+      )
+      const loaded = loadConfig()
+      expect(loaded.portRange).toEqual(DEFAULT_CONFIG.portRange)
+      expect(loaded.mlx.promptCacheSize).toBe(DEFAULT_CONFIG.mlx.promptCacheSize)
+      expect(loaded.mlx.decodeConcurrency).toBe(DEFAULT_CONFIG.mlx.decodeConcurrency)
+      expect(loaded.llama.ctxSize).toBe(DEFAULT_CONFIG.llama.ctxSize)
+      expect(loaded.llama.threads).toBe(DEFAULT_CONFIG.llama.threads)
+      expect(loaded.llama.nGpuLayers).toBe(DEFAULT_CONFIG.llama.nGpuLayers)
+      expect(loaded.supervisor.maxConcurrent).toBe(DEFAULT_CONFIG.supervisor.maxConcurrent)
+      expect(loaded.supervisor.startupTimeoutMs).toBe(DEFAULT_CONFIG.supervisor.startupTimeoutMs)
+      expect(loaded.controlApi.port).toBe(DEFAULT_CONFIG.controlApi.port)
+      expect(loaded.router.port).toBe(DEFAULT_CONFIG.router.port)
+      expect(loaded.router.drainTimeoutMs).toBe(DEFAULT_CONFIG.router.drainTimeoutMs)
+      expect(spy).toHaveBeenCalled()
+      spy.mockRestore()
+    })
+
+    it("sanitizes invalid enum/string fields back to defaults", () => {
+      fs.writeFileSync(
+        PATHS.config,
+        JSON.stringify({
+          supervisor: { policy: "bogus" },
+          controlApi: { host: "" },
+          router: { host: "" },
+          modelDirs: { mlx: "", llama: "" },
+          enablePiSync: "yes"
+        }),
+        "utf8"
+      )
+      const loaded = loadConfig()
+      expect(loaded.supervisor.policy).toBe(DEFAULT_CONFIG.supervisor.policy)
+      expect(loaded.controlApi.host).toBe(DEFAULT_CONFIG.controlApi.host)
+      expect(loaded.router.host).toBe(DEFAULT_CONFIG.router.host)
+      expect(loaded.modelDirs).toEqual(DEFAULT_CONFIG.modelDirs)
+      expect(loaded.enablePiSync).toBe(DEFAULT_CONFIG.enablePiSync)
     })
   })
 })

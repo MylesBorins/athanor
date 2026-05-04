@@ -2,13 +2,9 @@ import * as os from "os"
 import * as path from "path"
 import type { ModelEntry, RuntimeType } from "../types/index.js"
 import {
-  allocatePort,
-  loadRegistry,
-  saveRegistry,
-  slugify,
-  snapshot,
-  uniqueSlug
-} from "../registry/index.js"
+  materializeRegistryEntry,
+  pullToMaterializeInput
+} from "../registry/materialize.js"
 import { getModelDirs } from "../config/index.js"
 import {
   fetchRepoInfo,
@@ -81,49 +77,13 @@ export async function pull(opts: PullOptions): Promise<PullResult> {
     ? path.join(localDir, file!)
     : resolveMlxSnapshot(localDir, opts.repo) ?? localDir
 
-  return {
-    entry: upsertRegistryEntry(opts.repo, file, opts.revision, runtime, resolvedPath)
-  }
-}
-
-function upsertRegistryEntry(
-  repo: string,
-  file: string | undefined,
-  revision: string | undefined,
-  runtime: RuntimeType,
-  resolvedPath: string
-): ModelEntry {
-  const reg = loadRegistry()
-  const snap = snapshot(reg)
-  const id = file ? `${repo}:${file}` : repo
   // resolvedPath for MLX points at snapshots/<hash>/ — that's where
   // config.json lives and what detectMlxCapabilities expects.
   const mlxCapabilities = runtime === "mlx" ? detectMlxCapabilities(resolvedPath) : undefined
-  const existing = reg.models.find(m => m.id === id)
-  if (existing) {
-    existing.path = resolvedPath
-    if (mlxCapabilities) existing.mlxCapabilities = mlxCapabilities
-    saveRegistry(reg)
-    return existing
+
+  return {
+    entry: materializeRegistryEntry(
+      pullToMaterializeInput(opts.repo, file, opts.revision, runtime, resolvedPath, mlxCapabilities)
+    ).entry
   }
-  const slug = uniqueSlug(
-    slugify(file ? path.basename(file, ".gguf") : repo),
-    snap.slugs
-  )
-  const port = allocatePort(snap.ports)
-  const entry: ModelEntry = {
-    id,
-    slug,
-    path: resolvedPath,
-    runtime,
-    source: { type: "hf", repo, revision, file },
-    port,
-    publish: true,
-    piAlias: slug,
-    addedAt: Date.now(),
-    ...(mlxCapabilities && mlxCapabilities.length > 0 ? { mlxCapabilities } : {})
-  }
-  reg.models.push(entry)
-  saveRegistry(reg)
-  return entry
 }
