@@ -48,7 +48,7 @@ function usage(): void {
     ["sync",       "",                               "manually rewrite pi catalog"],
     ["router",     "[--host H] [--port P]",          "run the pi-agent router in the foreground"],
     ["config",     "",                               "print config and its path"],
-    ["doctor",     "",                               "check for required binaries"],
+    ["doctor",     "[--check-updates]",              "check for required binaries and versions"],
     ["(no args)",  "",                               "launch the TUI"]
   ]
   const cw = Math.max(...rows.map(r => r[0].length))
@@ -134,7 +134,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
       return true
     }
     case "config":      cmdConfig(); return true
-    case "doctor":      await cmdDoctor(); return true
+    case "doctor":      await cmdDoctor({ checkUpdates: rest.includes("--check-updates") }); return true
     case "help":
     case "--help":
     case "-h":

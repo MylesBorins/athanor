@@ -3,7 +3,7 @@ import React from "react"
 import { render } from "ink"
 import { loadConfig, PATHS } from "../config/index.js"
 import { listModels } from "../registry/index.js"
-import { which } from "./doctor.js"
+import { binaryUpdateStatus, binaryVersion, which } from "./doctor.js"
 import { style, sym } from "./style.js"
 import { SearchBrowser } from "../ui/SearchBrowser.js"
 import { searchModels, groupByRuntime, type SearchFilter, type SearchSort } from "../search/hf.js"
@@ -97,15 +97,23 @@ export async function cmdRouter(opts: { host?: string; port?: number }): Promise
   })
 }
 
-export async function cmdDoctor(): Promise<void> {
+export async function cmdDoctor(opts: { checkUpdates?: boolean } = {}): Promise<void> {
   const bins = ["mlx_lm.server", "mlx_vlm.server", "llama-server", "hf"]
   head("binaries")
   const widest = Math.max(...bins.map(b => b.length))
   for (const b of bins) {
     const p = await which(b)
+    const v = p ? await binaryVersion(b, p) : null
+    const update = opts.checkUpdates && v ? await binaryUpdateStatus(b, v) : null
     const mark = p ? style.green(sym.check) : style.red(sym.cross)
-    const val = p ? dim(p) : style.red("NOT FOUND")
-    console.log(`  ${mark} ${b.padEnd(widest)}  ${val}`)
+    const location = p ? dim(p) : style.red("NOT FOUND")
+    const source = b === "llama-server" ? "brew" : "uv"
+    const version = v ? `  ${dim("version")} ${v} ${dim(`(${source})`)}` : ""
+    const latest = update ? `  ${dim("latest")} ${update.latest}${update.outdated ? ` ${style.yellow("update available")}` : ` ${style.green("up to date")}`}` : ""
+    console.log(`  ${mark} ${b.padEnd(widest)}  ${location}${version}${latest}`)
+    if (update?.outdated && update.hint) {
+      console.log(`  ${" ".repeat(widest + 4)}${dim("hint")} ${update.hint}`)
+    }
   }
   console.log()
   head("paths")

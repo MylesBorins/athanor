@@ -100,7 +100,7 @@ Linked mode does not auto-rebuild. Re-run `npm run build` after pulling changes 
 
 ### External binaries
 
-Run `athanor doctor` first — it prints presence and paths for each dependency and is the source of truth:
+Run `athanor doctor` first — it prints presence, installed versions, and paths for each dependency and is the source of truth. When you specifically need to check staleness, run `athanor doctor --check-updates` as well:
 
 - `mlx_lm.server` — required for MLX text models. `uv tool install mlx-lm` (or `pipx install mlx-lm`).
 - `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are load-bearing: `mlx-vlm` itself doesn't depend on them, but the `transformers` VLM processors it imports do, so installing `mlx-vlm` alone passes `athanor doctor` and then fails at request time with `Qwen3VLVideoProcessor requires the PyTorch library but it was not found in your environment`. Equivalent forms: `pipx install mlx-vlm && pipx inject mlx-vlm torch torchvision`, or `pip install -U mlx-vlm torch torchvision` in an active venv.

@@ -154,10 +154,15 @@ hf auth login
 
 ```bash
 athanor doctor
-# mlx_lm.server:   /Users/you/.local/bin/mlx_lm.server
-# mlx_vlm.server:  /Users/you/.local/bin/mlx_vlm.server
-# llama-server:    /opt/homebrew/bin/llama-server
-# hf:              /Users/you/.local/bin/hf
+# mlx_lm.server:   /Users/you/.local/bin/mlx_lm.server  version 0.31.3 (uv)
+# mlx_vlm.server:  /Users/you/.local/bin/mlx_vlm.server  version 0.4.4 (uv)
+# llama-server:    /opt/homebrew/bin/llama-server  version 9010 (brew)
+# hf:              /Users/you/.local/bin/hf  version 1.13.0 (uv)
+
+athanor doctor --check-updates
+# ... latest <version> up to date
+# ... or latest <version> update available
+# ... hint uv tool upgrade <tool>
 ```
 
 ## Quick start
@@ -343,7 +348,8 @@ athanor hide      <id|slug>      remove from pi-agent catalog
 athanor rm       <id|slug>       remove from registry (must be stopped)
 athanor sync                     manually rewrite pi catalog
 athanor config                   print resolved config and its path
-athanor doctor                   check that required binaries are on PATH
+athanor doctor                   check that required binaries are on PATH and show installed versions
+athanor doctor --check-updates   also compare installed versions with latest available and print upgrade hints
 ```
 
 `<id|slug>` accepts either the canonical id or the short slug.
@@ -588,6 +594,7 @@ Caveats:
 - **Models from other tools disappeared from pi.** They shouldn't — athanor only rewrites providers whose name starts with `athanor-`. If this happens, open an issue with the before/after of `~/.pi/agent/models.json`.
 - **Stale PID in registry.** If a child crashed without athanor noticing, `athanor status` will show nothing running but the port might be held. Run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
 - **`doctor` reports a missing binary.** Install `mlx_lm`, `mlx_vlm`, `llama.cpp`, or `huggingface_hub`, or adjust your shell's `PATH`. `mlx_vlm.server` is only needed if you plan to run VLM models; `athanor start` on a VLM entry will fail with a clear error if it's missing.
+- **`doctor --check-updates` reports `update available`.** Follow the printed one-line hint. Today the built-in hints cover uv-managed Python tools (`uv tool upgrade mlx-lm`, `uv tool upgrade mlx-vlm`, `uv tool upgrade hf`) and Homebrew's `llama.cpp` formula (`brew upgrade llama.cpp`).
 
 ## Development
 
