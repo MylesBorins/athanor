@@ -9,6 +9,7 @@ let child = null
 let restartTimer = null
 let restarting = false
 let shuttingDown = false
+let desiredRunning = true
 
 function stopChild(signal = 'SIGTERM') {
   if (!child) return
@@ -16,6 +17,7 @@ function stopChild(signal = 'SIGTERM') {
 }
 
 function startChild() {
+  if (!desiredRunning) return
   child = spawn(
     process.execPath,
     ['node_modules/tsx/dist/cli.mjs', 'src/index.tsx'],
@@ -30,12 +32,19 @@ function startChild() {
     if (shuttingDown) return
     if (restarting) {
       restarting = false
-      startChild()
+      if (desiredRunning) startChild()
+      return
     }
+    // Normal child exit (e.g. user pressed `q`) should stop the dev
+    // watcher too. File edits after that can still restart it because
+    // scheduleRestart() flips desiredRunning back on.
+    desiredRunning = false
+    process.exit(0)
   })
 }
 
 function scheduleRestart() {
+  desiredRunning = true
   clearTimeout(restartTimer)
   restartTimer = setTimeout(() => {
     if (!child) {
@@ -61,6 +70,7 @@ watchTree(srcDir)
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
     shuttingDown = true
+    desiredRunning = false
     clearTimeout(restartTimer)
     stopChild(sig)
     setTimeout(() => {
@@ -72,6 +82,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
 process.on('exit', () => {
   shuttingDown = true
+  desiredRunning = false
   clearTimeout(restartTimer)
   stopChild('SIGTERM')
 })

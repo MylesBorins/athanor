@@ -236,7 +236,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
           <ConfirmModal
             title={`Delete ${selected.slug}?`}
             body={[
-              "This will remove the model from athanor and delete its files from disk.",
+              "Delete this model from athanor and remove its files from disk.",
               "",
               selected.path
             ]}
@@ -318,7 +318,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const logRows = showLogPreview ? Math.max(4, bodyRows - listRows - 1) : 0
   const listHelp = isEmpty
     ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · q quit")
-    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P pi · d delete · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
+    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
 
   return (
     <Box width={dims.cols} height={dims.rows}>

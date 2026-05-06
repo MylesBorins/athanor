@@ -118,7 +118,6 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   const innerWidth = Math.max(24, width - 4)
   const confirmText = ` Delete `
   const cancelText = ` Cancel `
-  const actionRow = 7
   const gutter = 3
   const totalButtons = confirmText.length + gutter + cancelText.length
   const buttonsStart = Math.max(1, Math.floor((innerWidth - totalButtons) / 2) + 1)
@@ -154,7 +153,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           {cancelText}
         </Text>
       </Box>
-      <Text dimColor wrap="truncate">← → / tab move · enter choose · y confirm · n / esc cancel</Text>
+      <Text dimColor wrap="truncate">← → / Tab move · Enter choose · Esc cancel</Text>
     </Box>
   )
 }
