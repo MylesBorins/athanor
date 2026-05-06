@@ -208,7 +208,15 @@ npm start -- start qwen3-5-9b-mlx-4bit
 npm start
 ```
 
-`npm start` runs the app via `tsx`, so no build step is needed for development. If you want a compiled build or to install the `athanor` binary globally:
+`npm start` runs the app via `tsx`, so no build step is needed for development. For a live development loop, use:
+
+```bash
+npm run dev
+```
+
+That runs a small custom watcher (`scripts/dev-watch.mjs`) which watches only `src/**/*.ts` and `src/**/*.tsx`, then respawns `tsx src/index.tsx` with `ATHANOR_DEV_TUI=1`. This avoids `tsx watch`'s stdin/restart behavior, which can interfere with Ink/TUI key handling in tmux. In this dev mode athanor also skips the alt-screen/cursor toggles and does not auto-start the in-process control API/router, which makes UI iteration safer in split panes. The TUI also collapses to compact/minimal layouts in short or narrow terminals so model selection stays usable in tmux splits. For one-shot runs without the dev safeguards, keep using `npm start`.
+
+If you want a compiled build or to install the `athanor` binary globally:
 
 ```bash
 npm run build        # emit dist/

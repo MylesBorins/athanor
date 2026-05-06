@@ -5,9 +5,10 @@ import { tailLog } from "../supervisor/logs.js"
 export interface LogTailProps {
   logFile?: string
   lines?: number
+  compact?: boolean
 }
 
-export const LogTail: React.FC<LogTailProps> = ({ logFile, lines = 8 }) => {
+export const LogTail: React.FC<LogTailProps> = ({ logFile, lines = 8, compact = false }) => {
   const [content, setContent] = useState("")
 
   useEffect(() => {
@@ -23,7 +24,7 @@ export const LogTail: React.FC<LogTailProps> = ({ logFile, lines = 8 }) => {
   const tail = content.split("\n").slice(-lines).join("\n")
   return (
     <Box flexDirection="column">
-      <Text dimColor>logs ({logFile}):</Text>
+      <Text dimColor>{compact ? "log:" : `logs (${logFile}):`}</Text>
       <Text>{tail || "(waiting for output…)"}</Text>
     </Box>
   )

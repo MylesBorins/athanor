@@ -3,7 +3,7 @@ import type { ActiveInstance, ModelEntry } from "../types/index.js"
 
 const listModels = vi.fn()
 const supervisorList = vi.fn()
-const removeModelEntry = vi.fn()
+const deleteModelFromDisk = vi.fn()
 const restartModel = vi.fn()
 const scanModelsAndReport = vi.fn()
 const setPublished = vi.fn()
@@ -26,7 +26,7 @@ vi.mock("../supervisor/index.js", () => ({
 }))
 
 vi.mock("../app/models.js", () => ({
-  removeModelEntry,
+  deleteModelFromDisk,
   restartModel,
   scanModelsAndReport,
   setPublished,
@@ -153,8 +153,30 @@ describe("useModelActions", () => {
     })
     actions.deleteEntry()
 
-    expect(removeModelEntry).not.toHaveBeenCalled()
+    expect(deleteModelFromDisk).not.toHaveBeenCalled()
     expect(setMessage).toHaveBeenCalledWith("stop it first before deleting")
+  })
+
+  it("deleteEntry deletes the selected model from disk and reloads", async () => {
+    const setMessage = vi.fn<(message: string) => void>()
+    const setInstances = vi.fn<(instances: ActiveInstance[]) => void>()
+    const setModels = vi.fn<(models: ModelEntry[]) => void>()
+    const models: ModelEntry[] = []
+    listModels.mockReturnValue(models)
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances,
+      setModels
+    })
+    actions.deleteEntry()
+
+    expect(deleteModelFromDisk).toHaveBeenCalledWith("mlx-community/A")
+    expect(setModels).toHaveBeenCalledWith(models)
+    expect(setMessage).toHaveBeenCalledWith("deleted a from disk")
   })
 
   it("rescan reloads models and reports added count", async () => {

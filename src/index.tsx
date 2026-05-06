@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import * as fs from "fs"
 import React from "react"
 import { render } from "ink"
 import App from "./ui/App.js"
@@ -14,9 +15,21 @@ const LEAVE_ALT_SCREEN = "\x1b[?1049l"
 const CLEAR_SCREEN = "\x1b[2J\x1b[H"
 const HIDE_CURSOR = "\x1b[?25l"
 const SHOW_CURSOR = "\x1b[?25h"
+const DEV_LOG = "/tmp/athanor-dev.log"
+
+function devLog(message: string): void {
+  if (process.env.ATHANOR_DEV_TUI !== "1") return
+  try {
+    fs.appendFileSync(DEV_LOG, `[${Date.now()}] pid=${process.pid} ${message}\n`)
+  } catch {
+    // best-effort only; never fail startup/shutdown on dev logging
+  }
+}
 
 async function main(): Promise<void> {
   ensureBaseDirs()
+  const devTui = process.env.ATHANOR_DEV_TUI === "1"
+  devLog("start")
   const args = process.argv.slice(2)
   const handled = await runCli(args)
   if (handled) return
@@ -38,12 +51,15 @@ async function main(): Promise<void> {
   // Empty-registry hint is handled inline by the Suggestions picker
   // in App.tsx, so no toast here.
 
-  startControlApi()
-  startRouter()
+  if (!devTui) {
+    startControlApi()
+    startRouter()
+  }
 
-  process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
+  if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
+  else process.stdout.write(CLEAR_SCREEN)
   const restore = (): void => {
-    process.stdout.write(SHOW_CURSOR + LEAVE_ALT_SCREEN)
+    if (!devTui) process.stdout.write(SHOW_CURSOR + LEAVE_ALT_SCREEN)
   }
 
   const instance = render(<App initialMessage={initialMessage} />, {
@@ -51,18 +67,21 @@ async function main(): Promise<void> {
   })
 
   const stopServers = async (): Promise<void> => {
+    if (devTui) return
     await Promise.allSettled([stopControlApi(), stopRouter()])
   }
 
-  const shutdown = async (): Promise<void> => {
+  const shutdown = async (reason: "SIGINT" | "SIGTERM"): Promise<void> => {
+    devLog(`shutdown ${reason}`)
     instance.unmount()
     await stopServers()
     restore()
     process.exit(0)
   }
-  process.on("SIGINT", shutdown)
-  process.on("SIGTERM", shutdown)
+  process.on("SIGINT", () => { void shutdown("SIGINT") })
+  process.on("SIGTERM", () => { void shutdown("SIGTERM") })
   instance.waitUntilExit().then(() => {
+    devLog("exit ink")
     stopServers().finally(() => { restore(); process.exit(0) })
   })
 }

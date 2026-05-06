@@ -1,4 +1,5 @@
 import type { RuntimeType } from "../types/index.js"
+import { fetchRepoInfo, type HfSibling } from "../pull/api.js"
 
 // Hub model search. Reference:
 // https://huggingface.co/docs/hub/api#get-apimodels
@@ -36,6 +37,14 @@ export interface SearchResult {
   // safetensors we sum parameters dict × bytes-per-dtype. Undefined
   // for repos the Hub hasn't parsed.
   sizeBytes?: number
+}
+
+export interface SearchSelectionHint {
+  runtime?: RuntimeType
+  defaultFile?: string
+  defaultFileSizeBytes?: number
+  ggufFileCount?: number
+  ggufSelectableCount?: number
 }
 
 const API = "https://huggingface.co/api/models"
@@ -277,6 +286,77 @@ export async function searchModelsPage(
   return {
     results: merged,
     cursor: (next.mlx || next.gguf) ? next : undefined
+  }
+}
+
+function isMmproj(name: string): boolean {
+  return /(^|\/)mmproj[-_]/i.test(name)
+}
+
+function isShard(name: string): boolean {
+  return /-\d{5}-of-\d{5}\.gguf$/i.test(name)
+}
+
+function quantRank(name: string): number {
+  const n = name.toUpperCase()
+  if (n.includes("Q4_K_M")) return 1000
+  if (n.includes("Q5_K_M")) return 900
+  if (n.includes("Q6_K")) return 800
+  if (n.includes("Q4_K_S")) return 700
+  if (n.includes("Q8_0")) return 600
+  if (/Q\d+_K_[A-Z]+/.test(n)) return 500
+  if (/IQ4/.test(n)) return 400
+  if (/IQ3/.test(n)) return 300
+  if (/IQ2/.test(n)) return 200
+  return 100
+}
+
+function ggufCandidates(siblings: HfSibling[]): HfSibling[] {
+  return siblings.filter(s => {
+    const name = s.rfilename
+    return name.toLowerCase().endsWith(".gguf") && !isMmproj(name) && !isShard(name)
+  })
+}
+
+function pickDefaultGgufFile(siblings: HfSibling[]): HfSibling | undefined {
+  const candidates = ggufCandidates(siblings)
+  if (candidates.length === 0) return undefined
+  return [...candidates].sort((a, b) => {
+    const rank = quantRank(b.rfilename) - quantRank(a.rfilename)
+    if (rank !== 0) return rank
+    const sizeA = a.size ?? Number.POSITIVE_INFINITY
+    const sizeB = b.size ?? Number.POSITIVE_INFINITY
+    if (sizeA !== sizeB) return sizeA - sizeB
+    return a.rfilename.localeCompare(b.rfilename)
+  })[0]
+}
+
+const selectionHintCache = new Map<string, Promise<SearchSelectionHint> | SearchSelectionHint>()
+
+export async function enrichSelectionHint(result: SearchResult): Promise<SearchSelectionHint> {
+  const cached = selectionHintCache.get(result.id)
+  if (cached) return await cached
+  const pending = (async (): Promise<SearchSelectionHint> => {
+    if (result.runtime !== "llama.cpp") return { runtime: result.runtime }
+    const info = await fetchRepoInfo(result.id)
+    const candidates = ggufCandidates(info.siblings)
+    const chosen = pickDefaultGgufFile(info.siblings)
+    return {
+      runtime: "llama.cpp",
+      defaultFile: chosen?.rfilename,
+      defaultFileSizeBytes: chosen?.size,
+      ggufFileCount: info.siblings.filter(s => s.rfilename.toLowerCase().endsWith(".gguf")).length,
+      ggufSelectableCount: candidates.length
+    }
+  })()
+  selectionHintCache.set(result.id, pending)
+  try {
+    const resolved = await pending
+    selectionHintCache.set(result.id, resolved)
+    return resolved
+  } catch (error) {
+    selectionHintCache.delete(result.id)
+    throw error
   }
 }
 

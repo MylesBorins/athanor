@@ -35,8 +35,13 @@ function runtimeSuffix(stats?: InstanceStats): string {
   return parts.join(" · ")
 }
 
-function sourceLabel(m: ModelEntry): string {
-  return m.source.type === "hf" ? `hf:${m.source.repo}` : "local"
+function displayName(m: ModelEntry): string {
+  return m.source.type === "hf" ? m.source.repo : m.slug
+}
+
+function runtimeLabel(runtime: ModelEntry["runtime"]): { text: string; color: string } {
+  if (runtime === "mlx") return { text: "mlx", color: "magenta" }
+  return { text: "llama", color: "cyan" }
 }
 
 function recencyLabel(lastUsedAt?: number): string {
@@ -55,15 +60,10 @@ function recencyLabel(lastUsedAt?: number): string {
   return `${years}y`
 }
 
-// Mid-string truncation with an ellipsis. Used to keep the slug
-// column from overflowing into the next visual row, which would
-// otherwise reflow every row below it on a narrow terminal.
-function truncMid(s: string, max: number): string {
+function truncEnd(s: string, max: number): string {
   if (s.length <= max) return s
-  if (max <= 3) return s.slice(0, max)
-  const head = Math.ceil((max - 1) / 2)
-  const tail = Math.floor((max - 1) / 2)
-  return s.slice(0, head) + "…" + s.slice(s.length - tail)
+  if (max <= 1) return s.slice(0, max)
+  return s.slice(0, max - 1) + "…"
 }
 
 export interface ModelListProps {
@@ -75,24 +75,30 @@ export interface ModelListProps {
   // so the existing tests (which don't pass cols) still render the
   // full slug uncut.
   cols?: number
+  compact?: boolean
 }
 
 export const ModelList: React.FC<ModelListProps> = ({
-  models, selectedIndex, instances, stats, cols
+  models, selectedIndex, instances, stats, cols, compact = false
 }) => {
   if (models.length === 0) {
     return <Text dimColor>registry empty — press `p` to pull a model or `s` to scan</Text>
   }
-  // Budget breakdown for fixed columns to the right of the slug:
-  //   cursor 2 + status 2 + runtime 10 + ":port  " ~8 + "[pi] " 5
-  //   + "pid xxxxx" ~10 + recency ~7 + source up to ~28 + suffix up to ~28.
-  // We size the slug column to whatever's left, with a 12-char floor
-  // so it stays readable on very narrow terminals.
-  const FIXED_CHROME = 2 + 2 + 10 + 8 + 5 + 10 + 7
-  const SOURCE_MAX   = 28
-  const SUFFIX_MAX   = 28
   const width = cols ?? 200
-  const slugBudget = Math.max(12, Math.min(40, width - FIXED_CHROME - SOURCE_MAX - SUFFIX_MAX))
+  const tiny = compact || width < 90
+  const narrow = width < 110
+  const showRuntime = !tiny
+  const showPort = !tiny
+  const showRecency = !compact
+  const showStats = !compact
+  const FIXED_CHROME = 2 /* cursor */
+    + 2 /* status */
+    + (showRuntime ? 8 : 0)
+    + (showPort ? 10 : 0)
+    + (showRecency ? 8 : 0)
+    + (showStats ? 16 : 0)
+  const SUFFIX_MAX = showStats ? (narrow ? 12 : 22) : 0
+  const nameBudget = Math.max(tiny ? 24 : 28, width - FIXED_CHROME - SUFFIX_MAX)
   return (
     <Box flexDirection="column">
       {models.map((m, i) => {
@@ -100,23 +106,23 @@ export const ModelList: React.FC<ModelListProps> = ({
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
-        const slug = truncMid(m.slug, slugBudget).padEnd(slugBudget)
+        const name = truncEnd(displayName(m), nameBudget).padEnd(nameBudget)
         const recency = recencyLabel(m.lastUsedAt).padStart(5)
-        const source = truncMid(sourceLabel(m), SOURCE_MAX)
+        const runtime = runtimeLabel(m.runtime)
+        const runtimeText = runtime.text.padEnd(5)
+        const portText = `:${m.port}`.padEnd(7)
         return (
           <Box key={m.id} width={cols}>
             <Text color={selected ? "cyan" : undefined}>{selected ? "› " : "  "}</Text>
             <Text color={color}>{ch} </Text>
-            <Text bold={selected} color={selected ? "cyan" : undefined}>
-              {slug}
+            <Text bold={selected} dimColor={!selected} color={selected ? "cyan" : undefined} wrap="truncate-end">
+              {name}
             </Text>
-            <Text dimColor>{m.runtime.padEnd(10)}</Text>
-            <Text>:{m.port}  </Text>
-            <Text dimColor>{m.publish ? "[pi] " : "     "}</Text>
-            <Text dimColor>{inst ? `pid ${inst.pid}` : ""}</Text>
-            <Text dimColor>  {recency}</Text>
-            <Text dimColor wrap="truncate">  {source}</Text>
-            {suffix ? <Text dimColor wrap="truncate">  {suffix}</Text> : null}
+            {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}
+            {showPort ? <Text dimColor>{` · ${portText}`}</Text> : null}
+            {showRecency ? <Text dimColor>{` · ${recency}`}</Text> : null}
+            {showStats && inst ? <Text dimColor>{` · pid ${inst.pid}`}</Text> : null}
+            {showStats && suffix ? <Text dimColor wrap="truncate">{` · ${suffix}`}</Text> : null}
           </Box>
         )
       })}

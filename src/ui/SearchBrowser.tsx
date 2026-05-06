@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink"
 import {
+  enrichSelectionHint,
   searchModelsPage,
   sortByKey,
   type SearchCursor,
   type SearchFilter,
   type SearchResult,
+  type SearchSelectionHint,
   type SearchSort
 } from "../search/hf.js"
 import { formatBytes, formatCount, formatRelTime } from "../search/format.js"
@@ -15,13 +17,14 @@ import { PullModal } from "./PullModal.js"
 // sort wiring and visual alignment can't drift. Widths include the
 // two leading spaces that separate adjacent columns.
 interface ColumnDef {
-  key: "size" | "dl" | "likes" | "lic" | "age"
+  key: "rt" | "size" | "dl" | "likes" | "lic" | "age"
   width: number
   minCols: number
   sortKey: SearchSort | null
   label: string
 }
 const COLUMNS: ColumnDef[] = [
+  { key: "rt",    width: 8,  minCols: 52,  sortKey: null,        label: "rt" },
   { key: "size",  width: 10, minCols: 38,  sortKey: "size",      label: "size"    },
   { key: "dl",    width: 9,  minCols: 70,  sortKey: "downloads", label: "dl  ↓"   },
   { key: "likes", width: 8,  minCols: 88,  sortKey: "likes",     label: "  ♥"     },
@@ -36,10 +39,10 @@ interface Layout {
 }
 
 function columnLayout(cols: number): Layout {
-  // Cursor (2) + badge "[xxxx]" (6) + id + rights…
+  // Cursor (2) + id + rights…
   const active = COLUMNS.filter(c => cols >= c.minCols)
   const rightWidth = active.reduce((a, c) => a + c.width, 0)
-  const idStart = 8
+  const idStart = 2
   const idWidth = Math.max(8, cols - idStart - rightWidth)
   const idEnd = idStart + idWidth
   const right: LayoutSpan[] = []
@@ -66,15 +69,15 @@ export interface SearchBrowserProps {
   embedded?: boolean
 }
 
-type Mode = "edit" | "browse" | "pull"
+type Mode = "edit" | "browse" | "inspect" | "pull"
 
 const SORT_CYCLE: SearchSort[] = ["downloads", "likes", "trending", "modified", "size"]
 const FILTER_CYCLE: SearchFilter[] = ["any", "mlx", "gguf"]
 
 function runtimeBadge(r: SearchResult): { label: string; color: string } {
-  if (r.runtime === "mlx") return { label: "mlx",  color: "magenta" }
+  if (r.runtime === "mlx") return { label: "mlx", color: "magenta" }
   if (r.runtime === "llama.cpp") return { label: "gguf", color: "cyan" }
-  return { label: "?",   color: "gray" }
+  return { label: "other", color: "gray" }
 }
 
 function truncMid(s: string, max: number): string {
@@ -85,10 +88,18 @@ function truncMid(s: string, max: number): string {
   return s.slice(0, head) + "…" + s.slice(s.length - tail)
 }
 
+function truncEnd(s: string, max: number): string {
+  if (max <= 0) return ""
+  if (s.length <= max) return s
+  if (max <= 1) return s.slice(0, max)
+  return s.slice(0, max - 1) + "…"
+}
+
 function renderCell(r: SearchResult, key: ColumnDef["key"], width: number): string {
   // inner width = span width minus the 2-char gap before the value
   const inner = width - 2
   switch (key) {
+    case "rt":    return "  " + runtimeBadge(r).label.padEnd(inner).slice(0, inner)
     case "size":  return "  " + (r.sizeBytes !== undefined ? formatBytes(r.sizeBytes) : "—").padStart(inner)
     case "dl":    return "  " + (formatCount(r.downloads) + "↓").padStart(inner)
     case "likes": return "  " + (formatCount(r.likes) + "♥").padStart(inner)
@@ -100,7 +111,7 @@ function renderCell(r: SearchResult, key: ColumnDef["key"], width: number): stri
 function renderHeaderCell(key: ColumnDef["key"], width: number, label: string): string {
   const inner = width - 2
   // Right-align for numeric columns, left-align for textual.
-  if (key === "lic" || key === "age") return "  " + label.padEnd(inner).slice(0, inner)
+  if (key === "rt" || key === "lic" || key === "age") return "  " + label.padEnd(inner).slice(0, inner)
   return "  " + label.padStart(inner).slice(-inner)
 }
 
@@ -113,19 +124,17 @@ function Row({ r, cols, layout, selected }: {
   const badge = runtimeBadge(r)
   const id = truncMid(r.id, layout.idWidth).padEnd(layout.idWidth)
   const right = layout.right.map(s => renderCell(r, s.key, s.end - s.start)).join("")
-  const composed = `${selected ? "› " : "  "}[${badge.label.padEnd(4)}]${id}${right}`
+  const composed = `${selected ? "› " : "  "}${id}${right}`
   const padded = composed.length < cols ? composed + " ".repeat(cols - composed.length) : composed
   if (selected) {
-    // inverse flips fg/bg of every character, producing a solid
-    // highlighted bar across the full width while keeping readable
-    // contrast against the new background.
-    return <Text inverse>{padded}</Text>
+    // Keep the selected row's colors stable instead of inverting the
+    // full line, which can make dim metadata disappear on some themes.
+    return <Text backgroundColor="gray">{padded}</Text>
   }
   return (
     <Box>
-      <Text>{"  "}</Text>
-      <Text color={badge.color}>[{badge.label.padEnd(4)}]</Text>
-      <Text>{id}</Text>
+      <Text>{selected ? "› " : "  "}</Text>
+      <Text color={badge.color}>{id}</Text>
       <Text dimColor>{right}</Text>
     </Box>
   )
@@ -178,9 +187,11 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   const [scrollOff, setScrollOff]     = useState(0)
   const [mode, setMode]       = useState<Mode>(initialQuery ? "browse" : "edit")
   const [pickedRepo, setPickedRepo] = useState<string | undefined>()
+  const [pickedFile, setPickedFile] = useState<string | undefined>()
   // Transient status shown in the footer — currently used to confirm
   // a completed or cancelled pull after returning to browse mode.
   const [message, setMessage] = useState<string>("")
+  const [selectionHint, setSelectionHint] = useState<SearchSelectionHint | null>(null)
   // Opaque next-page cursor. Undefined when results are exhausted or
   // we haven't fetched yet (loading covers the latter).
   const [cursor, setCursor] = useState<SearchCursor | undefined>()
@@ -199,7 +210,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   useEffect(() => {
     let cancelled = false
     setLoading(true); setLoadingMore(false); setError(null)
-    setResults([]); setCursor(undefined)
+    setResults([]); setCursor(undefined); setSelectionHint(null)
     cursorRef.current = undefined
     seenIdsRef.current = new Set()
     searchModelsPage({ query, filter, sort })
@@ -256,11 +267,26 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       .finally(() => { loadingMoreRef.current = false; setLoadingMore(false) })
   }
 
-  // Chrome row count: banner + query + divider + column-header +
-  // divider + footer = 6. visibleRows absorbs the rest.
-  const chromeRows = 6
-  const visibleRows = Math.max(3, dims.rows - chromeRows)
   const layout = useMemo(() => columnLayout(dims.cols), [dims.cols])
+  const selected = results[selectedIdx]
+  const tail =
+    loadingMore ? " · loading more…" :
+    cursor      ? " · +more"          :
+    results.length > 0 ? " · end" : ""
+  const countLine =
+    loading ? "searching…" :
+    error   ? `error: ${error}` :
+    results.length === 0 ? "no results" :
+    `${results.length} results · ${selectedIdx + 1}/${results.length}${tail}`
+  const hintLine = selected?.runtime === "llama.cpp"
+    ? selectionHint?.defaultFile
+      ? `gguf default: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? ` · ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? ` · ${selectionHint.ggufSelectableCount} selectable` : ""}`
+      : "gguf: resolving default file…"
+    : null
+  // Fixed rows: title, query, top divider, header, bottom divider,
+  // key help footer. Optional hint/message lines live below that.
+  const chromeRows = 6 + (hintLine ? 1 : 0) + (message ? 1 : 0)
+  const visibleRows = Math.max(3, dims.rows - chromeRows)
   // y-coordinates (1-based, matching SGR mouse) for the two clickable
   // regions. Used by the mouse handler to map a click to a sort column
   // or a selection change.
@@ -290,6 +316,16 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     () => results.slice(scrollOff, scrollOff + visibleRows),
     [results, scrollOff, visibleRows]
   )
+
+  useEffect(() => {
+    let cancelled = false
+    setSelectionHint(null)
+    if (!selected || selected.runtime !== "llama.cpp") return
+    void enrichSelectionHint(selected)
+      .then(hint => { if (!cancelled) setSelectionHint(hint) })
+      .catch(() => { if (!cancelled) setSelectionHint({ runtime: selected.runtime }) })
+    return () => { cancelled = true }
+  }, [selected])
 
   // Refs let the mouse-data listener read current state without
   // re-subscribing every render. Each ref mirrors a piece of state
@@ -377,18 +413,37 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (Date.now() - lastMouseAtRef.current < 20) return
     if (input.indexOf("[<") >= 0 || input.indexOf("\x1b[<") >= 0) return
     if (key.escape) {
-      if (mode === "edit" && initialQuery === undefined && results.length > 0) {
+      if ((mode === "edit" || mode === "inspect") && initialQuery === undefined && results.length > 0) {
         setMode("browse"); return
       }
+      if (mode === "inspect") { setMode("browse"); return }
       onExit()
       if (!embedded) exit()
       return
     }
     if (mode === "edit") {
       if (key.return) { setMode("browse"); return }
+      if (key.downArrow) { setMode("browse"); return }
       if (key.backspace || key.delete) { setQuery(q => q.slice(0, -1)); return }
       if (input && !key.ctrl && !key.meta) setQuery(q => q + input)
       return
+    }
+    if (mode === "inspect") {
+      const r = results[selectedIdx]
+      if (!r) return
+      if (input === "p") {
+        setPickedRepo(r.id)
+        setPickedFile(r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined)
+        setMode("pull")
+        return
+      }
+      if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return }
+      if (key.downArrow) { setSelectedIdx(i => Math.min(results.length - 1, i + 1)); return }
+      if (key.pageUp)    { setSelectedIdx(i => Math.max(0, i - visibleRows)); return }
+      if (key.pageDown)  { setSelectedIdx(i => Math.min(results.length - 1, i + visibleRows)); return }
+      if (input === "g") { setSelectedIdx(0); return }
+      if (input === "G") { setSelectedIdx(Math.max(0, results.length - 1)); return }
+      if (key.return) return
     }
     // browse mode
     if (input === "/" || input === "i") { setMode("edit"); return }
@@ -400,6 +455,14 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       setSort(s => SORT_CYCLE[(SORT_CYCLE.indexOf(s) + 1) % SORT_CYCLE.length])
       return
     }
+    if (input === "p") {
+      const r = results[selectedIdx]
+      if (!r) return
+      setPickedRepo(r.id)
+      setPickedFile(r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined)
+      setMode("pull")
+      return
+    }
     if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return }
     if (key.downArrow) { setSelectedIdx(i => Math.min(results.length - 1, i + 1)); return }
     if (key.pageUp)    { setSelectedIdx(i => Math.max(0, i - visibleRows)); return }
@@ -407,9 +470,8 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (input === "g") { setSelectedIdx(0); return }
     if (input === "G") { setSelectedIdx(Math.max(0, results.length - 1)); return }
     if (key.return) {
-      const r = results[selectedIdx]
-      if (!r) return
-      setPickedRepo(r.id); setMode("pull")
+      if (!results[selectedIdx]) return
+      setMode("inspect")
     }
   })
 
@@ -420,23 +482,50 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     // now exits the TUI.
     return <PullModal
       initialRepo={pickedRepo}
-      onDone={msg => { setMessage(msg); setPickedRepo(undefined); setMode("browse") }}
-      onCancel={() => { setPickedRepo(undefined); setMode("browse") }}
+      initialFile={pickedFile}
+      onDone={msg => {
+        const needsFile = msg.startsWith("pull failed: Multiple GGUF files in ")
+        setMessage(msg)
+        if (needsFile) {
+          setPickedFile("")
+          setMode("pull")
+          return
+        }
+        setPickedRepo(undefined)
+        setPickedFile(undefined)
+        setMode("browse")
+      }}
+      onCancel={() => {
+        setPickedRepo(undefined)
+        setPickedFile(undefined)
+        setMode("browse")
+      }}
     />
   }
 
-  // Trailing marker reflects pagination state so the user knows
-  // whether more results are en-route or we've reached the end of
-  // the underlying stream(s).
-  const tail =
-    loadingMore ? " · loading more…" :
-    cursor      ? " · +more"          :
-    results.length > 0 ? " · end" : ""
-  const countLine =
-    loading ? "searching…" :
-    error   ? `error: ${error}` :
-    results.length === 0 ? "no results" :
-    `${results.length} results · ${selectedIdx + 1}/${results.length}${tail}`
+  const inspectLines = selected ? [
+    `repo: ${selected.id}`,
+    `runtime: ${runtimeBadge(selected).label}`,
+    `size: ${selected.sizeBytes !== undefined ? formatBytes(selected.sizeBytes) : "—"}`,
+    `downloads: ${formatCount(selected.downloads)}  ·  likes: ${formatCount(selected.likes)}`,
+    `updated: ${formatRelTime(selected.lastModified)}  ·  license: ${selected.license ?? "—"}`,
+    selected.runtime === "llama.cpp"
+      ? selectionHint?.defaultFile
+        ? `default gguf: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? `  ·  ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? `  ·  ${selectionHint.ggufSelectableCount} selectable` : ""}`
+        : "default gguf: resolving…"
+      : null
+  ].filter((line): line is string => line !== null).map(line => truncEnd(line, dims.cols)) : []
+
+  const helpLine = truncEnd(
+    mode === "edit"
+      ? "type query · ⏎ search · esc back"
+      : mode === "inspect"
+        ? "p pull · ↑↓ move · esc back"
+        : "↑↓ · ⏎ inspect · p pull · click header to sort · / edit · f filter · s sort · esc quit",
+    Math.max(0, dims.cols - 3 - countLine.length)
+  )
+  const footerLine = truncEnd(`${helpLine} · ${countLine}`, dims.cols)
+  const hintLineText = mode !== "inspect" && hintLine ? truncEnd(hintLine, dims.cols) : null
 
   return (
     <Box flexDirection="column" width={dims.cols} height={dims.rows}>
@@ -468,12 +557,13 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
             ))}
       </Box>
       <Text dimColor>{"─".repeat(Math.max(8, dims.cols - 2))}</Text>
-      <Text dimColor>
-        {mode === "edit"
-          ? "type query · ⏎ search · esc back"
-          : "↑↓ · ⏎ pull · click header to sort · / edit · f filter · s sort · esc quit"}
-        {" · "}{countLine}
-      </Text>
+      {mode === "inspect"
+        ? <Box flexDirection="column">
+            {inspectLines.map((line, i) => <Text key={i} dimColor>{line}</Text>)}
+          </Box>
+        : null}
+      <Text dimColor>{footerLine}</Text>
+      {hintLineText ? <Text dimColor>{hintLineText}</Text> : null}
       {message ? <Text color="yellow">{message}</Text> : null}
     </Box>
   )

@@ -68,11 +68,56 @@ function formatGB(bytes: number): string {
 export interface BannerProps {
   status?: string
   sys?: SysStats
+  dev?: boolean
+  mode?: "full" | "compact" | "minimal"
+  cols?: number
 }
 
-export const Banner: React.FC<BannerProps> = ({ status, sys }) => {
+function truncEnd(s: string, max: number): string {
+  if (s.length <= max) return s
+  if (max <= 1) return s.slice(0, max)
+  return s.slice(0, max - 1) + "…"
+}
+
+export const Banner: React.FC<BannerProps> = ({ status, sys, dev, mode = "full", cols = 100 }) => {
   const cpuPct = sys ? sys.cpuPct : 0
   const memPct = sys ? (sys.usedMemBytes / sys.totalMemBytes) * 100 : 0
+
+  if (mode === "minimal") {
+    const left = `ATHANOR${dev ? " [dev]" : ""}`
+    const right = status ?? ""
+    return (
+      <Box flexDirection="column">
+        <Text>
+          <Text bold color="#ffb347">{left}</Text>
+          {right ? <Text dimColor>{` · ${truncEnd(right, Math.max(8, cols - left.length - 3))}`}</Text> : null}
+        </Text>
+        {sys ? (
+          <Text dimColor wrap="truncate">
+            CPU {cpuPct.toFixed(0)}% · RAM {formatGB(sys.usedMemBytes)}/{formatGB(sys.totalMemBytes)} GB · load {sys.loadAvg1.toFixed(2)}
+          </Text>
+        ) : null}
+      </Box>
+    )
+  }
+
+  if (mode === "compact") {
+    return (
+      <Box flexDirection="column">
+        <Text>
+          <Text bold color="#ffb347">A T H A N O R</Text>
+          {dev ? <Text color="yellow">  [dev]</Text> : null}
+          <Text dimColor>{` · ${status ?? ""}`}</Text>
+        </Text>
+        <Text dimColor wrap="truncate">
+          {sys
+            ? `CPU ${cpuPct.toFixed(0)}% · RAM ${formatGB(sys.usedMemBytes)}/${formatGB(sys.totalMemBytes)} GB · load ${sys.loadAvg1.toFixed(2)}`
+            : "personal LLM alchemy"}
+        </Text>
+      </Box>
+    )
+  }
+
   return (
     <Box flexDirection="row">
       <Box flexDirection="column" marginRight={2}>
@@ -85,8 +130,9 @@ export const Banner: React.FC<BannerProps> = ({ status, sys }) => {
         ))}
       </Box>
       <Box flexDirection="column" justifyContent="center">
-        <Text bold color="#ffb347">
-          A T H A N O R
+        <Text>
+          <Text bold color="#ffb347">A T H A N O R</Text>
+          {dev ? <Text color="yellow">  [dev]</Text> : null}
         </Text>
         <Text dimColor>personal LLM alchemy</Text>
         <Text> </Text>

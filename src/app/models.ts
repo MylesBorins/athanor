@@ -1,3 +1,6 @@
+import * as fs from "fs"
+import * as path from "path"
+import * as os from "os"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import { ingestDiscovered, type IngestReport } from "../discovery/ingest.js"
 import { pull, type PullOptions, type PullResult } from "../pull/hf.js"
@@ -8,6 +11,7 @@ import {
   setModelPreset,
   setModelPublish
 } from "../registry/index.js"
+import { loadConfig } from "../config/index.js"
 import { supervisor } from "../supervisor/index.js"
 import { syncPi } from "../sync/pi.js"
 
@@ -84,6 +88,67 @@ export function setPreset(idOrSlug: string, preset: ModelEntry["preset"]): Model
   const entry = setModelPreset(idOrSlug, preset)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
   syncPi({ instances: supervisor.list() })
+  return entry
+}
+
+function realpathIfExists(p: string): string | null {
+  try { return fs.realpathSync(p) } catch { return null }
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)
+}
+
+function removePathRecursive(target: string): void {
+  fs.rmSync(target, { recursive: true, force: true })
+}
+
+function removeHfSnapshotFromEntry(entry: ModelEntry): boolean {
+  const snapshotPath = realpathIfExists(entry.path)
+  if (!snapshotPath) return false
+
+  if (entry.runtime === "mlx") {
+    const config = loadConfig()
+    const hubRoot = path.join(os.homedir(), ".cache", "huggingface", "hub")
+    const configuredRoot = realpathIfExists(config.modelDirs.mlx.replace(/^~/, os.homedir()))
+    const resolvedHubRoot = configuredRoot ?? realpathIfExists(hubRoot) ?? hubRoot
+    if (!isInside(resolvedHubRoot, snapshotPath)) {
+      throw new Error(`refusing to remove snapshot outside HF cache: ${snapshotPath}`)
+    }
+    removePathRecursive(snapshotPath)
+    return true
+  }
+
+  if (entry.source.type === "hf" && entry.source.file) {
+    removePathRecursive(snapshotPath)
+    return true
+  }
+
+  return false
+}
+
+function removeLocalModelPath(entry: ModelEntry): boolean {
+  const target = realpathIfExists(entry.path)
+  if (!target) return false
+  removePathRecursive(target)
+  return true
+}
+
+export function deleteModelFromDisk(idOrSlug: string): ModelEntry {
+  const entry = getModel(idOrSlug)
+  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+
+  const removedPath = entry.source.type === "local"
+    ? removeLocalModelPath(entry)
+    : removeHfSnapshotFromEntry(entry)
+
+  if (!removeModel(entry.id)) throw new Error(`unknown model: ${entry.id}`)
+  syncPi({ instances: supervisor.list() })
+
+  if (!removedPath) {
+    throw new Error(`removed registry entry for ${entry.slug}, but could not remove files from disk`)
+  }
   return entry
 }
 

@@ -11,13 +11,14 @@ import { PullModal } from "./PullModal.js"
 import { PresetEditor } from "./PresetEditor.js"
 import { Suggestions } from "./Suggestions.js"
 import { SearchBrowser } from "./SearchBrowser.js"
+import { ConfirmModal } from "./ConfirmModal.js"
 import { SUGGESTIONS, type Suggestion } from "../pull/suggestions.js"
 import { useModelActions } from "./useModelActions.js"
 import { useMouseWheel } from "./useMouseWheel.js"
 import { useAppData } from "./useAppData.js"
 import { useAppInput } from "./useAppInput.js"
 
-type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search"
+type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search" | "confirm-delete"
 
 // How long a status message stays on screen before auto-dismissing.
 // Long enough to read a success/error line, short enough that it
@@ -217,85 +218,153 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     />
   }
 
+  const confirmDeleteModalWidth = Math.max(44, Math.min(72, dims.cols - 8))
+  const confirmDeleteModalHeight = 10
+  const confirmDeleteTopPad = Math.max(0, Math.floor((dims.rows - confirmDeleteModalHeight) / 2))
+  const confirmDeleteLeftPad = Math.max(0, Math.floor((dims.cols - confirmDeleteModalWidth) / 2))
+  const confirmDeleteOverlay = mode === "confirm-delete" && selected
+    ? <Box
+        width={dims.cols}
+        height={dims.rows}
+        position="absolute"
+        flexDirection="column"
+      >
+        {Array.from({ length: confirmDeleteTopPad }, (_, i) => (
+          <Text key={`top-${i}`}> </Text>
+        ))}
+        <Box paddingLeft={confirmDeleteLeftPad}>
+          <ConfirmModal
+            title={`Delete ${selected.slug}?`}
+            body={[
+              "This will remove the model from athanor and delete its files from disk.",
+              "",
+              selected.path
+            ]}
+            width={confirmDeleteModalWidth}
+            confirmLabel="delete"
+            cancelLabel="cancel"
+            onConfirm={() => {
+              deleteEntry()
+              setMode("list")
+            }}
+            onCancel={() => setMode("list")}
+          />
+        </Box>
+      </Box>
+    : null
+
+  const bannerMode = dims.rows < 20 || dims.cols < 80
+    ? "minimal"
+    : dims.rows < 28 || dims.cols < 100
+      ? "compact"
+      : "full"
+  const bannerRows = bannerMode === "full" ? 12 : bannerMode === "compact" ? 2 : 2
+  const compactList = dims.cols < 100 || dims.rows < 24
+  const showLogPreview = models.length > 0 && dims.rows >= 24
+  const divider = "─".repeat(Math.max(8, dims.cols - 2))
+
   if (mode === "logs") {
     // Tab hides only the model selector — banner and footer stay so
     // global context (system load, keybindings) remains visible. The
     // log pane takes over everything the ModelList used to occupy.
-    const bannerRows = 12
     const dividerRows = 2
     const footerRows = 2
-    const focusRows = Math.max(10, dims.rows - bannerRows - dividerRows - footerRows)
-    const divider = "─".repeat(Math.max(8, dims.cols - 2))
+    const focusRows = Math.max(8, dims.rows - bannerRows - dividerRows - footerRows)
+    const logsHelp = dims.cols < 100
+      ? "↑↓ scroll · PgUp/PgDn · g/G · tab list · q quit"
+      : "wheel/↑↓ scroll · PgUp/PgDn page · g top · G/End tail · r restart · k kill · ⏎ start/stop · tab list · q quit"
     return (
-      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
-        <Banner
-          status={`${instances.length} running · ${models.length} in registry`}
-          sys={sys}
-        />
-        <Text dimColor>{divider}</Text>
-        {selected
-          ? <LogFocus
-              entry={selected}
-              instance={selectedInst}
-              stats={instStats.get(selected.id)}
-              rows={focusRows}
-              cols={dims.cols}
-              scrollOffset={logScroll}
-            />
-          : <Box height={focusRows}><Text dimColor>no model selected</Text></Box>}
-        <Text dimColor>{divider}</Text>
-        <Text dimColor>wheel/↑↓ scroll · PgUp/PgDn page · g top · G/End tail · r restart · k kill · ⏎ start/stop · tab list · q quit</Text>
-        <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
+      <Box width={dims.cols} height={dims.rows}>
+        <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+          <Banner
+            status={`${instances.length} running · ${models.length} in registry`}
+            sys={sys}
+            dev={process.env.ATHANOR_DEV_TUI === "1"}
+            mode={bannerMode}
+            cols={dims.cols}
+          />
+          <Text dimColor>{divider}</Text>
+          {selected
+            ? <LogFocus
+                entry={selected}
+                instance={selectedInst}
+                stats={instStats.get(selected.id)}
+                rows={focusRows}
+                cols={dims.cols}
+                scrollOffset={logScroll}
+              />
+            : <Box height={focusRows}><Text dimColor>no model selected</Text></Box>}
+          <Text dimColor>{divider}</Text>
+          <Text dimColor wrap="truncate">{logsHelp}</Text>
+          <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
+        </Box>
+        {confirmDeleteOverlay}
       </Box>
     )
   }
 
-  // Allocate space: banner is 12 rows (see FURNACE in Banner.tsx),
-  // header row is 1, two rules are 2, list gets the top chunk, log
-  // tail gets the bottom chunk, footer is 2, plus a reserved 1-row
-  // status line so transient messages don't push the rest of the
-  // layout off the bottom of the screen.
-  const bannerRows = 12
-  const chromeRows = bannerRows + 1 /* stats */ + 2 /* rules */ + 2 /* footer */ + 1 /* message */
-  const bodyRows = Math.max(8, dims.rows - chromeRows)
-  const listRows = Math.max(4, Math.min(filtered.length + 1, Math.floor(bodyRows * 0.55)))
-  const logRows = Math.max(4, bodyRows - listRows)
-  const divider = "─".repeat(Math.max(8, dims.cols - 2))
+  const footerRows = 2
+  const baseChromeRows = bannerRows + 1 /* top rule */ + footerRows + 1 /* message */
+  const bodyRows = Math.max(6, dims.rows - baseChromeRows)
   const isEmpty = models.length === 0
+  const selectedTitle = selected
+    ? (selected.source.type === "hf" ? selected.source.repo : selected.slug)
+    : undefined
+  const listRows = isEmpty
+    ? bodyRows
+    : showLogPreview
+      ? Math.max(4, Math.min(filtered.length + 1, Math.floor((bodyRows - 1) * 0.6)))
+      : bodyRows
+  const logRows = showLogPreview ? Math.max(4, bodyRows - listRows - 1) : 0
+  const listHelp = isEmpty
+    ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · q quit")
+    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P pi · d delete · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
 
   return (
-    <Box flexDirection="column" width={dims.cols} height={dims.rows}>
-      <Banner
-        status={`${instances.length} running · ${models.length} in registry`}
-        sys={sys}
-      />
-      <Text dimColor>{divider}</Text>
-      {isEmpty
-        ? <Box flexDirection="column" overflow="hidden">
-            <Suggestions selectedIndex={suggIdx} />
-          </Box>
-        : <>
-            <Box flexDirection="column" height={listRows} overflow="hidden">
-              <ModelList
-                models={filtered}
-                selectedIndex={selectedIdx}
-                instances={instMap}
-                stats={instStats}
-                cols={dims.cols}
-              />
+    <Box width={dims.cols} height={dims.rows}>
+      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+        <Banner
+          status={`${instances.length} running · ${models.length} in registry`}
+          sys={sys}
+          dev={process.env.ATHANOR_DEV_TUI === "1"}
+          mode={bannerMode}
+          cols={dims.cols}
+        />
+        <Text dimColor>{divider}</Text>
+        {isEmpty
+          ? <Box flexDirection="column" height={listRows} overflow="hidden">
+              <Suggestions selectedIndex={suggIdx} />
             </Box>
-            <Text dimColor>{divider}</Text>
-            <Box flexDirection="column" height={logRows} overflow="hidden">
-              <LogTail logFile={selectedInst?.logFile} lines={logRows - 1} />
-            </Box>
-          </>}
-      <Text dimColor>{divider}</Text>
-      {mode === "filter"
-        ? <Text>/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
-        : isEmpty
-          ? <Text dimColor>↑↓ · ⏎ pull suggestion · p pull repo · S search · s scan · q quit</Text>
-          : <Text dimColor>↑↓ · ⏎ start/stop · r restart · k kill · P expose/hide · d remove · s scan · p pull · S search · e preset · / filter · tab hide list · q quit</Text>}
-      <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
+          : <>
+              <Box flexDirection="column" height={listRows} overflow="hidden">
+                <ModelList
+                  models={filtered}
+                  selectedIndex={selectedIdx}
+                  instances={instMap}
+                  stats={instStats}
+                  cols={dims.cols}
+                  compact={compactList}
+                />
+              </Box>
+              {showLogPreview
+                ? <>
+                    <Text dimColor>{divider}</Text>
+                    <Box flexDirection="column" height={logRows} overflow="hidden">
+                      <Box height={1}>
+                        <Text dimColor wrap="truncate">{selectedTitle ?? " "}</Text>
+                      </Box>
+                      <LogTail logFile={selectedInst?.logFile} lines={Math.max(1, logRows - 2)} compact={compactList} />
+                    </Box>
+                  </>
+                : null}
+            </>}
+        <Text dimColor>{divider}</Text>
+        {mode === "filter"
+          ? <Text wrap="truncate">/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
+          : <Text dimColor wrap="truncate">{listHelp}</Text>}
+        <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
+      </Box>
+      {confirmDeleteOverlay}
     </Box>
   )
 }

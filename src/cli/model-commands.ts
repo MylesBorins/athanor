@@ -1,7 +1,7 @@
 import { listModels, getModel } from "../registry/index.js"
 import { sortModelsByRecentUse } from "../registry/sort.js"
 import { supervisor } from "../supervisor/index.js"
-import { scanModelsAndReport, removeModelEntry, restartModel, setFlavor, setPublished, startModel, stopModel, syncPiNow } from "../app/models.js"
+import { scanModelsAndReport, deleteModelFromDisk, restartModel, setFlavor, setPublished, startModel, stopModel, syncPiNow } from "../app/models.js"
 import { SUGGESTIONS } from "../pull/suggestions.js"
 import { tailLog } from "../supervisor/logs.js"
 import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.js"
@@ -138,8 +138,8 @@ export function cmdFlavor(idOrSlug: string, value: string): void {
 export function cmdRm(idOrSlug: string): void {
   const inst = supervisor.list().find(i => i.id === idOrSlug || i.slug === idOrSlug)
   if (inst) throw new Error(`cannot remove ${idOrSlug}: currently running (stop it first)`)
-  removeModelEntry(idOrSlug)
-  ok(`removed ${style.bold(idOrSlug)}`)
+  const entry = deleteModelFromDisk(idOrSlug)
+  ok(`deleted ${style.bold(entry.slug)} from disk`)
 }
 
 export function cmdSync(): void {

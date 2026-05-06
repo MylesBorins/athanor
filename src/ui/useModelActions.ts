@@ -2,7 +2,7 @@ import { useCallback } from "react"
 import { listModels } from "../registry/index.js"
 import { supervisor } from "../supervisor/index.js"
 import {
-  removeModelEntry,
+  deleteModelFromDisk,
   restartModel,
   scanModelsAndReport,
   setPublished,
@@ -78,9 +78,14 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
   const deleteEntry = useCallback(() => {
     if (!selected) return
     if (instMap.get(selected.id)) { setMessage("stop it first before deleting"); return }
-    removeModelEntry(selected.id)
-    setModels(listModels())
-    setMessage(`removed ${selected.slug}`)
+    try {
+      deleteModelFromDisk(selected.id)
+      setModels(listModels())
+      setMessage(`deleted ${selected.slug} from disk`)
+    } catch (err) {
+      setModels(listModels())
+      setMessage(`error: ${errMsg(err)}`)
+    }
   }, [selected, instMap, setModels, setMessage])
 
   const rescan = useCallback(() => {

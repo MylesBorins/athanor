@@ -7,7 +7,7 @@ interface Dims {
   rows: number
 }
 
-type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search"
+type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search" | "confirm-delete"
 
 export interface AppInputOpts {
   mode: Mode
@@ -59,7 +59,7 @@ export function useAppInput(opts: AppInputOpts): void {
   } = opts
 
   useInput((input, key) => {
-    if (mode === "pull" || mode === "preset" || mode === "search") return
+    if (mode === "pull" || mode === "preset" || mode === "search" || mode === "confirm-delete") return
     if (Date.now() - lastMouseAtRef.current < 20) return
     if (input.indexOf("[<") >= 0 || input.indexOf("\x1b[<") >= 0) return
     if (mode === "filter") {
@@ -98,7 +98,7 @@ export function useAppInput(opts: AppInputOpts): void {
     else if (input === "r") void restart()
     else if (input === "k") { if (selectedInst) void killSelected() }
     else if (input === "P") toggleExpose()
-    else if (input === "d") deleteEntry()
+    else if (input === "d") { if (selected) setMode("confirm-delete") }
     else if (input === "s") rescan()
     else if (input === "/") { setFilter(""); setMode("filter") }
     else if (input === "p") { setPullPrefill(undefined); setMode("pull") }

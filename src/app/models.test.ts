@@ -65,6 +65,33 @@ describe("app model service", () => {
     })
   })
 
+  it("deleteModelFromDisk removes a local model file and syncs pi", async () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "delete-local-"))
+    const file = path.join(tmp, "a.gguf")
+    fs.writeFileSync(file, "x")
+    const syncPi = vi.fn()
+    const removeModel = vi.fn(() => true)
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), runtime: "llama.cpp" as const, path: file, source: { type: "local" as const } }),
+      removeModel,
+      setModelFlavor: vi.fn(),
+      setModelPreset: vi.fn(),
+      setModelPublish: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] } }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+    vi.doMock("../discovery/ingest.js", () => ({ ingestDiscovered: vi.fn() }))
+    vi.doMock("../pull/hf.js", () => ({ pull: vi.fn() }))
+
+    const mod = await import("./models.js")
+    const deleted = mod.deleteModelFromDisk("a")
+    expect(deleted.path).toBe(file)
+    expect(fs.existsSync(file)).toBe(false)
+    expect(removeModel).toHaveBeenCalledWith("mlx-community/A")
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
+  })
+
   it("setPublished updates registry and syncs pi", async () => {
     const syncPi = vi.fn()
     const setModelPublish = vi.fn(() => ({ ...entry(), publish: false }))

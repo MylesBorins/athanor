@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "start": "tsx src/index.tsx",
+    "dev": "node scripts/dev-watch.mjs",
     "build": "tsc && node -e \"const fs=require('fs'); const path=require('path'); const walk=d=>{ for (const entry of fs.readdirSync(d,{withFileTypes:true})) { const p=path.join(d,entry.name); if (entry.isDirectory()) walk(p); else if (/\\.test\\.(js|js\\.map|d\\.ts|d\\.ts\\.map)$/.test(entry.name)) fs.unlinkSync(p); } }; walk('dist'); fs.copyFileSync('src/pull/hf_pull.py','dist/pull/hf_pull.py')\"",
     "prepublishOnly": "npm run build",
     "lint": "eslint .",
