@@ -3,6 +3,20 @@ import * as path from "path"
 import type { DiscoveredModel, MlxCapability, RuntimeType } from "../types/index.js"
 import { getModelDirs } from "../config/index.js"
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === "object" && !Array.isArray(v)
+}
+
+export function detectArchitectureFamily(modelType: string | undefined, fallbackName: string): string | undefined {
+  const value = (modelType ?? fallbackName).toLowerCase()
+  if (value.includes("qwen")) return "qwen"
+  if (value.includes("llama")) return "llama"
+  if (value.includes("gemma")) return "gemma"
+  if (value.includes("mistral")) return "mistral"
+  if (value.includes("phi")) return "phi"
+  return undefined
+}
+
 // Known VLM model_types. HF's transformers registry is the source of
 // truth; we only list the ones mlx_vlm.server supports today. The
 // more reliable signal is the presence of `vision_config` in
@@ -99,6 +113,60 @@ export function detectMlxCapabilities(snapshotDir: string): MlxCapability[] {
   }
 }
 
+export function detectMlxMetadata(snapshotDir: string, fallbackName?: string): Pick<DiscoveredModel,
+  "architectureFamily" |
+  "trainedContextLength" |
+  "quantization" |
+  "paramCount" |
+  "isMoe" |
+  "activeParams" |
+  "metadataSource"
+> {
+  try {
+    const raw = fs.readFileSync(path.join(snapshotDir, "config.json"), "utf8")
+    const cfg = JSON.parse(raw) as Record<string, unknown>
+    const modelType = typeof cfg.model_type === "string" ? cfg.model_type : undefined
+    const maxPos = typeof cfg.max_position_embeddings === "number" ? cfg.max_position_embeddings : undefined
+    const numExperts = typeof cfg.num_experts === "number" ? cfg.num_experts : undefined
+    const numExpertsPerTok = typeof cfg.num_experts_per_tok === "number" ? cfg.num_experts_per_tok : undefined
+    let quantization: string | undefined
+    try {
+      const qraw = fs.readFileSync(path.join(snapshotDir, "quantization_config.json"), "utf8")
+      const qcfg = JSON.parse(qraw) as unknown
+      if (isRecord(qcfg) && typeof qcfg.group_size === "number" && typeof qcfg.bits === "number") {
+        quantization = `${qcfg.bits}-bit`
+      }
+    } catch { /* optional */ }
+    return {
+      architectureFamily: detectArchitectureFamily(modelType, fallbackName ?? path.basename(snapshotDir)),
+      trainedContextLength: maxPos,
+      quantization,
+      isMoe: (numExperts ?? 0) > 1,
+      activeParams: numExpertsPerTok,
+      metadataSource: "mlx_config"
+    }
+  } catch {
+    return { metadataSource: "file_size_only" }
+  }
+}
+
+export function detectGgufMetadata(filePath: string, fallbackName?: string): Pick<DiscoveredModel,
+  "architectureFamily" |
+  "quantization" |
+  "metadataSource"
+> {
+  const name = path.basename(filePath, ".gguf")
+  const upper = name.toUpperCase()
+  let quantization: string | undefined
+  const known = ["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q4_0", "Q3_K_M", "Q2_K"]
+  quantization = known.find(q => upper.includes(q))
+  return {
+    architectureFamily: detectArchitectureFamily(undefined, fallbackName ?? name),
+    quantization,
+    metadataSource: quantization ? "gguf_header" : "file_size_only"
+  }
+}
+
 function snapshotSizeBytes(snapshotDir: string): number {
   try {
     return fs.readdirSync(snapshotDir).reduce((sum, name) => {
@@ -143,6 +211,7 @@ function scanMlxModels(baseDir: string): Model[] {
       if (!snapshotDir || !isMlxSnapshot(snapshotDir)) continue
 
       const repo = `${parsed.org}/${parsed.repo}`
+      const metadata = detectMlxMetadata(snapshotDir, parsed.repo)
       models.push({
         id: repo,
         name: parsed.repo,
@@ -150,7 +219,8 @@ function scanMlxModels(baseDir: string): Model[] {
         runtime: "mlx",
         source: { type: "hf", repo },
         sizeBytes: snapshotSizeBytes(snapshotDir),
-        mlxCapabilities: detectMlxCapabilities(snapshotDir)
+        mlxCapabilities: detectMlxCapabilities(snapshotDir),
+        ...metadata
       })
     }
   } catch (err) {
@@ -185,7 +255,8 @@ function scanGgufModels(baseDir: string): Model[] {
             path: fullPath,
             runtime: "llama.cpp",
             source: { type: "local" },
-            sizeBytes: stats.size
+            sizeBytes: stats.size,
+            ...detectGgufMetadata(fullPath, name)
           })
         }
       }
@@ -237,7 +308,8 @@ function scanHFCacheGgufModels(hubDir: string): Model[] {
             path: filePath,
             runtime: "llama.cpp",
             source: { type: "hf", repo: hfRepo, file },
-            sizeBytes
+            sizeBytes,
+            ...detectGgufMetadata(filePath, name)
           })
         }
       } catch { /* unreadable snapshot, skip */ }

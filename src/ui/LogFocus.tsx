@@ -3,6 +3,8 @@ import { Box, Text } from "ink"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import type { InstanceStats } from "./ModelList.js"
 import { tailLog } from "../supervisor/logs.js"
+import { detectMachineProfile } from "../machine/profile.js"
+import { buildRecommendation } from "../registry/recommend.js"
 
 function statusColor(status?: string): string | undefined {
   switch (status) {
@@ -90,6 +92,7 @@ export const LogFocus: React.FC<LogFocusProps> = ({
   const runtimeLabel = entry.runtime === "mlx" && entry.mlxFlavor === "vlm"
     ? "mlx-vlm"
     : entry.runtime
+  const rec = buildRecommendation(entry, detectMachineProfile())
 
   // Scroll indicator: shows "tail" when following, or "+N ↑ / paused"
   // when scrolled up so the pause state is obvious.
@@ -125,6 +128,8 @@ export const LogFocus: React.FC<LogFocusProps> = ({
           </>
         ) : <Text dimColor>  tok/s —</Text>}
         <Text dimColor>  used </Text><Text>{formatLastUsed(entry.lastUsedAt)}</Text>
+        <Text dimColor>  fit </Text><Text color={rec.fitBand === "comfortable" ? "green" : rec.fitBand === "tight" ? "yellow" : "red"}>{rec.fitBand}</Text>
+        <Text dimColor>  ctx </Text><Text>{rec.recommendedContext}</Text>
         <Text dimColor>  log </Text>
         <Text color={paused ? "yellow" : undefined}>{scrollLabel}</Text>
       </Box>

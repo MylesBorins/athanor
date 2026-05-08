@@ -87,7 +87,7 @@ describe("useModelActions", () => {
     })
     await actions.toggleStartStop()
 
-    expect(startModel).toHaveBeenCalledWith("mlx-community/A")
+    expect(startModel).toHaveBeenCalledWith("mlx-community/A", { confirm: true })
     expect(setMessage).toHaveBeenNthCalledWith(1, "starting a…")
     expect(setMessage).toHaveBeenNthCalledWith(2, "a ready on :9001")
     expect(setInstances).toHaveBeenCalledWith([instance({ port: 9001 })])

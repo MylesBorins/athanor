@@ -50,6 +50,8 @@ export interface ModelSourceLocal {
 
 export type ModelSource = ModelSourceHF | ModelSourceLocal
 
+export type MetadataSource = "gguf_header" | "mlx_config" | "file_size_only"
+
 export interface ModelEntry {
   id: string
   slug: string
@@ -71,6 +73,15 @@ export interface ModelEntry {
   // Detected facts about the model (refreshed by scan/pull). Today
   // only "vlm" — present when config.json has a vision tower.
   mlxCapabilities?: MlxCapability[]
+  // Additional detected metadata used for recommendation guidance.
+  // Refreshed by scan/pull when cheaply derivable from local files.
+  architectureFamily?: string
+  trainedContextLength?: number
+  quantization?: string
+  paramCount?: number
+  isMoe?: boolean
+  activeParams?: number
+  metadataSource?: MetadataSource
 }
 
 export interface Registry {
@@ -110,4 +121,11 @@ export interface DiscoveredModel {
   source: ModelSource
   sizeBytes?: number
   mlxCapabilities?: MlxCapability[]
+  architectureFamily?: string
+  trainedContextLength?: number
+  quantization?: string
+  paramCount?: number
+  isMoe?: boolean
+  activeParams?: number
+  metadataSource?: MetadataSource
 }
