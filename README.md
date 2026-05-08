@@ -195,8 +195,8 @@ npm start -- doctor
 npm start -- scan
 
 # see what's in the registry — if empty, this prints curated
-# starter models sized for 8 / 16 / 32 GB Macs that you can copy
-# the `athanor pull ...` line from
+# starter models with reviewed 8 / 16 / 32 GB memory tiers and task tags
+# that you can copy the `athanor pull ...` line from
 npm start -- ls
 
 # pull one and start it (by slug)
@@ -204,7 +204,7 @@ npm start -- pull mlx-community/Qwen3.5-9B-MLX-4bit
 npm start -- start qwen3-5-9b-mlx-4bit
 
 # or drop into the TUI (no args) — the empty state has the same
-# suggestions and pulls them inline when you press Enter
+# suggestions with memory tiers/task tags and pulls them inline when you press Enter
 npm start
 ```
 

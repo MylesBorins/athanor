@@ -15,6 +15,10 @@ export interface Suggestion {
   label: string
   sizeLabel: string
   note: string
+  memoryTier: "8gb" | "16gb" | "32gb"
+  taskTags: readonly string[]
+  rationale?: string
+  reviewedAt?: string
 }
 
 export const SUGGESTIONS: readonly Suggestion[] = [
@@ -23,20 +27,32 @@ export const SUGGESTIONS: readonly Suggestion[] = [
     runtime: "mlx",
     label: "Qwen3-4B-Instruct (4bit)",
     sizeLabel: "~2.3 GB",
-    note: "small & fast — fits on 8 GB Macs"
+    note: "small general-purpose starter for tighter-memory Macs",
+    memoryTier: "8gb",
+    taskTags: ["general", "chat", "coding"],
+    rationale: "lowest-risk first pull when you want a responsive local model without pushing memory hard",
+    reviewedAt: "2026-05"
   },
   {
     repo: "mlx-community/Qwen3.5-9B-MLX-4bit",
     runtime: "mlx",
     label: "Qwen3.5-9B (4bit)",
     sizeLabel: "~5.6 GB",
-    note: "solid general-purpose default — 16 GB+ memory"
+    note: "balanced everyday text model for most 16 GB Apple Silicon Macs",
+    memoryTier: "16gb",
+    taskTags: ["general", "chat", "coding"],
+    rationale: "good default when you want noticeably more headroom than 4B without jumping straight to large-model memory pressure",
+    reviewedAt: "2026-05"
   },
   {
     repo: "mlx-community/Qwen3.5-27B-4bit",
     runtime: "mlx",
     label: "Qwen3.5-27B (4bit)",
     sizeLabel: "~15 GB",
-    note: "larger & smarter — needs 32 GB+ unified memory"
+    note: "larger reasoning-oriented option for roomier Apple Silicon systems",
+    memoryTier: "32gb",
+    taskTags: ["general", "reasoning", "coding"],
+    rationale: "best reserved for machines with comfortable unified-memory headroom and users willing to trade speed for model quality",
+    reviewedAt: "2026-05"
   }
 ]
