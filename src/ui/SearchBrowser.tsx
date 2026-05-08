@@ -283,9 +283,23 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       ? `gguf default: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? ` · ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? ` · ${selectionHint.ggufSelectableCount} selectable` : ""}`
       : "gguf: resolving default file…"
     : null
+  const inspectLines = selected ? [
+    `repo: ${selected.id}`,
+    `runtime: ${runtimeBadge(selected).label}`,
+    `size: ${selected.sizeBytes !== undefined ? formatBytes(selected.sizeBytes) : "—"}`,
+    `downloads: ${formatCount(selected.downloads)}  ·  likes: ${formatCount(selected.likes)}`,
+    `updated: ${formatRelTime(selected.lastModified)}  ·  license: ${selected.license ?? "—"}`,
+    selected.runtime === "llama.cpp"
+      ? selectionHint?.defaultFile
+        ? `default gguf: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? `  ·  ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? `  ·  ${selectionHint.ggufSelectableCount} selectable` : ""}`
+        : "default gguf: resolving…"
+      : null
+  ].filter((line): line is string => line !== null).map(line => truncEnd(line, dims.cols)) : []
+  const hintLineText = mode !== "inspect" && hintLine ? truncEnd(hintLine, dims.cols) : null
+  const inspectRows = mode === "inspect" && selected ? inspectLines.length + 1 : 0
   // Fixed rows: title, query, top divider, header, bottom divider,
-  // key help footer. Optional hint/message lines live below that.
-  const chromeRows = 6 + (hintLine ? 1 : 0) + (message ? 1 : 0)
+  // key help footer. Optional hint/message/inspect lines live below that.
+  const chromeRows = 6 + (hintLineText ? 1 : 0) + (message ? 1 : 0) + inspectRows
   const visibleRows = Math.max(3, dims.rows - chromeRows)
   // y-coordinates (1-based, matching SGR mouse) for the two clickable
   // regions. Used by the mouse handler to map a click to a sort column
@@ -431,7 +445,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (mode === "inspect") {
       const r = results[selectedIdx]
       if (!r) return
-      if (input === "p") {
+      if (input === "p" || key.return) {
         setPickedRepo(r.id)
         setPickedFile(r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined)
         setMode("pull")
@@ -443,7 +457,6 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       if (key.pageDown)  { setSelectedIdx(i => Math.min(results.length - 1, i + visibleRows)); return }
       if (input === "g") { setSelectedIdx(0); return }
       if (input === "G") { setSelectedIdx(Math.max(0, results.length - 1)); return }
-      if (key.return) return
     }
     // browse mode
     if (input === "/" || input === "i") { setMode("edit"); return }
@@ -503,29 +516,15 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     />
   }
 
-  const inspectLines = selected ? [
-    `repo: ${selected.id}`,
-    `runtime: ${runtimeBadge(selected).label}`,
-    `size: ${selected.sizeBytes !== undefined ? formatBytes(selected.sizeBytes) : "—"}`,
-    `downloads: ${formatCount(selected.downloads)}  ·  likes: ${formatCount(selected.likes)}`,
-    `updated: ${formatRelTime(selected.lastModified)}  ·  license: ${selected.license ?? "—"}`,
-    selected.runtime === "llama.cpp"
-      ? selectionHint?.defaultFile
-        ? `default gguf: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? `  ·  ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? `  ·  ${selectionHint.ggufSelectableCount} selectable` : ""}`
-        : "default gguf: resolving…"
-      : null
-  ].filter((line): line is string => line !== null).map(line => truncEnd(line, dims.cols)) : []
-
   const helpLine = truncEnd(
     mode === "edit"
       ? "type query · ⏎ search · esc back"
       : mode === "inspect"
-        ? "p pull · ↑↓ move · esc back"
+        ? "⏎/p pull · ↑↓ move · esc back"
         : "↑↓ · ⏎ inspect · p pull · click header to sort · / edit · f filter · s sort · esc quit",
     Math.max(0, dims.cols - 3 - countLine.length)
   )
   const footerLine = truncEnd(`${helpLine} · ${countLine}`, dims.cols)
-  const hintLineText = mode !== "inspect" && hintLine ? truncEnd(hintLine, dims.cols) : null
 
   return (
     <Box flexDirection="column" width={dims.cols} height={dims.rows}>
@@ -559,6 +558,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       <Text dimColor>{"─".repeat(Math.max(8, dims.cols - 2))}</Text>
       {mode === "inspect"
         ? <Box flexDirection="column">
+            <Text bold color="cyan">selection</Text>
             {inspectLines.map((line, i) => <Text key={i} dimColor>{line}</Text>)}
           </Box>
         : null}
