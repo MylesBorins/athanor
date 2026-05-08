@@ -2,8 +2,6 @@ import React from "react"
 import { Box, Text } from "ink"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import type { CompletionStats, ProcStats } from "../supervisor/metrics.js"
-import { detectMachineProfile } from "../machine/profile.js"
-import { buildRecommendation } from "../registry/recommend.js"
 
 function statusIndicator(status?: string): { ch: string; color: string } {
   switch (status) {
@@ -87,7 +85,6 @@ export const ModelList: React.FC<ModelListProps> = ({
     return <Text dimColor>registry empty — press `p` to pull a model or `s` to scan</Text>
   }
   const width = cols ?? 200
-  const machine = detectMachineProfile()
   const tiny = compact || width < 90
   const narrow = width < 110
   const showRuntime = !tiny
@@ -109,9 +106,6 @@ export const ModelList: React.FC<ModelListProps> = ({
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
-        const fit = buildRecommendation(m, machine).fitBand
-        const fitBadge = fit === "comfortable" ? "C" : fit === "tight" ? "T" : "R"
-        const fitColor = fit === "comfortable" ? "green" : fit === "tight" ? "yellow" : "red"
         const name = truncEnd(displayName(m), nameBudget).padEnd(nameBudget)
         const recency = recencyLabel(m.lastUsedAt).padStart(5)
         const runtime = runtimeLabel(m.runtime)
@@ -124,7 +118,6 @@ export const ModelList: React.FC<ModelListProps> = ({
             <Text bold={selected} dimColor={!selected} color={selected ? "cyan" : undefined} wrap="truncate-end">
               {name}
             </Text>
-            {!tiny ? <Text color={fitColor}>{` ${fitBadge}`}</Text> : null}
             {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}
             {showPort ? <Text dimColor>{` · ${portText}`}</Text> : null}
             {showRecency ? <Text dimColor>{` · ${recency}`}</Text> : null}
