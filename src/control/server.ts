@@ -41,7 +41,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     if (!id) return sendJson(res, 400, { error: "id required" })
     const entry = getModel(id)
     if (!entry) return sendJson(res, 404, { error: `unknown model ${id}` })
-    const { instance } = await startModel(id)
+    const { instance } = await startModel(id, { confirm: true })
     sendJson(res, 200, { instance })
     return
   }

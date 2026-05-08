@@ -14,10 +14,14 @@ import {
 import { loadConfig } from "../config/index.js"
 import { supervisor } from "../supervisor/index.js"
 import { syncPi } from "../sync/pi.js"
+import { detectMachineProfile } from "../machine/profile.js"
+import { buildStartPreflight, type StartPreflight } from "./preflight.js"
 
 export interface StartModelResult {
   entry: ModelEntry
-  instance: ActiveInstance
+  instance?: ActiveInstance
+  preflight?: StartPreflight
+  warned?: boolean
 }
 
 export interface StopModelResult {
@@ -38,12 +42,16 @@ export async function pullModel(opts: PullOptions): Promise<PullResult> {
 // stay coupled in one place. This is a convention boundary rather than
 // a hard transaction system, so new mutation paths should prefer this
 // module over calling syncPi() ad hoc.
-export async function startModel(idOrSlug: string): Promise<StartModelResult> {
+export async function startModel(idOrSlug: string, opts?: { confirm?: boolean }): Promise<StartModelResult> {
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+  const preflight = buildStartPreflight(entry, detectMachineProfile())
+  if ((preflight.shouldWarn || preflight.shouldStrongWarn) && !opts?.confirm) {
+    return { entry, preflight, warned: true }
+  }
   const instance = await supervisor.start(entry)
   syncPi({ activeDefault: instance, instances: supervisor.list() })
-  return { entry, instance }
+  return { entry, instance, preflight }
 }
 
 export async function stopModel(idOrSlug?: string): Promise<StopModelResult> {
@@ -62,12 +70,16 @@ export async function stopModel(idOrSlug?: string): Promise<StopModelResult> {
   return { stoppedAll: false, entry }
 }
 
-export async function restartModel(idOrSlug: string): Promise<StartModelResult> {
+export async function restartModel(idOrSlug: string, opts?: { confirm?: boolean }): Promise<StartModelResult> {
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+  const preflight = buildStartPreflight(entry, detectMachineProfile())
+  if ((preflight.shouldWarn || preflight.shouldStrongWarn) && !opts?.confirm) {
+    return { entry, preflight, warned: true }
+  }
   const instance = await supervisor.restart(entry)
   syncPi({ activeDefault: instance, instances: supervisor.list() })
-  return { entry, instance }
+  return { entry, instance, preflight }
 }
 
 export function setPublished(idOrSlug: string, publish: boolean): ModelEntry {

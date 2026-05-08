@@ -56,9 +56,9 @@ describe("app model service", () => {
     vi.doMock("../pull/hf.js", () => ({ pull: vi.fn() }))
 
     const mod = await import("./models.js")
-    const res = await mod.startModel("a")
+    const res = await mod.startModel("a", { confirm: true })
     expect(res.entry.slug).toBe("a")
-    expect(res.instance.pid).toBe(123)
+    expect(res.instance?.pid).toBe(123)
     expect(syncPi).toHaveBeenCalledWith({
       activeDefault: expect.objectContaining({ id: "mlx-community/A" }),
       instances: [expect.objectContaining({ id: "mlx-community/A" })]

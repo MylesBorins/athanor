@@ -8,7 +8,23 @@ import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.
 import { formatEntryLine, formatUptime } from "./format.js"
 import { style, sym, statusGlyph, padEndVisual } from "./style.js"
 import { head, dim, info, ok, warn } from "./shared.js"
+import * as readline from "readline/promises"
 import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
+import { detectMachineProfile } from "../machine/profile.js"
+import { buildRecommendation } from "../registry/recommend.js"
+
+async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return defaultYes
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const suffix = defaultYes ? " [Y/n] " : " [y/N] "
+    const answer = (await rl.question(`${prompt}${suffix}`)).trim().toLowerCase()
+    if (!answer) return defaultYes
+    return answer === "y" || answer === "yes"
+  } finally {
+    rl.close()
+  }
+}
 
 export async function cmdScan(): Promise<void> {
   const rep = scanModelsAndReport()
@@ -32,10 +48,12 @@ export function cmdList(): void {
     warn(`registry empty — run ${style.bold("athanor scan")} to pick up existing downloads, or pull a starter model:`)
     console.log("")
     for (const s of SUGGESTIONS) {
+      const tags = s.taskTags.join(", ")
       console.log(
         `  ${style.cyan(sym.bullet)} ${style.bold(s.label.padEnd(28))} ` +
         `${dim(s.sizeLabel.padEnd(10))}${dim(s.note)}`
       )
+      console.log(`      ${dim(`tier ${s.memoryTier.toUpperCase()} · tasks ${tags}`)}`)
       console.log(`      ${dim(`athanor pull ${s.repo}`)}`)
     }
     return
@@ -75,8 +93,21 @@ export function cmdStatus(): void {
 }
 
 export async function cmdStart(idOrSlug: string): Promise<void> {
-  const { entry, instance } = await startModel(idOrSlug)
-  ok(`started ${style.bold(entry.slug)} ${dim(`pid=${instance.pid} port=${instance.port}`)}`)
+  let res = await startModel(idOrSlug)
+  if (res.warned && res.preflight) {
+    const level = res.preflight.shouldStrongWarn ? style.red("strong warning") : style.yellow("warning")
+    console.log(`${level} ${dim(`current snapshot: ~${res.preflight.currentUsedGiB.toFixed(1)} GiB used / ${res.preflight.machineTotalGiB.toFixed(0)} GiB`)}`)
+    console.log(`  ${dim(`model estimate: ~${res.preflight.estimatedFootprintGiB.toFixed(1)} GiB; projected total ~${res.preflight.projectedUsedGiB.toFixed(1)} GiB`)}`)
+    console.log(`  ${dim("this is a current memory snapshot, not a guarantee")}`)
+    const answer = await promptYesNo("launch anyway?", false)
+    if (!answer) {
+      info("start cancelled")
+      return
+    }
+    res = await startModel(idOrSlug, { confirm: true })
+  }
+  if (!res.instance) throw new Error(`failed to start ${idOrSlug}`)
+  ok(`started ${style.bold(res.entry.slug)} ${dim(`pid=${res.instance.pid} port=${res.instance.port}`)}`)
 }
 
 export async function cmdStop(idOrSlug?: string): Promise<void> {
@@ -89,8 +120,21 @@ export async function cmdStop(idOrSlug?: string): Promise<void> {
 }
 
 export async function cmdRestart(idOrSlug: string): Promise<void> {
-  const { entry, instance } = await restartModel(idOrSlug)
-  ok(`restarted ${style.bold(entry.slug)} ${dim(`pid=${instance.pid}`)}`)
+  let res = await restartModel(idOrSlug)
+  if (res.warned && res.preflight) {
+    const level = res.preflight.shouldStrongWarn ? style.red("strong warning") : style.yellow("warning")
+    console.log(`${level} ${dim(`current snapshot: ~${res.preflight.currentUsedGiB.toFixed(1)} GiB used / ${res.preflight.machineTotalGiB.toFixed(0)} GiB`)}`)
+    console.log(`  ${dim(`model estimate: ~${res.preflight.estimatedFootprintGiB.toFixed(1)} GiB; projected total ~${res.preflight.projectedUsedGiB.toFixed(1)} GiB`)}`)
+    console.log(`  ${dim("this is a current memory snapshot, not a guarantee")}`)
+    const answer = await promptYesNo("restart anyway?", false)
+    if (!answer) {
+      info("restart cancelled")
+      return
+    }
+    res = await restartModel(idOrSlug, { confirm: true })
+  }
+  if (!res.instance) throw new Error(`failed to restart ${idOrSlug}`)
+  ok(`restarted ${style.bold(res.entry.slug)} ${dim(`pid=${res.instance.pid}`)}`)
 }
 
 export function cmdLogs(idOrSlug: string, n = 200): void {
@@ -177,6 +221,22 @@ export function cmdShow(idOrSlug: string): void {
   }
   const status = inst ? `${statusGlyph(inst.status)} ${inst.status}` : `${style.gray(sym.idle)} idle`
   console.log(`  ${dim("status")}   ${status}`)
+  console.log()
+
+  const machine = detectMachineProfile()
+  const rec = buildRecommendation(entry, machine)
+  head("recommendation")
+  const fitLabel = rec.confidence === "low"
+    ? `${rec.fitBand} ${style.yellow("(estimate)")}`
+    : rec.fitBand
+  console.log(`  ${dim("fit")}      ${fitLabel} ${dim(`(~${rec.estimatedFootprintGiB.toFixed(1)} GiB estimated / ${machine.totalMemoryGiB.toFixed(0)} GiB)` )}`)
+  console.log(`  ${dim("context")}  ${rec.recommendedContext}  ${dim(rec.recommendedContextNote)}`)
+  console.log(`  ${dim("why")}      ${rec.explanation}`)
+  if (rec.presetHint) {
+    console.log(`  ${dim("preset")}   ${rec.presetHint}  ${dim(rec.presetHintReason ?? "")}`)
+  }
+  console.log(`  ${dim("next")}     ${dim(`start here, then tune with athanor preset apply ${entry.slug} ${rec.presetHint ?? "balanced"} or athanor preset set ${entry.slug} ...`)}`)
+  console.log(`  ${dim("confidence")} ${rec.confidence}${entry.metadataSource ? dim(` (${entry.metadataSource})`) : ""}`)
   console.log()
 
   head("effective config")

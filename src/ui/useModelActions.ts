@@ -46,8 +46,9 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
         setMessage(`stopped ${selected.slug}`)
       } else {
         setMessage(`starting ${selected.slug}…`)
-        const { instance } = await startModel(selected.id)
-        setMessage(`${selected.slug} ready on :${instance.port}`)
+        const res = await startModel(selected.id, { confirm: true })
+        if (!res.instance) throw new Error(`failed to start ${selected.slug}`)
+        setMessage(`${selected.slug} ready on :${res.instance.port}`)
       }
       setInstances(supervisor.list())
     } catch (err) {
@@ -59,9 +60,10 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
     if (!selected) return
     try {
       setMessage(`restarting ${selected.slug}…`)
-      const { instance } = await restartModel(selected.id)
+      const res = await restartModel(selected.id, { confirm: true })
+      if (!res.instance) throw new Error(`failed to restart ${selected.slug}`)
       setInstances(supervisor.list())
-      setMessage(`${selected.slug} ready on :${instance.port}`)
+      setMessage(`${selected.slug} ready on :${res.instance.port}`)
     } catch (err) {
       setMessage(`error: ${errMsg(err)}`)
     }

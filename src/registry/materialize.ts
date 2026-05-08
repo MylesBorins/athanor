@@ -23,6 +23,13 @@ export interface RegistryMaterializeInput {
   source: ModelEntry["source"]
   sizeBytes?: number
   mlxCapabilities?: ModelEntry["mlxCapabilities"]
+  architectureFamily?: ModelEntry["architectureFamily"]
+  trainedContextLength?: ModelEntry["trainedContextLength"]
+  quantization?: ModelEntry["quantization"]
+  paramCount?: ModelEntry["paramCount"]
+  isMoe?: ModelEntry["isMoe"]
+  activeParams?: ModelEntry["activeParams"]
+  metadataSource?: ModelEntry["metadataSource"]
 }
 
 export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMaterializeInput {
@@ -33,7 +40,14 @@ export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMateri
     runtime: d.runtime,
     source: d.source,
     sizeBytes: d.sizeBytes,
-    mlxCapabilities: d.runtime === "mlx" ? d.mlxCapabilities : undefined
+    mlxCapabilities: d.runtime === "mlx" ? d.mlxCapabilities : undefined,
+    architectureFamily: d.architectureFamily,
+    trainedContextLength: d.trainedContextLength,
+    quantization: d.quantization,
+    paramCount: d.paramCount,
+    isMoe: d.isMoe,
+    activeParams: d.activeParams,
+    metadataSource: d.metadataSource
   }
 }
 
@@ -89,7 +103,14 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     addedAt: Date.now(),
     ...(input.runtime === "mlx" && input.mlxCapabilities && input.mlxCapabilities.length > 0
       ? { mlxCapabilities: input.mlxCapabilities }
-      : {})
+      : {}),
+    ...(input.architectureFamily ? { architectureFamily: input.architectureFamily } : {}),
+    ...(input.trainedContextLength ? { trainedContextLength: input.trainedContextLength } : {}),
+    ...(input.quantization ? { quantization: input.quantization } : {}),
+    ...(input.paramCount ? { paramCount: input.paramCount } : {}),
+    ...(input.isMoe ? { isMoe: input.isMoe } : {}),
+    ...(input.activeParams ? { activeParams: input.activeParams } : {}),
+    ...(input.metadataSource ? { metadataSource: input.metadataSource } : {})
   }
   reg.models.push(entry)
   saveRegistry(reg)
@@ -122,7 +143,72 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
     }
   }
 
+  changed = replaceDetectedField(existing, "architectureFamily", input.architectureFamily) || changed
+  changed = replaceDetectedField(existing, "trainedContextLength", input.trainedContextLength) || changed
+  changed = replaceDetectedField(existing, "quantization", input.quantization) || changed
+  changed = replaceDetectedField(existing, "paramCount", input.paramCount) || changed
+  changed = replaceDetectedField(existing, "isMoe", input.isMoe) || changed
+  changed = replaceDetectedField(existing, "activeParams", input.activeParams) || changed
+  changed = replaceDetectedField(existing, "metadataSource", input.metadataSource) || changed
+
+  if (existing.metadataSource === "file_size_only") {
+    changed = replaceDetectedField(existing, "architectureFamily", input.architectureFamily) || changed
+    changed = replaceDetectedField(existing, "trainedContextLength", input.trainedContextLength) || changed
+    changed = replaceDetectedField(existing, "quantization", input.quantization) || changed
+    changed = replaceDetectedField(existing, "paramCount", input.paramCount) || changed
+    changed = replaceDetectedField(existing, "isMoe", input.isMoe) || changed
+    changed = replaceDetectedField(existing, "activeParams", input.activeParams) || changed
+  }
+
+  if (input.metadataSource === "file_size_only") {
+    changed = clearDetectedField(existing, "architectureFamily") || changed
+    changed = clearDetectedField(existing, "trainedContextLength") || changed
+    changed = clearDetectedField(existing, "quantization") || changed
+    changed = clearDetectedField(existing, "paramCount") || changed
+    changed = clearDetectedField(existing, "isMoe") || changed
+    changed = clearDetectedField(existing, "activeParams") || changed
+  }
+
   return changed
+}
+
+function replaceDetectedField<K extends keyof Pick<ModelEntry,
+  "architectureFamily" |
+  "trainedContextLength" |
+  "quantization" |
+  "paramCount" |
+  "isMoe" |
+  "activeParams" |
+  "metadataSource"
+>>(
+  entry: ModelEntry,
+  key: K,
+  value: ModelEntry[K] | undefined
+): boolean {
+  if (value === undefined) {
+    if (entry[key] === undefined) return false
+    delete entry[key]
+    return true
+  }
+  if (entry[key] === value) return false
+  entry[key] = value
+  return true
+}
+
+function clearDetectedField<K extends keyof Pick<ModelEntry,
+  "architectureFamily" |
+  "trainedContextLength" |
+  "quantization" |
+  "paramCount" |
+  "isMoe" |
+  "activeParams"
+>>(
+  entry: ModelEntry,
+  key: K
+): boolean {
+  if (entry[key] === undefined) return false
+  delete entry[key]
+  return true
 }
 
 function capsEqual(a: readonly string[], b: readonly string[]): boolean {
