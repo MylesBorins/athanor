@@ -3,7 +3,7 @@
 ## Status
 In Progress
 
-The search/download UX refactor is substantially implemented and validated with typecheck + existing tests, but targeted test coverage for the new behavior is still missing. There is also a small amount of download UX cleanup remaining.
+The search/download UX refactor is substantially implemented and validated with typecheck + expanded targeted tests. The remaining work is narrower now: download UX verification/polish, one remaining MLX row-size preference test gap, and optional search metadata polish.
 
 ## What Landed
 
@@ -40,38 +40,40 @@ The search/download UX refactor is substantially implemented and validated with 
 - Added downloads modal: `src/ui/DownloadsModal.tsx`.
 - Added global main-TUI keybinding `D` to open downloads.
 - README now documents the downloads modal and its controls.
+- Search-triggered downloads now route more coherently into downloads handling instead of being a hidden main-screen-only concept.
+- Added helper-level tests for duplicate detection, clear-finished behavior, success/failure/cancel transitions, and download progress aggregation.
 
 ## Current Known Issues / Follow-up
 
 ### Highest priority
-1. **Add tests for new functionality.**
-   Existing tests pass, but new functionality is under-tested.
+1. **Finish download dedupe/cancel polish with real-flow verification.**
+   We added logic and helper-level tests, but still need confidence across the actual TUI flows.
 
-2. **Finish download dedupe/cancel polish.**
-   We started patching duplicate download prevention and cancel behavior, but these need verification and tests.
+2. **Close the remaining MLX row-size preference test gap.**
+   The underlying API/tree behavior is covered, but the rendered/search preference path still deserves one more direct test.
 
-3. **Unify downloads behavior between main TUI and search.**
-   Search-triggered pulls should consistently land the user in a coherent downloads flow.
+3. **Decide the next search polish item.**
+   The best candidates are quant hints in GGUF cards or short README/model-card summary snippets for accessible repos.
 
 ## Task List
 
 ### A. Testing
-- [ ] Add tests for `src/search/cache.ts`
-  - [ ] load empty cache
-  - [ ] save/load roundtrip
-  - [ ] stale TTL eviction
-- [ ] Add tests for `src/search/hf.ts`
-  - [ ] private/gated result filtering
-  - [ ] GGUF enrichment using tree-size fallback
-  - [ ] default GGUF file selection with recovered sizes
-- [ ] Add tests for `src/ui/useDownloads.ts`
-  - [ ] dedupe same repo+file while active
-  - [ ] cancel transitions to cancelled cleanly
-  - [ ] clear finished keeps only active tasks
-  - [ ] successful completion emits expected message/state
-  - [ ] failure emits expected message/state
-- [ ] Add tests around search row size preference logic
-  - [ ] GGUF rows prefer default-file size over repo-level size
+- [x] Add tests for `src/search/cache.ts`
+  - [x] load empty cache
+  - [x] save/load roundtrip
+  - [x] stale TTL eviction
+- [x] Add tests for `src/search/hf.ts`
+  - [x] private/gated result filtering
+  - [x] GGUF enrichment using tree-size fallback
+  - [x] default GGUF file selection with recovered sizes
+- [x] Add tests for `src/ui/useDownloads.ts`
+  - [x] dedupe same repo+file while active
+  - [x] cancel transitions to cancelled cleanly
+  - [x] clear finished keeps only active tasks
+  - [x] successful completion emits expected message/state
+  - [x] failure emits expected message/state
+- [~] Add tests around search row size preference logic
+  - [x] GGUF rows prefer default-file size over repo-level size
   - [ ] MLX rows use computed shard-total fallback when search result size is missing
 
 ### B. Downloads UX cleanup
@@ -79,8 +81,8 @@ The search/download UX refactor is substantially implemented and validated with 
   - [ ] main TUI downloads flow
   - [ ] embedded search queue flow
   - [ ] standalone search local downloads flow
-- [ ] Fix/verify downloads modal selection stability after cancel/clear mutations.
-- [ ] Confirm cancelling a running task leaves modal state clean and understandable.
+- [ ] Verify downloads modal selection stability after cancel/clear mutations in real usage.
+- [ ] Confirm cancelling a running task leaves modal state clean and understandable in practice, not just in helper logic.
 - [ ] Decide whether queued status should become real (instead of immediate running) or remain conceptual-only.
 
 ### C. Search UX polish
@@ -89,9 +91,15 @@ The search/download UX refactor is substantially implemented and validated with 
 - [ ] Consider adding accessible README/model-card summary snippets for repos where available.
 - [ ] Decide whether inaccessible repos that slip past search filtering should be hidden after failed enrichment or simply ignored.
 - [ ] Evaluate whether cached repo hints should also support optional query-result caching later.
+- [ ] Add stronger search-layer filtering so results better match athanor's actual purpose as a local LLM runtime manager.
+  - [ ] Add modality-oriented filtering for text-in/text-out capable models.
+  - [ ] Add runtime compatibility filtering that emphasizes MLX or llama.cpp-compatible repos.
+  - [ ] Add task filtering so search favors text-generation/chat models and avoids unrelated pipelines such as ASR, TTS, feature-extraction, etc.
+  - [ ] Evaluate using Hugging Face `pipeline_tag=text-generation` (or equivalent task filtering) at the API layer before client-side enrichment.
+  - [ ] Make the search surface clearer that athanor is for local LLM inference, not a general-purpose model registry.
 
 ### D. Repo / workflow hygiene
-- [ ] Review staged vs unstaged changes and decide final commit shape.
+- [ ] Decide what to do with `context/plans/2026-05-08-athanor.md`.
 - [ ] Stage any remaining intended files.
 - [ ] Re-run:
   - [ ] `npx tsc --noEmit`
@@ -116,4 +124,4 @@ The search/download UX refactor is substantially implemented and validated with 
 ## Notes
 - Typecheck and existing test suite are currently green after recent changes.
 - The repo hint cache uses atomic writes and stores only derived search enrichment data, not core registry state.
-- The next responsible step is to add targeted tests before making the search/download system much more complex.
+- The plan remains valid, but it is now narrower: most of the broad test debt has been reduced, and the remaining work is mainly flow verification plus optional polish.

@@ -53,6 +53,39 @@ export function keepActiveTasks<T extends DownloadTask>(tasks: T[]): T[] {
   return tasks.filter(task => task.status === "running" || task.status === "queued")
 }
 
+export function markTaskSuccess<T extends DownloadTask>(tasks: T[], id: string, message: string): T[] {
+  return tasks.map(task =>
+    task.id === id
+      ? {
+          ...task,
+          status: "done",
+          stageLabel: "done",
+          resultMessage: message,
+          updatedAt: Date.now()
+        }
+      : task
+  ) as T[]
+}
+
+export function markTaskFailure<T extends DownloadTask>(tasks: T[], id: string, err: unknown): T[] {
+  const message = err instanceof PullAbortedError
+    ? "pull cancelled"
+    : `pull failed: ${err instanceof Error ? err.message : String(err)}`
+  const status: DownloadTaskStatus = err instanceof PullAbortedError ? "cancelled" : "error"
+  return tasks.map(task =>
+    task.id === id
+      ? {
+          ...task,
+          status,
+          stageLabel: status === "cancelled" ? "cancelled" : "error",
+          errorLine: status === "error" ? message : task.errorLine,
+          resultMessage: message,
+          updatedAt: Date.now()
+        }
+      : task
+  ) as T[]
+}
+
 function randomId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -125,37 +158,14 @@ export function useDownloads(onTaskFinished?: (message: string) => void): Downlo
     })
       .then(res => {
         const message = `pulled ${res.entry.slug} (port ${res.entry.port})`
-        setTasks(prev => prev.map(task =>
-          task.id === id
-            ? {
-                ...task,
-                status: "done",
-                stageLabel: "done",
-                resultMessage: message,
-                updatedAt: Date.now()
-              }
-            : task
-        ))
+        setTasks(prev => markTaskSuccess(prev, id, message))
         onTaskFinished?.(message)
       })
       .catch(err => {
-        const message = err instanceof PullAbortedError
-          ? "pull cancelled"
-          : `pull failed: ${err instanceof Error ? err.message : String(err)}`
-        const status: DownloadTaskStatus = err instanceof PullAbortedError ? "cancelled" : "error"
-        setTasks(prev => prev.map(task =>
-          task.id === id
-            ? {
-                ...task,
-                status,
-                stageLabel: status === "cancelled" ? "cancelled" : "error",
-                errorLine: status === "error" ? message : task.errorLine,
-                resultMessage: message,
-                updatedAt: Date.now()
-              }
-            : task
-        ))
-        onTaskFinished?.(message)
+        const tasksWithFailure = markTaskFailure(tasks, id, err)
+        const failed = tasksWithFailure.find(task => task.id === id)
+        setTasks(prev => markTaskFailure(prev, id, err))
+        onTaskFinished?.(failed?.resultMessage ?? "pull failed")
       })
 
     return base

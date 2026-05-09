@@ -51,10 +51,8 @@ async function main(): Promise<void> {
   // Empty-registry hint is handled inline by the Suggestions picker
   // in App.tsx, so no toast here.
 
-  if (!devTui) {
-    startControlApi()
-    startRouter()
-  }
+  startControlApi()
+  startRouter()
 
   if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
   else process.stdout.write(CLEAR_SCREEN)
@@ -67,7 +65,6 @@ async function main(): Promise<void> {
   })
 
   const stopServers = async (): Promise<void> => {
-    if (devTui) return
     await Promise.allSettled([stopControlApi(), stopRouter()])
   }
 

@@ -24,6 +24,12 @@ function formatRss(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(0)}M`
 }
 
+export function formatModelSize(sizeBytes?: number): string {
+  if (!sizeBytes || sizeBytes <= 0) return ""
+  const gb = sizeBytes / 1024 / 1024 / 1024
+  return `${gb.toFixed(1)}G`
+}
+
 function runtimeSuffix(stats?: InstanceStats): string {
   if (!stats) return ""
   const parts: string[] = []
@@ -91,10 +97,12 @@ export const ModelList: React.FC<ModelListProps> = ({
   const showPort = !tiny
   const showRecency = !compact
   const showStats = !compact
+  const showSize = width >= 72
   const FIXED_CHROME = 2 /* cursor */
     + 2 /* status */
     + (showRuntime ? 8 : 0)
     + (showPort ? 10 : 0)
+    + (showSize ? 8 : 0)
     + (showRecency ? 8 : 0)
     + (showStats ? 16 : 0)
   const SUFFIX_MAX = showStats ? (narrow ? 12 : 22) : 0
@@ -111,6 +119,7 @@ export const ModelList: React.FC<ModelListProps> = ({
         const runtime = runtimeLabel(m.runtime)
         const runtimeText = runtime.text.padEnd(5)
         const portText = `:${m.port}`.padEnd(7)
+        const sizeText = formatModelSize(m.sizeBytes).padStart(5)
         return (
           <Box key={m.id} width={cols}>
             <Text color={selected ? "cyan" : undefined}>{selected ? "› " : "  "}</Text>
@@ -120,6 +129,7 @@ export const ModelList: React.FC<ModelListProps> = ({
             </Text>
             {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}
             {showPort ? <Text dimColor>{` · ${portText}`}</Text> : null}
+            {showSize ? <Text dimColor>{` · ${sizeText || "  ?  "}`}</Text> : null}
             {showRecency ? <Text dimColor>{` · ${recency}`}</Text> : null}
             {showStats && inst ? <Text dimColor>{` · pid ${inst.pid}`}</Text> : null}
             {showStats && suffix ? <Text dimColor wrap="truncate">{` · ${suffix}`}</Text> : null}

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { findActiveDuplicate, keepActiveTasks, sameTarget, type DownloadTask } from "./useDownloads.js"
+import { PullAbortedError } from "../pull/download.js"
+import {
+  findActiveDuplicate,
+  keepActiveTasks,
+  markTaskFailure,
+  markTaskSuccess,
+  sameTarget,
+  type DownloadTask
+} from "./useDownloads.js"
 
 function task(overrides: Partial<DownloadTask> = {}): DownloadTask {
   return {
@@ -46,5 +54,30 @@ describe("useDownloads helpers", () => {
     ]
 
     expect(keepActiveTasks(tasks).map(t => t.id)).toEqual(["queued", "running"])
+  })
+
+  it("marks successful tasks as done with a result message", () => {
+    const tasks = [task({ id: "a" }), task({ id: "b" })]
+    const next = markTaskSuccess(tasks, "b", "pulled slug (port 8081)")
+    expect(next[1]?.status).toBe("done")
+    expect(next[1]?.stageLabel).toBe("done")
+    expect(next[1]?.resultMessage).toContain("pulled slug")
+  })
+
+  it("marks generic failures as error with an error line", () => {
+    const tasks = [task({ id: "a" })]
+    const next = markTaskFailure(tasks, "a", new Error("boom"))
+    expect(next[0]?.status).toBe("error")
+    expect(next[0]?.stageLabel).toBe("error")
+    expect(next[0]?.errorLine).toContain("pull failed: boom")
+    expect(next[0]?.resultMessage).toContain("pull failed: boom")
+  })
+
+  it("marks aborted downloads as cancelled", () => {
+    const tasks = [task({ id: "a" })]
+    const next = markTaskFailure(tasks, "a", new PullAbortedError())
+    expect(next[0]?.status).toBe("cancelled")
+    expect(next[0]?.stageLabel).toBe("cancelled")
+    expect(next[0]?.resultMessage).toBe("pull cancelled")
   })
 })
