@@ -9,6 +9,7 @@ import { ensureBaseDirs } from "./config/index.js"
 import { startControlApi, stopControlApi } from "./control/server.js"
 import { startRouter, stopRouter } from "./router/server.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
+import { reconcileRouterForCurrentState } from "./router/lifecycle.js"
 
 const ENTER_ALT_SCREEN = "\x1b[?1049h"
 const LEAVE_ALT_SCREEN = "\x1b[?1049l"
@@ -31,6 +32,16 @@ async function main(): Promise<void> {
   const devTui = process.env.ATHANOR_DEV_TUI === "1"
   devLog("start")
   const args = process.argv.slice(2)
+  if (args[0] === "__router_service") {
+    startRouter({ force: true, silent: true })
+    await new Promise<void>(resolve => {
+      const shutdown = (): void => { void stopRouter().then(resolve) }
+      process.once("SIGINT", shutdown)
+      process.once("SIGTERM", shutdown)
+    })
+    return
+  }
+
   const handled = await runCli(args)
   if (handled) return
 
@@ -52,7 +63,7 @@ async function main(): Promise<void> {
   // in App.tsx, so no toast here.
 
   startControlApi()
-  startRouter()
+  reconcileRouterForCurrentState()
 
   if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
   else process.stdout.write(CLEAR_SCREEN)

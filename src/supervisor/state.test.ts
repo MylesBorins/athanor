@@ -2,7 +2,7 @@ import * as fs from "fs"
 import { describe, it, expect, beforeEach } from "vitest"
 import { PATHS } from "../config/index.js"
 import type { ActiveInstance } from "../types/index.js"
-import { loadPersistedInstances, pidAlive, savePersistedInstances } from "./state.js"
+import { clearPersistedRouter, getPersistedRouter, loadPersistedInstances, pidAlive, savePersistedInstances, savePersistedRouter } from "./state.js"
 
 function clearState(): void {
   try { fs.unlinkSync(PATHS.state) } catch { /* absent */ }
@@ -39,6 +39,25 @@ describe("loadPersistedInstances", () => {
     expect(loadPersistedInstances()).toEqual([])
     fs.writeFileSync(PATHS.state, JSON.stringify({ version: 1, instances: "oops" }))
     expect(loadPersistedInstances()).toEqual([])
+  })
+})
+
+describe("persisted router state", () => {
+  beforeEach(clearState)
+
+  it("round-trips router metadata alongside instances", () => {
+    savePersistedInstances([inst()])
+    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 8080, startedAt: 123 })
+    expect(loadPersistedInstances()).toHaveLength(1)
+    expect(getPersistedRouter()).toEqual({ pid: 99, host: "127.0.0.1", port: 8080, startedAt: 123 })
+  })
+
+  it("clears persisted router state without removing instances", () => {
+    savePersistedInstances([inst()])
+    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 8080, startedAt: 123 })
+    clearPersistedRouter()
+    expect(getPersistedRouter()).toBeUndefined()
+    expect(loadPersistedInstances()).toHaveLength(1)
   })
 })
 

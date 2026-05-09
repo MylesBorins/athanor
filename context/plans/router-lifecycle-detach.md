@@ -1,7 +1,7 @@
 # Plan: router-lifecycle-detach
 
 ## Status
-Proposed
+In Progress
 
 Athanor currently starts the router/control API in-process with the main app/TUI entry, which creates an awkward mismatch for pi integration: the OpenAI-compatible ingress endpoint can disappear when the UI exits, even though the user's mental model is "the model is still running, so athanor should still answer." We also recently found a concrete dev-mode footgun where the dev TUI skipped router startup entirely.
 
@@ -146,11 +146,11 @@ Principle:
 ## Task List
 
 ### A. Architecture / design
-- [ ] Read the current router, supervisor, and state ownership paths end-to-end.
-- [ ] Decide the owner of router lifecycle transitions.
-- [ ] Decide whether router state lives in existing supervisor state or separate state.
-- [ ] Decide crash recovery / stale PID semantics.
-- [ ] Decide whether control API follows router lifecycle or remains separate.
+- [x] Read the current router, supervisor, and state ownership paths end-to-end.
+- [x] Decide the owner of router lifecycle transitions.
+- [x] Decide whether router state lives in existing supervisor state or separate state.
+- [~] Decide crash recovery / stale PID semantics.
+- [x] Decide whether control API follows router lifecycle or remains separate.
 
 ### B. User-visible lifecycle rules
 - [ ] Define precise semantics for:
@@ -164,20 +164,20 @@ Principle:
 - [ ] Decide whether `athanor ls` / `show` should surface router availability explicitly.
 
 ### C. Implementation plan
-- [ ] Add a small lifecycle coordinator for router ensure/start/stop.
-- [ ] Add router process spawn / reattach / stale cleanup logic.
-- [ ] Wire model start/stop flows to ensure router-on-when-needed.
-- [ ] Ensure router is not shut down merely because the UI exits.
-- [ ] Stop router when no active models remain (subject to the decided semantics).
-- [ ] Keep explicit `athanor router` command working.
-- [ ] Keep dev mode behavior aligned with real serving behavior.
+- [x] Add a small lifecycle coordinator for router ensure/start/stop.
+- [x] Add router process spawn / reattach / stale cleanup logic.
+- [x] Wire model start/stop flows to ensure router-on-when-needed.
+- [x] Ensure router is not shut down merely because the UI exits.
+- [x] Stop router when no active models remain (subject to the decided semantics).
+- [x] Keep explicit `athanor router` command working.
+- [x] Keep dev mode behavior aligned with real serving behavior.
 
 ### D. Testing
-- [ ] Add tests for router lifecycle policy decisions.
-- [ ] Add tests for start-first-model => router ensured.
+- [x] Add tests for router lifecycle policy decisions.
+- [x] Add tests for start-first-model => router ensured.
 - [ ] Add tests for stop-last-model => router stops (if that remains the chosen rule).
 - [ ] Add tests for UI exit not killing detached router ownership.
-- [ ] Add tests for reattach when models are running and router is already present.
+- [~] Add tests for reattach when models are running and router is already present.
 - [ ] Add tests for router-mode pi sync remaining stable.
 
 ### E. Docs / UX
@@ -203,3 +203,21 @@ Initial investigation/implementation will probably touch:
 - We already fixed one symptom (`ATHANOR_DEV_TUI=1` skipping router startup), but that was only a surface mismatch, not the deeper lifecycle issue.
 - This plan should stay separate from the search/download plan because it changes app/service ownership semantics, not just TUI/search behavior.
 - The desired end state is "TUI as console, router/model as service while active," without accidentally turning athanor into a permanently running daemon by default.
+- Current code ownership findings:
+  - `src/index.tsx` currently starts/stops router + control API around the foreground TUI process.
+  - `src/router/server.ts` is process-local only: a module-global `current` server, no persisted router state, and no detached ownership.
+  - `src/supervisor/index.ts` already persists model instance state and reattaches detached children on startup via `src/supervisor/state.ts`.
+  - `src/cli/model-commands.ts` routes start/stop/restart through app-layer helpers, which is a plausible hook point for router lifecycle coordination.
+  - `src/cli/system-commands.ts` already has an explicit foreground `athanor router` command that force-starts the router independent of config.
+  - `src/app/models.ts` is the best current orchestration seam: it already couples supervisor start/stop/restart with `syncPi(...)`, so router lifecycle coordination can likely live alongside those flows without spreading logic across CLI/TUI layers.
+  - `src/sync/pi.ts` only writes provider/settings files; it should remain a pure sync writer, not grow responsibility for ensuring router liveness.
+  - `src/config/index.ts` currently treats router as a config flag/endpoint, not as persisted runtime state.
+- Current design leaning:
+  - router lifecycle ownership should move out of `src/index.tsx` and into a small app/supervisor-adjacent lifecycle coordinator invoked by `startModel` / `stopModel` / `restartModel` / `stopAll` flows
+  - `syncPi(...)` should stay declarative; it can continue emitting router-shaped providers when `config.router.enabled` is true, but it should not be the mechanism that starts/stops the router
+  - the explicit `athanor router` command should remain as a separate foreground/manual tool
+- Decisions now implemented:
+  - router lifecycle ownership lives in `src/router/lifecycle.ts`, called from `src/app/models.ts` and from app startup reconciliation in `src/index.tsx`
+  - router state is persisted alongside instance state in `~/.athanor/state.json` as a sibling `router` object, rather than introducing a second state file
+  - stale router PID cleanup is opportunistic for now: if persisted router pid is no longer alive when athanor checks it, the router state is cleared and re-created on demand
+  - control API remains separate and tied to existing config/foreground behavior; this pass only detaches router lifecycle

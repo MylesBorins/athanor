@@ -12,6 +12,7 @@ import * as readline from "readline/promises"
 import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
 import { detectMachineProfile } from "../machine/profile.js"
 import { buildRecommendation } from "../registry/recommend.js"
+import { getPersistedRouter, pidAlive } from "../supervisor/state.js"
 
 async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return defaultYes
@@ -65,8 +66,20 @@ export function cmdList(): void {
 
 export function cmdStatus(): void {
   const instances = supervisor.list()
-  if (instances.length === 0) { info("no running instances"); return }
+  const router = getPersistedRouter()
+  const routerAlive = router ? pidAlive(router.pid) : false
+  if (instances.length === 0) {
+    if (router && routerAlive) {
+      info(`no running instances · router ${style.green("up")} ${dim(`${router.host}:${router.port} pid=${router.pid}`)}`)
+      return
+    }
+    info("no running instances")
+    return
+  }
   head(`${instances.length} running`)
+  if (router && routerAlive) {
+    console.log(`  ${padEndVisual(style.bold("router"), 32)}  ${padEndVisual(style.cyan("ingress"), 10)}  ${padEndVisual(dim(`${router.host}:${router.port}`), 7)}  ${dim(`pid=${router.pid}`)}`)
+  }
   const proc = sampleProcessStats(instances.map(i => i.pid))
   for (const i of instances) {
     const p = proc.get(i.pid)

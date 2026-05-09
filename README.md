@@ -214,7 +214,7 @@ npm start
 npm run dev
 ```
 
-That runs a small custom watcher (`scripts/dev-watch.mjs`) which watches only `src/**/*.ts` and `src/**/*.tsx`, then respawns `tsx src/index.tsx` with `ATHANOR_DEV_TUI=1`. This avoids `tsx watch`'s stdin/restart behavior, which can interfere with Ink/TUI key handling in tmux. In this dev mode athanor also skips the alt-screen/cursor toggles and does not auto-start the in-process control API/router, which makes UI iteration safer in split panes. The TUI also collapses to compact/minimal layouts in short or narrow terminals so model selection stays usable in tmux splits. For one-shot runs without the dev safeguards, keep using `npm start`.
+That runs a small custom watcher (`scripts/dev-watch.mjs`) which watches only `src/**/*.ts` and `src/**/*.tsx`, then respawns `tsx src/index.tsx` with `ATHANOR_DEV_TUI=1`. This avoids `tsx watch`'s stdin/restart behavior, which can interfere with Ink/TUI key handling in tmux. In this dev mode athanor still starts the real ingress path (router when needed, control API if enabled) so pi-agent integration behaves like the normal app, but it skips the alt-screen/cursor toggles to make UI iteration safer in split panes. The TUI also collapses to compact/minimal layouts in short or narrow terminals so model selection stays usable in tmux splits. For one-shot runs without the dev safeguards, keep using `npm start`.
 
 If you want a compiled build or to install the `athanor` binary globally:
 
@@ -564,6 +564,8 @@ This is off by default. Enable it only on trusted machines.
 ## Router (optional)
 
 When `router.enabled` is `true`, athanor exposes an OpenAI-compatible proxy (default `127.0.0.1:8080`) that fronts every exposed model on a single port. Pi-agent then sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at the router, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
+
+Router lifecycle follows active model serving state rather than the foreground TUI: when router mode is enabled and at least one model is running, athanor ensures the router is available; when the last model stops, the detached router companion may stop as well. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models.
 
 ```
 GET  /health                                200 OK
