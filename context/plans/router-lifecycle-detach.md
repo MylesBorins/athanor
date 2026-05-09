@@ -1,7 +1,7 @@
 # Plan: router-lifecycle-detach
 
 ## Status
-In Progress
+Done
 
 Athanor currently starts the router/control API in-process with the main app/TUI entry, which creates an awkward mismatch for pi integration: the OpenAI-compatible ingress endpoint can disappear when the UI exits, even though the user's mental model is "the model is still running, so athanor should still answer." We also recently found a concrete dev-mode footgun where the dev TUI skipped router startup entirely.
 
@@ -153,15 +153,15 @@ Principle:
 - [x] Decide whether control API follows router lifecycle or remains separate.
 
 ### B. User-visible lifecycle rules
-- [ ] Define precise semantics for:
-  - [ ] first model start
-  - [ ] model restart
-  - [ ] blue/green switch under `single-active`
-  - [ ] last model stop
-  - [ ] model crash while router remains up
-  - [ ] reopening TUI after detached router/models already exist
-- [ ] Decide what `athanor status` should surface about router state.
-- [ ] Decide whether `athanor ls` / `show` should surface router availability explicitly.
+- [x] Define precise semantics for:
+  - [x] first model start
+  - [x] model restart
+  - [x] blue/green switch under `single-active`
+  - [x] last model stop
+  - [x] model crash while router remains up
+  - [x] reopening TUI after detached router/models already exist
+- [x] Decide what `athanor status` should surface about router state.
+- [x] Decide whether `athanor ls` / `show` should surface router availability explicitly.
 
 ### C. Implementation plan
 - [x] Add a small lifecycle coordinator for router ensure/start/stop.
@@ -175,15 +175,15 @@ Principle:
 ### D. Testing
 - [x] Add tests for router lifecycle policy decisions.
 - [x] Add tests for start-first-model => router ensured.
-- [ ] Add tests for stop-last-model => router stops (if that remains the chosen rule).
-- [ ] Add tests for UI exit not killing detached router ownership.
-- [~] Add tests for reattach when models are running and router is already present.
-- [ ] Add tests for router-mode pi sync remaining stable.
+- [x] Add tests for stop-last-model => router stops (if that remains the chosen rule).
+- [x] Add tests for UI exit not killing detached router ownership.
+- [x] Add tests for reattach when models are running and router is already present.
+- [x] Add tests for router-mode pi sync remaining stable.
 
 ### E. Docs / UX
-- [ ] Update README lifecycle description for router mode.
-- [ ] Document that pi connectivity follows active model serving state.
-- [ ] Decide whether to add a dedicated note about headless usage / reopening the TUI later.
+- [x] Update README lifecycle description for router mode.
+- [x] Document that pi connectivity follows active model serving state.
+- [x] Decide whether to add a dedicated note about headless usage / reopening the TUI later.
 
 ## Likely Files
 
@@ -221,3 +221,10 @@ Initial investigation/implementation will probably touch:
   - router state is persisted alongside instance state in `~/.athanor/state.json` as a sibling `router` object, rather than introducing a second state file
   - stale router PID cleanup is opportunistic for now: if persisted router pid is no longer alive when athanor checks it, the router state is cleared and re-created on demand
   - control API remains separate and tied to existing config/foreground behavior; this pass only detaches router lifecycle
+- Semantics now treated as settled for this pass:
+  - first model start / restart ensures router availability when router mode is enabled
+  - blue/green transitions keep router ownership outside the foreground TUI, so a restart/swap does not conceptually depend on the UI staying open
+  - last model stop tears down the detached router companion
+  - model crash recovery is lazy rather than proactive: athanor clears stale router state and recreates the router on the next reconciliation/ensure path
+  - reopening the TUI reconciles detached runtime/router state rather than becoming the lifetime owner
+  - `athanor status` now surfaces router state when present; `ls` / `show` are left unchanged for now to avoid overloading their model-centric output
