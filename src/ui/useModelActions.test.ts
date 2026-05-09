@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 
 const listModels = vi.fn()
-const supervisorList = vi.fn()
 const deleteModelFromDisk = vi.fn()
 const restartModel = vi.fn()
 const scanModelsAndReport = vi.fn()
 const setPublished = vi.fn()
 const startModel = vi.fn()
 const stopModel = vi.fn()
+const loadPersistedInstances = vi.fn()
+const pidAlive = vi.fn()
 const useCallbackMock = vi.fn((fn: unknown) => fn)
 
 vi.mock("react", () => ({
@@ -19,12 +20,6 @@ vi.mock("../registry/index.js", () => ({
   listModels
 }))
 
-vi.mock("../supervisor/index.js", () => ({
-  supervisor: {
-    list: supervisorList
-  }
-}))
-
 vi.mock("../app/models.js", () => ({
   deleteModelFromDisk,
   restartModel,
@@ -32,6 +27,11 @@ vi.mock("../app/models.js", () => ({
   setPublished,
   startModel,
   stopModel
+}))
+
+vi.mock("../supervisor/state.js", () => ({
+  loadPersistedInstances,
+  pidAlive
 }))
 
 function entry(overrides: Partial<ModelEntry> = {}): ModelEntry {
@@ -65,9 +65,10 @@ function instance(overrides: Partial<ActiveInstance> = {}): ActiveInstance {
 describe("useModelActions", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    supervisorList.mockReturnValue([])
     listModels.mockReturnValue([])
     scanModelsAndReport.mockReturnValue({ added: [] })
+    loadPersistedInstances.mockReturnValue([])
+    pidAlive.mockReturnValue(true)
   })
 
   it("starts a stopped model and reports success", async () => {
@@ -75,7 +76,7 @@ describe("useModelActions", () => {
     const setInstances = vi.fn<(instances: ActiveInstance[]) => void>()
     const setModels = vi.fn<(models: ModelEntry[]) => void>()
     startModel.mockResolvedValue({ instance: instance({ port: 9001 }) })
-    supervisorList.mockReturnValue([instance({ port: 9001 })])
+    loadPersistedInstances.mockReturnValue([instance({ port: 9001 })])
 
     const { useModelActions } = await import("./useModelActions.js")
     const actions = useModelActions({
@@ -98,7 +99,7 @@ describe("useModelActions", () => {
     const setInstances = vi.fn<(instances: ActiveInstance[]) => void>()
     const setModels = vi.fn<(models: ModelEntry[]) => void>()
     stopModel.mockResolvedValue(undefined)
-    supervisorList.mockReturnValue([])
+    loadPersistedInstances.mockReturnValue([])
 
     const { useModelActions } = await import("./useModelActions.js")
     const actions = useModelActions({
@@ -179,17 +180,17 @@ describe("useModelActions", () => {
     expect(setMessage).toHaveBeenCalledWith("deleted a from disk")
   })
 
-  it("rescan reloads models and reports added count", async () => {
+  it("rescan refreshes models and reports additions", async () => {
     const setMessage = vi.fn<(message: string) => void>()
     const setInstances = vi.fn<(instances: ActiveInstance[]) => void>()
     const setModels = vi.fn<(models: ModelEntry[]) => void>()
     const models = [entry()]
-    scanModelsAndReport.mockReturnValue({ added: [entry(), entry({ id: "b", slug: "b" })] })
     listModels.mockReturnValue(models)
+    scanModelsAndReport.mockReturnValue({ added: [entry(), entry({ id: "b", slug: "b" })] })
 
     const { useModelActions } = await import("./useModelActions.js")
     const actions = useModelActions({
-      selected: undefined,
+      selected: entry(),
       instMap: new Map(),
       setMessage,
       setInstances,
@@ -197,7 +198,6 @@ describe("useModelActions", () => {
     })
     actions.rescan()
 
-    expect(scanModelsAndReport).toHaveBeenCalled()
     expect(setModels).toHaveBeenCalledWith(models)
     expect(setMessage).toHaveBeenCalledWith("scan: +2 new")
   })

@@ -1,6 +1,6 @@
 import { useCallback } from "react"
 import { listModels } from "../registry/index.js"
-import { supervisor } from "../supervisor/index.js"
+import { loadPersistedInstances, pidAlive } from "../supervisor/state.js"
 import {
   deleteModelFromDisk,
   restartModel,
@@ -33,6 +33,10 @@ export interface ModelActions {
   killSelected: () => Promise<void>
 }
 
+function liveInstances(): ActiveInstance[] {
+  return loadPersistedInstances().filter(inst => pidAlive(inst.pid)).map(inst => ({ ...inst, status: "running" }))
+}
+
 export function useModelActions(deps: ModelActionDeps): ModelActions {
   const { selected, instMap, setMessage, setInstances, setModels } = deps
 
@@ -50,7 +54,7 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
         if (!res.instance) throw new Error(`failed to start ${selected.slug}`)
         setMessage(`${selected.slug} ready on :${res.instance.port}`)
       }
-      setInstances(supervisor.list())
+      setInstances(liveInstances())
     } catch (err) {
       setMessage(`error: ${errMsg(err)}`)
     }
@@ -62,7 +66,7 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
       setMessage(`restarting ${selected.slug}…`)
       const res = await restartModel(selected.id, { confirm: true })
       if (!res.instance) throw new Error(`failed to restart ${selected.slug}`)
-      setInstances(supervisor.list())
+      setInstances(liveInstances())
       setMessage(`${selected.slug} ready on :${res.instance.port}`)
     } catch (err) {
       setMessage(`error: ${errMsg(err)}`)
@@ -99,7 +103,7 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
   const killSelected = useCallback(async () => {
     if (!selected || !instMap.get(selected.id)) return
     await stopModel(selected.id)
-    setInstances(supervisor.list())
+    setInstances(liveInstances())
   }, [selected, instMap, setInstances])
 
   return { toggleStartStop, restart, toggleExpose, deleteEntry, rescan, killSelected }

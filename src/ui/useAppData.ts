@@ -3,6 +3,7 @@ import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import { listModels } from "../registry/index.js"
 import { sortModelsByRunningThenSlug } from "../registry/sort.js"
 import { supervisor } from "../supervisor/index.js"
+import { loadPersistedInstances, pidAlive } from "../supervisor/state.js"
 import { startCacheWatcher } from "../discovery/watcher.js"
 import {
   parseCompletionStats,
@@ -27,16 +28,20 @@ export interface UseAppDataOpts {
   setMessage: (message: string) => void
 }
 
+function liveInstances(): ActiveInstance[] {
+  return loadPersistedInstances().filter(inst => pidAlive(inst.pid)).map(inst => ({ ...inst, status: "running" }))
+}
+
 export function useAppData(opts: UseAppDataOpts): AppDataState {
   const { setMessage } = opts
-  const [models, setModels] = useState<ModelEntry[]>(sortModelsByRunningThenSlug(listModels(), supervisor.list()))
-  const [instances, setInstances] = useState<ActiveInstance[]>(supervisor.list())
+  const [models, setModels] = useState<ModelEntry[]>(sortModelsByRunningThenSlug(listModels(), liveInstances()))
+  const [instances, setInstances] = useState<ActiveInstance[]>(liveInstances())
   const [sys, setSys] = useState<SysStats | undefined>()
   const [instStats, setInstStats] = useState<Map<string, InstanceStats>>(new Map())
 
   useEffect(() => {
     const tick = (): void => {
-      const insts = supervisor.list()
+      const insts = liveInstances()
       setInstances(insts)
       setModels(sortModelsByRunningThenSlug(listModels(), insts))
       setSys(sampleSystemStats())
@@ -58,7 +63,7 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
 
   useEffect(() => {
     const watcher = startCacheWatcher(added => {
-      setModels(sortModelsByRunningThenSlug(listModels(), supervisor.list()))
+      setModels(sortModelsByRunningThenSlug(listModels(), liveInstances()))
       const names = added.slice(0, 3).map(m => m.slug).join(", ")
       const more = added.length > 3 ? ` +${added.length - 3} more` : ""
       setMessage(`+${added.length} new: ${names}${more}`)
