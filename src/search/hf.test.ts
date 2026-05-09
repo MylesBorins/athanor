@@ -10,8 +10,6 @@ function mockFetch(bodyFor: (url: string) => unknown): void {
   }))
 }
 
-// Variant that also lets the mock declare a Link header per-call so
-// pagination tests can drive the cursor flow.
 function mockFetchWithLink(
   fn: (url: string) => { body: unknown; next?: string }
 ): void {
@@ -75,12 +73,11 @@ describe("searchModels", () => {
     const calls: string[] = []
     mockFetch(url => {
       calls.push(url)
-      // Server returns popularity-ranked results; size is unrelated.
       return [
         { id: "small", tags: ["mlx"], gguf: { totalFileSize: 500_000_000 } },
-        { id: "huge",  tags: ["mlx"], gguf: { totalFileSize: 70_000_000_000 } },
-        { id: "none",  tags: ["mlx"] },
-        { id: "med",   tags: ["mlx"], gguf: { totalFileSize: 4_000_000_000 } }
+        { id: "huge", tags: ["mlx"], gguf: { totalFileSize: 70_000_000_000 } },
+        { id: "none", tags: ["mlx"] },
+        { id: "med", tags: ["mlx"], gguf: { totalFileSize: 4_000_000_000 } }
       ]
     })
     const r = await searchModels({ filter: "mlx", sort: "size" })
@@ -88,17 +85,19 @@ describe("searchModels", () => {
     expect(r.map(x => x.id)).toEqual(["huge", "med", "small", "none"])
   })
 
-  it("requests expand[] for size-bearing fields and default metadata", async () => {
+  it("requests text-generation filtering and expand[] metadata", async () => {
     const calls: string[] = []
     mockFetch(url => { calls.push(url); return [] })
     await searchModels({ filter: "mlx" })
     const u = calls[0]
+    expect(u).toContain("pipeline_tag=text-generation")
     expect(u).toContain("expand%5B%5D=gguf")
     expect(u).toContain("expand%5B%5D=safetensors")
     expect(u).toContain("expand%5B%5D=downloads")
     expect(u).toContain("expand%5B%5D=likes")
     expect(u).toContain("expand%5B%5D=lastModified")
     expect(u).toContain("expand%5B%5D=tags")
+    expect(u).toContain("expand%5B%5D=pipeline_tag")
   })
 
   it("derives sizeBytes from safetensors.parameters (MLX)", async () => {
@@ -108,7 +107,6 @@ describe("searchModels", () => {
       safetensors: { parameters: { BF16: 1_000_000_000, U32: 500_000_000 }, total: 9_000_000_000 }
     }])
     const r = await searchModels({ filter: "mlx" })
-    // BF16: 1e9 * 2 = 2e9, U32: 5e8 * 4 = 2e9, total 4e9
     expect(r[0].sizeBytes).toBe(4_000_000_000)
   })
 
@@ -135,7 +133,7 @@ describe("searchModels", () => {
     ])
     const r = await searchModels({ filter: "any" })
     const mlx = r.find(x => x.id === "mlx-community/Q")!
-    const gg  = r.find(x => x.id === "bartowski/G-GGUF")!
+    const gg = r.find(x => x.id === "bartowski/G-GGUF")!
     expect(mlx.runtime).toBe("mlx")
     expect(mlx.license).toBe("apache-2.0")
     expect(gg.runtime).toBe("llama.cpp")
@@ -147,14 +145,16 @@ describe("searchModels", () => {
     await expect(searchModels({ filter: "mlx" })).rejects.toThrow(/HF search 500/)
   })
 
-  it("filters out private and gated repos", async () => {
+  it("filters out private, gated, and non-text-generation repos", async () => {
     mockFetch(() => [
       { id: "public/mlx", tags: ["mlx"] },
       { id: "private/mlx", tags: ["mlx"], private: true },
-      { id: "gated/gguf", tags: ["gguf"], gated: true }
+      { id: "gated/gguf", tags: ["gguf"], gated: true },
+      { id: "audio/asr", tags: ["mlx"], pipeline_tag: "automatic-speech-recognition" },
+      { id: "chat/mlx", tags: ["mlx"], pipeline_tag: "text-generation" }
     ])
     const r = await searchModels({ filter: "any" })
-    expect(r.map(x => x.id)).toEqual(["public/mlx"])
+    expect(r.map(x => x.id)).toEqual(["public/mlx", "chat/mlx"])
   })
 
   it("applies the limit after merging for filter='any'", async () => {
@@ -205,7 +205,7 @@ describe("searchModelsPage", () => {
         return { body: [{ id: "m/1", tags: ["mlx"] }], next: "https://x/?cursor=MLX2" }
       }
       if (url.includes("filter=gguf") && !url.includes("cursor")) {
-        return { body: [{ id: "g/1", tags: ["gguf"] }] }   // gguf exhausted on page 1
+        return { body: [{ id: "g/1", tags: ["gguf"] }] }
       }
       if (url.includes("cursor=MLX2")) {
         return { body: [{ id: "m/2", tags: ["mlx"] }] }
@@ -280,14 +280,14 @@ describe("enrichSelectionHint", () => {
 })
 
 describe("groupByRuntime", () => {
-  it("splits by runtime", () => {
-    const g = groupByRuntime([
+  it("partitions results into mlx, gguf, and other buckets", () => {
+    const grouped = groupByRuntime([
       { id: "a", tags: ["mlx"], runtime: "mlx" },
       { id: "b", tags: ["gguf"], runtime: "llama.cpp" },
       { id: "c", tags: [], runtime: undefined }
     ])
-    expect(g.mlx.map(x => x.id)).toEqual(["a"])
-    expect(g.gguf.map(x => x.id)).toEqual(["b"])
-    expect(g.other.map(x => x.id)).toEqual(["c"])
+    expect(grouped.mlx.map(x => x.id)).toEqual(["a"])
+    expect(grouped.gguf.map(x => x.id)).toEqual(["b"])
+    expect(grouped.other.map(x => x.id)).toEqual(["c"])
   })
 })

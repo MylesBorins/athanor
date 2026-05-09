@@ -32,6 +32,7 @@ export interface SearchResult {
   tags: string[]
   runtime?: RuntimeType
   license?: string
+  pipelineTag?: string
   // On-disk size of the model weights in bytes. For GGUF we take
   // gguf.totalFileSize (when the Hub has indexed it); for MLX/
   // safetensors we sum parameters dict × bytes-per-dtype. Undefined
@@ -139,12 +140,22 @@ function sizeFromGguf(gg: unknown): number | undefined {
   return typeof n === "number" && n > 0 ? n : undefined
 }
 
+function isTextGenerationLike(pipelineTag: unknown): boolean {
+  return pipelineTag === "text-generation" || pipelineTag === "conversational"
+}
+
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
   return body.flatMap((raw): SearchResult[] => {
     const b = raw as Record<string, unknown>
     if (b.private === true || b.gated === true) return []
     const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
+    const pipelineTag = typeof b.pipeline_tag === "string"
+      ? b.pipeline_tag
+      : typeof b.pipelineTag === "string"
+        ? b.pipelineTag
+        : undefined
+    if (pipelineTag && !isTextGenerationLike(pipelineTag)) return []
     const sizeBytes = sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors)
     return [{
       id: String(b.id ?? b.modelId ?? ""),
@@ -155,6 +166,7 @@ function parse(body: unknown): SearchResult[] {
       tags,
       runtime: runtimeFromTags(String(b.id ?? ""), tags),
       license: extractLicense(tags),
+      pipelineTag,
       sizeBytes
     }]
   }).filter(r => r.id.length > 0)
@@ -171,6 +183,7 @@ function buildSearchUrl(filterTag: string | null, opts: SearchOpts): string {
   if (opts.query)  params.set("search", opts.query)
   if (opts.author) params.set("author", opts.author)
   if (filterTag)   params.set("filter", filterTag)
+  params.set("pipeline_tag", "text-generation")
   params.set("sort", sortParam(opts.sort ?? "downloads"))
   params.set("direction", "-1")
   params.set("limit", String(opts.limit ?? PAGE_SIZE))
@@ -180,7 +193,7 @@ function buildSearchUrl(filterTag: string | null, opts: SearchOpts): string {
   // so we must also re-request the default fields we rely on.
   for (const field of [
     "gguf", "safetensors",
-    "downloads", "likes", "lastModified", "tags", "trendingScore"
+    "downloads", "likes", "lastModified", "tags", "trendingScore", "pipeline_tag"
   ]) params.append("expand[]", field)
   return `${API}?${params.toString()}`
 }

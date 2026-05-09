@@ -30,6 +30,14 @@ describe("app model service", () => {
   beforeEach(() => {
     vi.resetModules()
     resetPiFiles()
+    vi.doMock("../router/lifecycle.js", () => ({
+      ensureRouterForActiveModels: vi.fn(),
+      reconcileRouterForCurrentState: vi.fn(),
+      stopRouterIfIdle: vi.fn(async () => {})
+    }))
+    vi.doMock("../router/server.js", () => ({
+      stopRouter: vi.fn(async () => {})
+    }))
   })
 
   it("startModel starts via supervisor and syncs pi with active default", async () => {
@@ -208,7 +216,7 @@ describe("app model service", () => {
     vi.doUnmock("../sync/pi.js")
 
     const mod = await import("./models.js")
-    await mod.startModel("a")
+    await mod.startModel("a", { confirm: true })
 
     const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
     expect(settings.defaultProvider).toBe("athanor-mlx-a")
