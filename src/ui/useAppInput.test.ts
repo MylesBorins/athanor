@@ -271,6 +271,38 @@ describe("useAppInput", () => {
     expect(killSelected).toHaveBeenCalled()
   })
 
+  it("opens downloads modal on uppercase D", async () => {
+    const setMode = vi.fn()
+    const { useAppInput } = await import("./useAppInput.js")
+    useAppInput({
+      mode: "list",
+      dims: { cols: 100, rows: 30 },
+      models: [{ id: "a", slug: "a" } as any],
+      filtered: [{ id: "a", slug: "a" } as any],
+      selected: { id: "a", slug: "a" } as any,
+      selectedInst: undefined,
+      suggIdx: 0,
+      lastMouseAtRef: { current: 0 },
+      setMode,
+      setFilter: vi.fn(),
+      setSelectedIdx: vi.fn(),
+      setLogScroll: vi.fn(),
+      setSuggIdx: vi.fn(),
+      setPullPrefill: vi.fn(),
+      exit: vi.fn(),
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected: vi.fn(async () => {}),
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+
+    const handler = useInput.mock.calls[0][0]
+    handler("D", {})
+    expect(setMode).toHaveBeenCalledWith("downloads")
+  })
+
   it("opens delete confirmation instead of deleting immediately", async () => {
     const setMode = vi.fn()
     const deleteEntry = vi.fn()

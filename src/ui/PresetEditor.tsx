@@ -14,6 +14,7 @@ import { listRecipes, recipeToPreset } from "../presets/recipes.js"
 
 export interface PresetEditorProps {
   entryId: string
+  width?: number
   onClose: (message: string) => void
 }
 
@@ -32,7 +33,11 @@ function presetValueFor(entry: ModelEntry, jsonName: string): number | undefined
   return (bag as Record<string, number | undefined>)[jsonName]
 }
 
-export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) => {
+export const PresetEditor: React.FC<PresetEditorProps> = ({
+  entryId,
+  width = 88,
+  onClose
+}) => {
   const initial = getModel(entryId)
   const [entry, setEntry] = useState<ModelEntry | undefined>(initial)
   const [cursor, setCursor] = useState(0)
@@ -127,7 +132,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
   })
 
   if (!entry) {
-    return <Box borderStyle="round" padding={1}><Text color="red">model not found</Text></Box>
+    return (
+      <Box width={width} flexDirection="column" borderStyle="round" borderColor="red" padding={1} backgroundColor="black">
+        <Text color="red" backgroundColor="black">model not found</Text>
+      </Box>
+    )
   }
 
   // For MLX entries, surface the active server explicitly (lm vs vlm)
@@ -138,48 +147,50 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({ entryId, onClose }) 
   const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
   const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
 
+  const innerWidth = Math.max(24, width - 4)
+  const keyColWidth = 22
+  const valueColWidth = Math.max(8, innerWidth - keyColWidth - 7)
+
   return (
-    <Box flexDirection="column" borderStyle="round" padding={1}>
-      <Text>
-        <Text bold>Preset</Text>: {entry.slug}{" "}
-        <Text dimColor>({runtimeLabel})</Text>
-        {isMlx && hasVlmCap && !isVlm
-          ? <Text dimColor>{"  "}<Text color="cyan">vision tower detected</Text> — press <Text bold>v</Text> to switch to mlx-vlm</Text>
-          : null}
+    <Box width={width} flexDirection="column" borderStyle="round" borderColor="cyan" padding={1} backgroundColor="black">
+      <Text bold color="cyan" backgroundColor="black">Preset editor</Text>
+      <Text wrap="truncate-end" backgroundColor="black">
+        <Text backgroundColor="black">{entry.slug} </Text>
+        <Text dimColor backgroundColor="black">({runtimeLabel})</Text>
       </Text>
-      <Box flexDirection="column" marginTop={1}>
-        <Text dimColor>Tunable keys  (value · override marked with *)</Text>
-        {keys.map((k, i) => {
-          const override = presetValueFor(entry, k.jsonName)
-          const value = override !== undefined ? override : effective[k.jsonName]
-          const marker = override !== undefined ? " *" : "  "
-          const active = i === cursor
-          const label = k.aliases[0]!.padEnd(20)
-          return (
-            <Text key={k.jsonName} color={active ? "cyan" : undefined}>
-              {active ? "▸ " : "  "}{label} {String(value).padStart(7)}{marker}  <Text dimColor>{k.help}</Text>
-            </Text>
-          )
-        })}
-      </Box>
-      <Box flexDirection="column" marginTop={1}>
-        <Text dimColor>Recipes  (digit applies)</Text>
-        {recipes.slice(0, 9).map((r, i) => (
-          <Text key={r.name}>
-            {"  "}{i + 1}. <Text bold>{r.name.padEnd(14)}</Text>
-            <Text color={r.source === "user" ? "magenta" : undefined}>
-              {r.source === "user" ? " [user] " : " [builtin] "}
-            </Text>
-            <Text dimColor>{r.description}</Text>
+      {isMlx && hasVlmCap && !isVlm
+        ? <Text dimColor wrap="truncate-end" backgroundColor="black">vision tower detected — press <Text bold color="cyan" backgroundColor="black">v</Text> to switch to mlx-vlm</Text>
+        : null}
+      <Text backgroundColor="black"> </Text>
+      <Text dimColor backgroundColor="black">Tunable keys  (override marked with *)</Text>
+      {keys.map((k, i) => {
+        const override = presetValueFor(entry, k.jsonName)
+        const value = override !== undefined ? override : effective[k.jsonName]
+        const marker = override !== undefined ? "*" : " "
+        const active = i === cursor
+        const label = k.aliases[0]!.padEnd(Math.max(8, keyColWidth - 2))
+        return (
+          <Text key={k.jsonName} color={active ? "cyan" : undefined} backgroundColor="black" wrap="truncate-end">
+            {active ? "▸" : " "} {label} {String(value).padStart(7)} {marker}  <Text dimColor backgroundColor="black">{k.help}</Text>
           </Text>
-        ))}
-      </Box>
-      <Box marginTop={1}>
-        {edit
-          ? <Text>editing <Text bold>{edit.jsonName}</Text> = <Text color="cyan">{edit.buffer || "_"}</Text>  <Text dimColor>(⏎ save · esc cancel)</Text></Text>
-          : <Text dimColor>↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-9 recipe · esc close</Text>}
-      </Box>
-      {notice ? <Text color="yellow">{notice}</Text> : null}
+        )
+      })}
+      <Text backgroundColor="black"> </Text>
+      <Text dimColor backgroundColor="black">Recipes  (1-9 applies)</Text>
+      {recipes.slice(0, 9).map((r, i) => (
+        <Text key={r.name} backgroundColor="black" wrap="truncate-end">
+          {`${i + 1}.`.padStart(3)} <Text bold backgroundColor="black">{r.name}</Text>
+          <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
+            {r.source === "user" ? " [user]" : " [builtin]"}
+          </Text>
+          <Text dimColor backgroundColor="black"> {r.description}</Text>
+        </Text>
+      ))}
+      <Text backgroundColor="black"> </Text>
+      {edit
+        ? <Text wrap="truncate-end" backgroundColor="black">editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel)</Text></Text>
+        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-9 recipe · esc close</Text>}
+      {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
     </Box>
   )
 }

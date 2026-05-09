@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
 import {
   fetchRepoInfo,
+  fetchRepoTree,
   inferRuntimeFromRepo,
   listGgufFiles,
   type HfRepoInfo
@@ -29,7 +30,20 @@ describe("HF api helpers", () => {
       const info = await fetchRepoInfo("x/y")
       expect(info.id).toBe("x/y")
       expect(info.tags).toEqual(["mlx"])
-      expect(info.siblings).toEqual([{ rfilename: "config.json" }])
+      expect(info.siblings).toEqual([{ rfilename: "config.json", size: undefined }])
+    })
+
+    it("extracts cardData and gguf metadata when present", async () => {
+      mockFetch({
+        id: "x/y",
+        tags: ["gguf"],
+        siblings: [{ rfilename: "model.gguf", size: 123 }],
+        cardData: { license: "apache-2.0", base_model: "base/model" },
+        gguf: { architecture: "gemma4", context_length: 131072, totalFileSize: 456 }
+      })
+      const info = await fetchRepoInfo("x/y")
+      expect(info.cardData).toEqual({ license: "apache-2.0", baseModel: "base/model" })
+      expect(info.gguf).toEqual({ architecture: "gemma4", contextLength: 131072, totalFileSize: 456 })
     })
 
     it("throws when the API returns a non-OK status", async () => {
@@ -54,6 +68,25 @@ describe("HF api helpers", () => {
       if (!firstCall) throw new Error("fetch was not called")
       const url = String(firstCall[0])
       expect(url).toContain("/revision/branch%2Fwith%20slash")
+    })
+  })
+
+  describe("fetchRepoTree", () => {
+    it("returns parsed tree entries with lfs sizes", async () => {
+      mockFetch([
+        { path: "model.safetensors", type: "file", size: 100, lfs: { size: 200 } },
+        { path: "subdir", type: "directory", size: 0 }
+      ])
+      const tree = await fetchRepoTree("x/y")
+      expect(tree).toEqual([
+        { path: "model.safetensors", type: "file", size: 100, lfs: { size: 200 } },
+        { path: "subdir", type: "directory", size: 0, lfs: undefined }
+      ])
+    })
+
+    it("throws when the tree endpoint is non-OK", async () => {
+      mockFetch({}, false, 401)
+      await expect(fetchRepoTree("x/y")).rejects.toThrow(/HF tree 401/)
     })
   })
 

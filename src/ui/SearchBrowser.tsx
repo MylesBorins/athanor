@@ -11,7 +11,11 @@ import {
   type SearchSort
 } from "../search/hf.js"
 import { formatBytes, formatCount, formatRelTime } from "../search/format.js"
+import { loadRepoHintCache, saveRepoHint } from "../search/cache.js"
+import { fetchRepoTree } from "../pull/api.js"
+import { DownloadsModal } from "./DownloadsModal.js"
 import { PullModal } from "./PullModal.js"
+import { useDownloads } from "./useDownloads.js"
 
 // Column definitions shared by Header and Row so click-on-header
 // sort wiring and visual alignment can't drift. Widths include the
@@ -58,18 +62,140 @@ export interface SearchBrowserProps {
   initialQuery?: string
   initialFilter?: SearchFilter
   initialSort?: SearchSort
-  // Called when the user closes the browser without picking a model,
-  // or when a pull finishes. In CLI mode this triggers process exit;
-  // in the main TUI it routes back to the list view.
   onExit: (message?: string) => void
-  // When true, do not call Ink's useApp().exit() on close — the
-  // parent app owns the lifecycle and will just switch modes. The
-  // standalone `athanor search` CLI leaves this undefined so the
-  // process terminates as expected.
+  onQueueDownload?: (input: { repo: string; file?: string }) => void
   embedded?: boolean
+  machineMemBytes?: number
 }
 
-type Mode = "edit" | "browse" | "inspect" | "pull"
+type Mode = "edit" | "browse" | "inspect" | "manual-pull" | "downloads"
+
+function SearchDetailsModal({
+  result,
+  hint,
+  width,
+  selectedFileIdx,
+  machineMemBytes
+}: {
+  result: SearchResult
+  hint: SearchSelectionHint | null
+  width: number
+  selectedFileIdx: number
+  machineMemBytes?: number
+}) {
+  const runtime = runtimeBadge(result)
+  const isGguf = result.runtime === "llama.cpp"
+  const bodyLines = [
+    { label: "runtime", value: runtime.label, color: runtime.color },
+    { label: "size", value: result.sizeBytes !== undefined ? formatBytes(result.sizeBytes) : "—" },
+    { label: "downloads", value: formatCount(result.downloads) },
+    { label: "likes", value: formatCount(result.likes) },
+    { label: "updated", value: formatRelTime(result.lastModified) },
+    { label: "license", value: result.license ?? "—" }
+  ]
+
+  const innerWidth = Math.max(24, width - 4)
+  const valueWidth = Math.max(16, innerWidth - 14)
+  const selectable = hint?.ggufSelectableCount
+  const ggufSummary = !isGguf
+    ? null
+    : !hint
+      ? "Resolving GGUF files…"
+      : hint.defaultFile
+        ? selectable && selectable > 1
+          ? `Default: ${hint.defaultFile}${hint.defaultFileSizeBytes !== undefined ? ` · ${formatBytes(hint.defaultFileSizeBytes)}` : ""} · ${selectable} selectable files`
+          : `Selected: ${hint.defaultFile}${hint.defaultFileSizeBytes !== undefined ? ` · ${formatBytes(hint.defaultFileSizeBytes)}` : ""}`
+        : selectable && selectable > 0
+          ? `${selectable} selectable GGUF files`
+          : "No GGUF file selected yet"
+
+  const candidates = hint?.ggufCandidates ?? []
+  const clampedSelectedFileIdx = Math.max(0, Math.min(candidates.length - 1, selectedFileIdx))
+  const selectedFile = candidates[clampedSelectedFileIdx]
+  const selectedIsDefault = selectedFile?.name === hint?.defaultFile
+  const selectedSizeBytes = selectedFile?.sizeBytes
+  const effectiveFitSizeBytes = selectedSizeBytes ?? hint?.ggufTotalSizeBytes
+  const comfortableBytes = machineMemBytes !== undefined ? Math.max(0, machineMemBytes - 8 * 1024 ** 3) : undefined
+  const tightBytes = machineMemBytes !== undefined ? Math.max(0, machineMemBytes - 4 * 1024 ** 3) : undefined
+  const fitHint = machineMemBytes === undefined || effectiveFitSizeBytes === undefined
+    ? null
+    : effectiveFitSizeBytes <= comfortableBytes!
+      ? `comfortable on this Mac (${formatBytes(machineMemBytes)} unified memory)`
+      : effectiveFitSizeBytes <= tightBytes!
+        ? "might work, but could be tight on this Mac"
+        : "not recommended for this Mac"
+
+  return (
+    <Box flexDirection="column" width={width} borderStyle="round" borderColor="cyan" padding={1} backgroundColor="black">
+      <Text bold color="cyan" backgroundColor="black">Model details</Text>
+      <Text color="white" bold wrap="truncate-end" backgroundColor="black">{truncEnd(result.id, innerWidth)}</Text>
+      <Text backgroundColor="black"> </Text>
+      {bodyLines.map(line => (
+        <Box key={line.label} backgroundColor="black">
+          <Text color="cyan" backgroundColor="black">{`${line.label}:`.padEnd(13)}</Text>
+          <Text color={line.color} wrap="truncate-end" backgroundColor="black">{truncEnd(line.value, valueWidth)}</Text>
+        </Box>
+      ))}
+      {isGguf
+        ? <>
+            <Text backgroundColor="black"> </Text>
+            <Text color="yellow" bold backgroundColor="black">GGUF selection</Text>
+            <Text wrap="truncate-end" backgroundColor="black">{truncEnd(ggufSummary ?? "", innerWidth)}</Text>
+            {(candidates.length > 1 || selectedFile)
+              ? <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1} backgroundColor="black">
+                  <Box justifyContent="space-between" backgroundColor="black">
+                    <Text color="yellow" bold backgroundColor="black">Option {Math.min(candidates.length, clampedSelectedFileIdx + 1)}/{Math.max(1, candidates.length)}</Text>
+                    <Text dimColor backgroundColor="black">{selectedIsDefault ? "recommended" : "browse"}</Text>
+                  </Box>
+                  <Text color="cyan" bold wrap="truncate-end" backgroundColor="black">{truncEnd(selectedFile?.name ?? hint?.defaultFile ?? "—", innerWidth - 2)}</Text>
+                  <Box backgroundColor="black">
+                    <Text color="yellow" backgroundColor="black">size: </Text>
+                    <Text color="white" bold backgroundColor="black">{selectedFile?.sizeBytes !== undefined ? formatBytes(selectedFile.sizeBytes) : "unknown"}</Text>
+                    {selectedIsDefault ? <Text color="green" backgroundColor="black">  · default</Text> : null}
+                  </Box>
+                  {(hint?.ggufArchitecture || hint?.ggufContextLength)
+                    ? <Box backgroundColor="black">
+                        {hint.ggufArchitecture ? <><Text color="yellow" backgroundColor="black">arch: </Text><Text backgroundColor="black">{hint.ggufArchitecture}</Text></> : null}
+                        {hint.ggufContextLength ? <><Text color="yellow" backgroundColor="black">  ctx: </Text><Text backgroundColor="black">{formatCount(hint.ggufContextLength)}</Text></> : null}
+                      </Box>
+                    : null}
+                  {hint?.baseModel
+                    ? <Box backgroundColor="black">
+                        <Text color="yellow" backgroundColor="black">base: </Text>
+                        <Text wrap="truncate-end" backgroundColor="black">{truncEnd(hint.baseModel, innerWidth - 8)}</Text>
+                      </Box>
+                    : null}
+                  {fitHint
+                    ? <Text color={fitHint.startsWith("comfortable") ? "green" : fitHint.startsWith("might work") ? "yellow" : "red"} wrap="truncate-end" backgroundColor="black">{truncEnd(fitHint, innerWidth - 2)}</Text>
+                    : null}
+                  {candidates.length > 1
+                    ? <Text dimColor wrap="truncate-end" backgroundColor="black">{clampedSelectedFileIdx > 0 ? "↑ previous" : "↑ start"} · {clampedSelectedFileIdx < candidates.length - 1 ? "↓ next" : "↓ end"}</Text>
+                    : null}
+                </Box>
+              : null}
+            {hint?.ggufTotalSizeBytes !== undefined
+              ? <Box backgroundColor="black">
+                  <Text color="yellow" backgroundColor="black">repo total: </Text>
+                  <Text backgroundColor="black">{formatBytes(hint.ggufTotalSizeBytes)}</Text>
+                </Box>
+              : null}
+            {candidates.length > 1
+              ? <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓/j/k choose option · PgUp/PgDn jump · Enter pull selected · Esc close</Text>
+              : <Text dimColor wrap="truncate-end" backgroundColor="black">Press <Text color="cyan" bold backgroundColor="black">Enter</Text> to pull this repo{hint?.defaultFile ? " with the selected default file" : ""}.</Text>}
+          </>
+        : <>
+            <Text backgroundColor="black"> </Text>
+            <Text dimColor wrap="truncate-end" backgroundColor="black">Press <Text color="cyan" bold backgroundColor="black">Enter</Text> to pull this model now.</Text>
+          </>}
+      <Text backgroundColor="black"> </Text>
+      <Text dimColor wrap="truncate" backgroundColor="black">{
+        isGguf && candidates.length > 1
+          ? "Enter pull · ↑↓/j/k choose option · PgUp/PgDn jump · Esc close · q quit search"
+          : "Enter pull · Esc close · q quit search"
+      }</Text>
+    </Box>
+  )
+}
 
 const SORT_CYCLE: SearchSort[] = ["downloads", "likes", "trending", "modified", "size"]
 const FILTER_CYCLE: SearchFilter[] = ["any", "mlx", "gguf"]
@@ -118,12 +244,15 @@ function renderHeaderCell(key: ColumnDef["key"], width: number, label: string): 
 // Renders a single result line. Column layout adapts to available
 // width: narrow terminals drop optional columns rather than
 // line-wrapping, so the list always fits in one row per entry.
-function Row({ r, cols, layout, selected }: {
-  r: SearchResult; cols: number; layout: Layout; selected: boolean
+function Row({ r, cols, layout, selected, hint }: {
+  r: SearchResult; cols: number; layout: Layout; selected: boolean; hint?: SearchSelectionHint
 }) {
   const badge = runtimeBadge(r)
+  const displayResult = hint?.defaultFileSizeBytes !== undefined || hint?.ggufTotalSizeBytes !== undefined
+    ? { ...r, sizeBytes: hint.defaultFileSizeBytes ?? hint.ggufTotalSizeBytes }
+    : r
   const id = truncMid(r.id, layout.idWidth).padEnd(layout.idWidth)
-  const right = layout.right.map(s => renderCell(r, s.key, s.end - s.start)).join("")
+  const right = layout.right.map(s => renderCell(displayResult, s.key, s.end - s.start)).join("")
   const composed = `${selected ? "› " : "  "}${id}${right}`
   const padded = composed.length < cols ? composed + " ".repeat(cols - composed.length) : composed
   if (selected) {
@@ -160,7 +289,7 @@ function Header({ cols, layout, sort }: { cols: number; layout: Layout; sort: Se
 }
 
 export const SearchBrowser: React.FC<SearchBrowserProps> = ({
-  initialQuery, initialFilter, initialSort, onExit, embedded
+  initialQuery, initialFilter, initialSort, onExit, onQueueDownload, embedded, machineMemBytes
 }) => {
   const { exit } = useApp()
   const { stdout } = useStdout()
@@ -185,13 +314,15 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   const [error, setError]     = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [scrollOff, setScrollOff]     = useState(0)
-  const [mode, setMode]       = useState<Mode>(initialQuery ? "browse" : "edit")
-  const [pickedRepo, setPickedRepo] = useState<string | undefined>()
-  const [pickedFile, setPickedFile] = useState<string | undefined>()
+  const [mode, setMode]       = useState<Mode>("browse")
   // Transient status shown in the footer — currently used to confirm
   // a completed or cancelled pull after returning to browse mode.
   const [message, setMessage] = useState<string>("")
+  const [manualPull, setManualPull] = useState<{ repo?: string; file?: string } | null>(null)
+  const downloads = useDownloads(msg => setMessage(msg))
   const [selectionHint, setSelectionHint] = useState<SearchSelectionHint | null>(null)
+  const [selectionHintsById, setSelectionHintsById] = useState<Record<string, SearchSelectionHint>>({})
+  const [selectedFileIdx, setSelectedFileIdx] = useState(0)
   // Opaque next-page cursor. Undefined when results are exhausted or
   // we haven't fetched yet (loading covers the latter).
   const [cursor, setCursor] = useState<SearchCursor | undefined>()
@@ -210,7 +341,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   useEffect(() => {
     let cancelled = false
     setLoading(true); setLoadingMore(false); setError(null)
-    setResults([]); setCursor(undefined); setSelectionHint(null)
+    setResults([]); setCursor(undefined); setSelectionHint(null); setSelectionHintsById(loadRepoHintCache())
     cursorRef.current = undefined
     seenIdsRef.current = new Set()
     searchModelsPage({ query, filter, sort })
@@ -283,23 +414,10 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       ? `gguf default: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? ` · ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? ` · ${selectionHint.ggufSelectableCount} selectable` : ""}`
       : "gguf: resolving default file…"
     : null
-  const inspectLines = selected ? [
-    `repo: ${selected.id}`,
-    `runtime: ${runtimeBadge(selected).label}`,
-    `size: ${selected.sizeBytes !== undefined ? formatBytes(selected.sizeBytes) : "—"}`,
-    `downloads: ${formatCount(selected.downloads)}  ·  likes: ${formatCount(selected.likes)}`,
-    `updated: ${formatRelTime(selected.lastModified)}  ·  license: ${selected.license ?? "—"}`,
-    selected.runtime === "llama.cpp"
-      ? selectionHint?.defaultFile
-        ? `default gguf: ${selectionHint.defaultFile}${selectionHint.defaultFileSizeBytes !== undefined ? `  ·  ${formatBytes(selectionHint.defaultFileSizeBytes)}` : ""}${selectionHint.ggufSelectableCount !== undefined ? `  ·  ${selectionHint.ggufSelectableCount} selectable` : ""}`
-        : "default gguf: resolving…"
-      : null
-  ].filter((line): line is string => line !== null).map(line => truncEnd(line, dims.cols)) : []
   const hintLineText = mode !== "inspect" && hintLine ? truncEnd(hintLine, dims.cols) : null
-  const inspectRows = mode === "inspect" && selected ? inspectLines.length + 1 : 0
   // Fixed rows: title, query, top divider, header, bottom divider,
-  // key help footer. Optional hint/message/inspect lines live below that.
-  const chromeRows = 6 + (hintLineText ? 1 : 0) + (message ? 1 : 0) + inspectRows
+  // key help footer. Optional hint/message lines live below that.
+  const chromeRows = 6 + (hintLineText ? 1 : 0) + (message ? 1 : 0)
   const visibleRows = Math.max(3, dims.rows - chromeRows)
   // y-coordinates (1-based, matching SGR mouse) for the two clickable
   // regions. Used by the mouse handler to map a click to a sort column
@@ -334,12 +452,27 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   useEffect(() => {
     let cancelled = false
     setSelectionHint(null)
+    setSelectedFileIdx(0)
     if (!selected || selected.runtime !== "llama.cpp") return
+    const cached = selectionHintsById[selected.id]
+    if (cached) {
+      setSelectionHint(cached)
+      const defaultIdx = cached.ggufCandidates?.findIndex(c => c.name === cached.defaultFile) ?? -1
+      setSelectedFileIdx(defaultIdx >= 0 ? defaultIdx : 0)
+      return
+    }
     void enrichSelectionHint(selected)
-      .then(hint => { if (!cancelled) setSelectionHint(hint) })
+      .then(hint => {
+        if (cancelled) return
+        setSelectionHint(hint)
+        saveRepoHint(selected.id, hint)
+        setSelectionHintsById(prev => prev[selected.id] ? prev : { ...prev, [selected.id]: hint })
+        const defaultIdx = hint.ggufCandidates?.findIndex(c => c.name === hint.defaultFile) ?? -1
+        setSelectedFileIdx(defaultIdx >= 0 ? defaultIdx : 0)
+      })
       .catch(() => { if (!cancelled) setSelectionHint({ runtime: selected.runtime }) })
     return () => { cancelled = true }
-  }, [selected])
+  }, [selected, selectionHintsById])
 
   // Refs let the mouse-data listener read current state without
   // re-subscribing every render. Each ref mirrors a piece of state
@@ -347,6 +480,46 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   const modeRef = useRef(mode); useEffect(() => { modeRef.current = mode }, [mode])
   const resultsRef = useRef(results); useEffect(() => { resultsRef.current = results }, [results])
   const layoutRef = useRef(layout); useEffect(() => { layoutRef.current = layout }, [layout])
+  useEffect(() => {
+    const targets = results.filter(r => {
+      if (selectionHintsById[r.id]) return false
+      if (r.runtime === "llama.cpp") return true
+      if (r.runtime === "mlx" && r.sizeBytes === undefined) return true
+      return false
+    })
+    if (targets.length === 0) return
+    let cancelled = false
+    const limit = 4
+    const batches: SearchResult[][] = []
+    for (let i = 0; i < targets.length; i += limit) batches.push(targets.slice(i, i + limit))
+    void (async () => {
+      for (const batch of batches) {
+        const settled = await Promise.allSettled(batch.map(async r => {
+          if (r.runtime === "llama.cpp") return { id: r.id, hint: await enrichSelectionHint(r) }
+          const tree = await fetchRepoTree(r.id)
+          const mlxSizeBytes = tree
+            .filter(entry => entry.type === "file" && entry.path.toLowerCase().endsWith(".safetensors"))
+            .reduce((sum, entry) => sum + (entry.lfs?.size ?? entry.size ?? 0), 0)
+          return { id: r.id, hint: { runtime: "mlx" as const, ggufTotalSizeBytes: mlxSizeBytes > 0 ? mlxSizeBytes : undefined } }
+        }))
+        if (cancelled) return
+        setSelectionHintsById(prev => {
+          const next = { ...prev }
+          let changed = false
+          for (const item of settled) {
+            if (item.status !== "fulfilled") continue
+            if (next[item.value.id]) continue
+            saveRepoHint(item.value.id, item.value.hint)
+            next[item.value.id] = item.value.hint
+            changed = true
+          }
+          return changed ? next : prev
+        })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [results, selectionHintsById])
+
   const scrollRef = useRef(scrollOff); useEffect(() => { scrollRef.current = scrollOff }, [scrollOff])
   const visibleRowsRef = useRef(visibleRows); useEffect(() => { visibleRowsRef.current = visibleRows }, [visibleRows])
   const lastMouseAtRef = useRef(0)
@@ -419,7 +592,6 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   }, [stdin, stdout, setRawMode, isRawModeSupported, embedded])
 
   useInput((input, key) => {
-    if (mode === "pull") return
     // Mouse sequences arrive as stdin data; Ink may synthesize a lone
     // `escape` from the leading ESC byte. Suppress any useInput fired
     // within a short window of a mouse event, and any chunk that
@@ -427,10 +599,11 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (Date.now() - lastMouseAtRef.current < 20) return
     if (input.indexOf("[<") >= 0 || input.indexOf("\x1b[<") >= 0) return
     if (key.escape) {
-      if ((mode === "edit" || mode === "inspect") && initialQuery === undefined && results.length > 0) {
-        setMode("browse"); return
-      }
       if (mode === "inspect") { setMode("browse"); return }
+      if (mode === "edit") { setMode("browse"); return }
+      return
+    }
+    if (input === "q") {
       onExit()
       if (!embedded) exit()
       return
@@ -445,18 +618,43 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (mode === "inspect") {
       const r = results[selectedIdx]
       if (!r) return
-      if (input === "p" || key.return) {
-        setPickedRepo(r.id)
-        setPickedFile(r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined)
-        setMode("pull")
+      const candidateCount = selectionHint?.ggufCandidates?.length ?? 0
+      const chosenFile = r.runtime === "llama.cpp"
+        ? (selectionHint?.ggufCandidates?.[selectedFileIdx]?.name ?? selectionHint?.defaultFile)
+        : undefined
+      const canChooseFile = r.runtime === "llama.cpp" && candidateCount > 1
+      if ((key.upArrow || input === "k") && canChooseFile) {
+        setSelectedFileIdx(i => Math.max(0, i - 1))
         return
       }
-      if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return }
-      if (key.downArrow) { setSelectedIdx(i => Math.min(results.length - 1, i + 1)); return }
-      if (key.pageUp)    { setSelectedIdx(i => Math.max(0, i - visibleRows)); return }
-      if (key.pageDown)  { setSelectedIdx(i => Math.min(results.length - 1, i + visibleRows)); return }
-      if (input === "g") { setSelectedIdx(0); return }
-      if (input === "G") { setSelectedIdx(Math.max(0, results.length - 1)); return }
+      if ((key.downArrow || input === "j") && canChooseFile) {
+        setSelectedFileIdx(i => Math.min(candidateCount - 1, i + 1))
+        return
+      }
+      if (key.pageUp && canChooseFile) {
+        setSelectedFileIdx(i => Math.max(0, i - 5))
+        return
+      }
+      if (key.pageDown && canChooseFile) {
+        setSelectedFileIdx(i => Math.min(candidateCount - 1, i + 5))
+        return
+      }
+      if (input === "f" && r.runtime === "llama.cpp") {
+        setManualPull({ repo: r.id, file: chosenFile ?? "" })
+        setMode("manual-pull")
+        return
+      }
+      if (input === "p" || key.return) {
+        if (onQueueDownload) {
+          onQueueDownload({ repo: r.id, file: chosenFile })
+          setMessage(`queued ${r.id}${chosenFile ? ` · ${chosenFile}` : ""}`)
+          setMode("browse")
+        } else {
+          downloads.queueDownload({ repo: r.id, file: chosenFile })
+          setMode("downloads")
+        }
+      }
+      return
     }
     // browse mode
     if (input === "/" || input === "i") { setMode("edit"); return }
@@ -471,9 +669,13 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     if (input === "p") {
       const r = results[selectedIdx]
       if (!r) return
-      setPickedRepo(r.id)
-      setPickedFile(r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined)
-      setMode("pull")
+      if (onQueueDownload) {
+        onQueueDownload({ repo: r.id, file: r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined })
+        setMessage(`queued ${r.id}`)
+      } else {
+        downloads.queueDownload({ repo: r.id, file: r.runtime === "llama.cpp" ? selectionHint?.defaultFile : undefined })
+        setMode("downloads")
+      }
       return
     }
     if (key.upArrow)   { setSelectedIdx(i => Math.max(0, i - 1)); return }
@@ -488,46 +690,54 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     }
   })
 
-  if (mode === "pull" && pickedRepo) {
-    // After the pull completes or is cancelled we land back in browse
-    // mode with a status message so the user can download another
-    // model without relaunching. Only `esc` from the browse screen
-    // now exits the TUI.
+  if (mode === "manual-pull") {
     return <PullModal
-      initialRepo={pickedRepo}
-      initialFile={pickedFile}
+      initialRepo={manualPull?.repo}
+      initialFile={manualPull?.file}
       onDone={msg => {
         const needsFile = msg.startsWith("pull failed: Multiple GGUF files in ")
         setMessage(msg)
         if (needsFile) {
-          setPickedFile("")
-          setMode("pull")
+          setManualPull(prev => ({ repo: prev?.repo, file: "" }))
+          setMode("manual-pull")
           return
         }
-        setPickedRepo(undefined)
-        setPickedFile(undefined)
+        setManualPull(null)
         setMode("browse")
       }}
       onCancel={() => {
-        setPickedRepo(undefined)
-        setPickedFile(undefined)
+        setManualPull(null)
         setMode("browse")
       }}
     />
   }
 
+  const downloadsModalWidth = Math.max(72, Math.min(104, dims.cols - 8))
+  const downloadsModalHeight = 24
+  const downloadsLeft = Math.max(0, Math.floor((dims.cols - downloadsModalWidth) / 2))
+  const downloadsTop = Math.max(0, Math.floor((dims.rows - downloadsModalHeight) / 2))
+
   const helpLine = truncEnd(
     mode === "edit"
-      ? "type query · ⏎ search · esc back"
+      ? "type query · ⏎ search · esc back · q quit"
       : mode === "inspect"
-        ? "⏎/p pull · ↑↓ move · esc back"
-        : "↑↓ · ⏎ inspect · p pull · click header to sort · / edit · f filter · s sort · esc quit",
+        ? (selected?.runtime === "llama.cpp" && (selectionHint?.ggufCandidates?.length ?? 0) > 1
+            ? "⏎ pull · ↑↓/j/k choose option · PgUp/PgDn jump · esc close · q quit"
+            : "⏎ pull · esc close · q quit")
+        : "↑↓ · ⏎ details · p pull · click header to sort · / edit · f filter · s sort · esc back · q quit",
     Math.max(0, dims.cols - 3 - countLine.length)
   )
   const footerLine = truncEnd(`${helpLine} · ${countLine}`, dims.cols)
+  const modalWidth = Math.max(64, Math.min(88, dims.cols - 10))
+  const modalHeight = selected?.runtime === "llama.cpp"
+    ? ((selectionHint?.ggufCandidates?.length ?? 0) > 1 ? 22 : 19)
+    : 13
+  const modalLeft = Math.max(0, Math.floor((dims.cols - modalWidth) / 2))
+  const modalTop = Math.max(0, Math.floor((dims.rows - modalHeight) / 2) - 2)
 
   return (
-    <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+    <Box width={dims.cols} height={dims.rows}>
+      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
       <Box>
         <Text bold>HuggingFace search</Text>
         <Text dimColor>  ·  filter: </Text>
@@ -552,19 +762,37 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
                 cols={dims.cols}
                 layout={layout}
                 selected={scrollOff + i === selectedIdx}
+                hint={selectionHintsById[r.id]}
               />
             ))}
       </Box>
       <Text dimColor>{"─".repeat(Math.max(8, dims.cols - 2))}</Text>
-      {mode === "inspect"
-        ? <Box flexDirection="column">
-            <Text bold color="cyan">selection</Text>
-            {inspectLines.map((line, i) => <Text key={i} dimColor>{line}</Text>)}
-          </Box>
-        : null}
       <Text dimColor>{footerLine}</Text>
       {hintLineText ? <Text dimColor>{hintLineText}</Text> : null}
       {message ? <Text color="yellow">{message}</Text> : null}
+      </Box>
+      {mode === "inspect" && selected
+        ? <Box position="absolute" marginLeft={modalLeft} marginTop={modalTop}>
+            <SearchDetailsModal
+              result={selected}
+              hint={selectionHint}
+              width={modalWidth}
+              selectedFileIdx={selectedFileIdx}
+              machineMemBytes={machineMemBytes}
+            />
+          </Box>
+        : null}
+      {mode === "downloads"
+        ? <Box position="absolute" marginLeft={downloadsLeft} marginTop={downloadsTop}>
+            <DownloadsModal
+              tasks={downloads.tasks}
+              width={downloadsModalWidth}
+              onCancelTask={downloads.cancelDownload}
+              onClearFinished={downloads.clearFinished}
+              onClose={() => setMode("browse")}
+            />
+          </Box>
+        : null}
     </Box>
   )
 }

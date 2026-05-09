@@ -1,5 +1,5 @@
 import type { RuntimeType } from "../types/index.js"
-import { fetchRepoInfo, type HfSibling } from "../pull/api.js"
+import { fetchRepoInfo, fetchRepoTree, type HfSibling } from "../pull/api.js"
 
 // Hub model search. Reference:
 // https://huggingface.co/docs/hub/api#get-apimodels
@@ -45,6 +45,12 @@ export interface SearchSelectionHint {
   defaultFileSizeBytes?: number
   ggufFileCount?: number
   ggufSelectableCount?: number
+  ggufCandidates?: Array<{ name: string; sizeBytes?: number }>
+  ggufArchitecture?: string
+  ggufContextLength?: number
+  ggufTotalSizeBytes?: number
+  baseModel?: string
+  cardLicense?: string
 }
 
 const API = "https://huggingface.co/api/models"
@@ -135,11 +141,12 @@ function sizeFromGguf(gg: unknown): number | undefined {
 
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
-  return body.map((raw): SearchResult => {
+  return body.flatMap((raw): SearchResult[] => {
     const b = raw as Record<string, unknown>
+    if (b.private === true || b.gated === true) return []
     const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
     const sizeBytes = sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors)
-    return {
+    return [{
       id: String(b.id ?? b.modelId ?? ""),
       downloads: typeof b.downloads === "number" ? b.downloads : undefined,
       likes: typeof b.likes === "number" ? b.likes : undefined,
@@ -149,7 +156,7 @@ function parse(body: unknown): SearchResult[] {
       runtime: runtimeFromTags(String(b.id ?? ""), tags),
       license: extractLicense(tags),
       sizeBytes
-    }
+    }]
   }).filter(r => r.id.length > 0)
 }
 
@@ -340,13 +347,35 @@ export async function enrichSelectionHint(result: SearchResult): Promise<SearchS
     if (result.runtime !== "llama.cpp") return { runtime: result.runtime }
     const info = await fetchRepoInfo(result.id)
     const candidates = ggufCandidates(info.siblings)
-    const chosen = pickDefaultGgufFile(info.siblings)
+    let treeSizes = new Map<string, number>()
+    try {
+      const tree = await fetchRepoTree(result.id)
+      treeSizes = new Map<string, number>(
+        tree
+          .filter(entry => entry.type === "file" && entry.path.toLowerCase().endsWith(".gguf"))
+          .map((entry): [string, number] => [entry.path, entry.lfs?.size ?? entry.size ?? 0])
+          .filter((entry): entry is [string, number] => entry[1] > 0)
+      )
+    } catch {
+      // Fall back to sibling metadata when tree lookup fails.
+    }
+    const candidatesWithSizes = candidates.map(c => ({
+      ...c,
+      size: treeSizes.get(c.rfilename) ?? c.size
+    }))
+    const chosen = pickDefaultGgufFile(candidatesWithSizes)
     return {
       runtime: "llama.cpp",
       defaultFile: chosen?.rfilename,
       defaultFileSizeBytes: chosen?.size,
       ggufFileCount: info.siblings.filter(s => s.rfilename.toLowerCase().endsWith(".gguf")).length,
-      ggufSelectableCount: candidates.length
+      ggufSelectableCount: candidatesWithSizes.length,
+      ggufCandidates: candidatesWithSizes.map(c => ({ name: c.rfilename, sizeBytes: c.size })),
+      ggufArchitecture: info.gguf?.architecture,
+      ggufContextLength: info.gguf?.contextLength,
+      ggufTotalSizeBytes: info.gguf?.totalFileSize,
+      baseModel: info.cardData?.baseModel,
+      cardLicense: info.cardData?.license
     }
   })()
   selectionHintCache.set(result.id, pending)

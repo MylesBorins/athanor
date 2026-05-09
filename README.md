@@ -372,12 +372,15 @@ athanor doctor --check-updates   also compare installed versions with latest ava
 | `k`        | kill the highlighted model                          |
 | `P`        | toggle pi-agent visibility (expose/hide)            |
 | `d`        | remove the highlighted entry from the registry      |
+| `D`        | open the downloads modal                            |
 | `s`        | rescan and ingest new models (automatic on start and when the HF cache changes) |
 | `p`        | open the pull modal (`esc` cancels in progress)     |
 | `e`        | open the preset editor for the highlighted model    |
 | `/`        | filter the list by substring of slug or id          |
 | `tab`      | hide the model selector and expand the log pane; press again to restore |
 | `q`        | quit (does **not** stop running models)             |
+
+The downloads modal shows queued/running/completed pulls. Inside it: `↑↓` selects a task, `c` cancels the selected running task, `C` clears finished tasks, and `esc` closes the modal.
 
 With the selector hidden (`tab`), the log pane grows to fill the space and the arrow keys switch roles:
 

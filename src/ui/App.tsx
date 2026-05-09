@@ -8,6 +8,7 @@ import { ModelList, type InstanceStats } from "./ModelList.js"
 import { LogTail } from "./LogTail.js"
 import { LogFocus } from "./LogFocus.js"
 import { PullModal } from "./PullModal.js"
+import { DownloadsModal } from "./DownloadsModal.js"
 import { PresetEditor } from "./PresetEditor.js"
 import { Suggestions } from "./Suggestions.js"
 import { SearchBrowser } from "./SearchBrowser.js"
@@ -17,8 +18,9 @@ import { useModelActions } from "./useModelActions.js"
 import { useMouseWheel } from "./useMouseWheel.js"
 import { useAppData } from "./useAppData.js"
 import { useAppInput } from "./useAppInput.js"
+import { useDownloads } from "./useDownloads.js"
 
-type Mode = "list" | "filter" | "pull" | "preset" | "logs" | "search" | "confirm-delete"
+type Mode = "list" | "filter" | "pull" | "downloads" | "preset" | "logs" | "search" | "confirm-delete"
 
 // How long a status message stays on screen before auto-dismissing.
 // Long enough to read a success/error line, short enough that it
@@ -40,6 +42,10 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const [logScroll, setLogScroll] = useState(0)
   const [suggIdx, setSuggIdx] = useState(0)
   const [pullPrefill, setPullPrefill] = useState<Suggestion | undefined>()
+  const downloads = useDownloads(msg => {
+    setMessage(msg)
+    setModels(listModels())
+  })
   const [dims, setDims] = useState({
     cols: stdout?.columns ?? 100,
     rows: stdout?.rows ?? 30
@@ -198,18 +204,14 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       onCancel={() => { setPullPrefill(undefined); setMode("list") }} />
   }
 
-  if (mode === "preset" && selected) {
-    return <PresetEditor
-      entryId={selected.id}
-      onClose={msg => { if (msg) setMessage(msg); setModels(listModels()); setMode("list") }} />
-  }
-
   if (mode === "search") {
-    // Embedded variant: onExit lands us back in list mode instead of
-    // terminating the Ink app. SearchBrowser owns its own PullModal
-    // flow, so new models land in the registry before we return.
     return <SearchBrowser
       embedded
+      machineMemBytes={sys?.totalMemBytes}
+      onQueueDownload={({ repo, file }) => {
+        downloads.queueDownload({ repo, file })
+        setMode("downloads")
+      }}
       onExit={msg => {
         if (msg) setMessage(msg)
         setModels(listModels())
@@ -217,6 +219,60 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       }}
     />
   }
+
+  const downloadsModalWidth = Math.max(72, Math.min(104, dims.cols - 8))
+  const downloadsModalHeight = 24
+  const downloadsTopPad = Math.max(0, Math.floor((dims.rows - downloadsModalHeight) / 2))
+  const downloadsLeftPad = Math.max(0, Math.floor((dims.cols - downloadsModalWidth) / 2))
+  const downloadsOverlay = mode === "downloads"
+    ? <Box
+        width={dims.cols}
+        height={dims.rows}
+        position="absolute"
+        flexDirection="column"
+      >
+        {Array.from({ length: downloadsTopPad }, (_, i) => (
+          <Text key={`downloads-top-${i}`}> </Text>
+        ))}
+        <Box paddingLeft={downloadsLeftPad}>
+          <DownloadsModal
+            tasks={downloads.tasks}
+            width={downloadsModalWidth}
+            onCancelTask={downloads.cancelDownload}
+            onClearFinished={downloads.clearFinished}
+            onClose={() => setMode("list")}
+          />
+        </Box>
+      </Box>
+    : null
+
+  const presetModalWidth = Math.max(72, Math.min(96, dims.cols - 8))
+  const presetModalHeight = 24
+  const presetTopPad = Math.max(0, Math.floor((dims.rows - presetModalHeight) / 2))
+  const presetLeftPad = Math.max(0, Math.floor((dims.cols - presetModalWidth) / 2))
+  const presetOverlay = mode === "preset" && selected
+    ? <Box
+        width={dims.cols}
+        height={dims.rows}
+        position="absolute"
+        flexDirection="column"
+      >
+        {Array.from({ length: presetTopPad }, (_, i) => (
+          <Text key={`preset-top-${i}`}> </Text>
+        ))}
+        <Box paddingLeft={presetLeftPad}>
+          <PresetEditor
+            entryId={selected.id}
+            width={presetModalWidth}
+            onClose={msg => {
+              if (msg) setMessage(msg)
+              setModels(listModels())
+              setMode("list")
+            }}
+          />
+        </Box>
+      </Box>
+    : null
 
   const confirmDeleteModalWidth = Math.max(44, Math.min(72, dims.cols - 8))
   const confirmDeleteModalHeight = 10
@@ -298,6 +354,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
           <Text dimColor wrap="truncate">{logsHelp}</Text>
           <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
         </Box>
+        {downloadsOverlay}
+        {presetOverlay}
         {confirmDeleteOverlay}
       </Box>
     )
@@ -317,8 +375,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       : bodyRows
   const logRows = showLogPreview ? Math.max(4, bodyRows - listRows - 1) : 0
   const listHelp = isEmpty
-    ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · q quit")
-    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
+    ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · D · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · D downloads · q quit")
+    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
 
   return (
     <Box width={dims.cols} height={dims.rows}>
@@ -332,38 +390,40 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         />
         <Text dimColor>{divider}</Text>
         {isEmpty
-          ? <Box flexDirection="column" height={listRows} overflow="hidden">
-              <Suggestions selectedIndex={suggIdx} />
-            </Box>
-          : <>
-              <Box flexDirection="column" height={listRows} overflow="hidden">
-                <ModelList
-                  models={filtered}
-                  selectedIndex={selectedIdx}
-                  instances={instMap}
-                  stats={instStats}
-                  cols={dims.cols}
-                  compact={compactList}
-                />
+            ? <Box flexDirection="column" height={listRows} overflow="hidden">
+                <Suggestions selectedIndex={suggIdx} />
               </Box>
-              {showLogPreview
-                ? <>
-                    <Text dimColor>{divider}</Text>
-                    <Box flexDirection="column" height={logRows} overflow="hidden">
-                      <Box height={1}>
-                        <Text dimColor wrap="truncate">{selectedTitle ?? " "}</Text>
+            : <>
+                <Box flexDirection="column" height={listRows} overflow="hidden">
+                  <ModelList
+                    models={filtered}
+                    selectedIndex={selectedIdx}
+                    instances={instMap}
+                    stats={instStats}
+                    cols={dims.cols}
+                    compact={compactList}
+                  />
+                </Box>
+                {showLogPreview
+                  ? <>
+                      <Text dimColor>{divider}</Text>
+                      <Box flexDirection="column" height={logRows} overflow="hidden">
+                        <Box height={1}>
+                          <Text dimColor wrap="truncate">{selectedTitle ?? " "}</Text>
+                        </Box>
+                        <LogTail logFile={selectedInst?.logFile} lines={Math.max(1, logRows - 2)} compact={compactList} />
                       </Box>
-                      <LogTail logFile={selectedInst?.logFile} lines={Math.max(1, logRows - 2)} compact={compactList} />
-                    </Box>
-                  </>
-                : null}
-            </>}
+                    </>
+                  : null}
+              </>}
         <Text dimColor>{divider}</Text>
         {mode === "filter"
           ? <Text wrap="truncate">/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
           : <Text dimColor wrap="truncate">{listHelp}</Text>}
         <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
       </Box>
+      {downloadsOverlay}
+      {presetOverlay}
       {confirmDeleteOverlay}
     </Box>
   )

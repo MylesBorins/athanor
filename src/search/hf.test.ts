@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { groupByRuntime, searchModels, searchModelsPage } from "./hf.js"
 
 function mockFetch(bodyFor: (url: string) => unknown): void {
@@ -147,6 +147,16 @@ describe("searchModels", () => {
     await expect(searchModels({ filter: "mlx" })).rejects.toThrow(/HF search 500/)
   })
 
+  it("filters out private and gated repos", async () => {
+    mockFetch(() => [
+      { id: "public/mlx", tags: ["mlx"] },
+      { id: "private/mlx", tags: ["mlx"], private: true },
+      { id: "gated/gguf", tags: ["gguf"], gated: true }
+    ])
+    const r = await searchModels({ filter: "any" })
+    expect(r.map(x => x.id)).toEqual(["public/mlx"])
+  })
+
   it("applies the limit after merging for filter='any'", async () => {
     mockFetch(url => {
       if (url.includes("filter=mlx")) {
@@ -208,6 +218,64 @@ describe("searchModelsPage", () => {
     const p2 = await searchModelsPage({ filter: "any" }, p1.cursor)
     expect(p2.results.map(r => r.id)).toEqual(["m/2"])
     expect(p2.cursor).toBeUndefined()
+  })
+})
+
+describe("enrichSelectionHint", () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it("uses tree metadata to recover exact GGUF candidate sizes and pick the default", async () => {
+    vi.doMock("../pull/api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({
+        id: "owner/repo",
+        tags: ["gguf"],
+        siblings: [
+          { rfilename: "model-Q4_K_M.gguf" },
+          { rfilename: "model-Q6_K.gguf" },
+          { rfilename: "mmproj-F16.gguf" }
+        ],
+        cardData: { license: "apache-2.0", baseModel: "base/model" },
+        gguf: { architecture: "gemma4", contextLength: 131072, totalFileSize: 123456 }
+      })),
+      fetchRepoTree: vi.fn(async () => ([
+        { path: "model-Q4_K_M.gguf", type: "file", size: 4_000_000_000 },
+        { path: "model-Q6_K.gguf", type: "file", size: 6_000_000_000 },
+        { path: "mmproj-F16.gguf", type: "file", size: 1_000_000_000 }
+      ]))
+    }))
+    const mod = await import("./hf.js")
+    const hint = await mod.enrichSelectionHint({ id: "owner/repo", tags: ["gguf"], runtime: "llama.cpp" })
+    expect(hint.defaultFile).toBe("model-Q4_K_M.gguf")
+    expect(hint.defaultFileSizeBytes).toBe(4_000_000_000)
+    expect(hint.ggufCandidates).toEqual([
+      { name: "model-Q4_K_M.gguf", sizeBytes: 4_000_000_000 },
+      { name: "model-Q6_K.gguf", sizeBytes: 6_000_000_000 }
+    ])
+    expect(hint.ggufArchitecture).toBe("gemma4")
+    expect(hint.ggufContextLength).toBe(131072)
+    expect(hint.ggufTotalSizeBytes).toBe(123456)
+    expect(hint.baseModel).toBe("base/model")
+    expect(hint.cardLicense).toBe("apache-2.0")
+  })
+
+  it("falls back to sibling metadata when tree lookup fails", async () => {
+    vi.doMock("../pull/api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({
+        id: "owner/repo",
+        tags: ["gguf"],
+        siblings: [
+          { rfilename: "model-Q4_K_M.gguf", size: 4_100_000_000 },
+          { rfilename: "model-Q6_K.gguf", size: 6_200_000_000 }
+        ]
+      })),
+      fetchRepoTree: vi.fn(async () => { throw new Error("boom") })
+    }))
+    const mod = await import("./hf.js")
+    const hint = await mod.enrichSelectionHint({ id: "owner/repo", tags: ["gguf"], runtime: "llama.cpp" })
+    expect(hint.defaultFile).toBe("model-Q4_K_M.gguf")
+    expect(hint.defaultFileSizeBytes).toBe(4_100_000_000)
   })
 })
 

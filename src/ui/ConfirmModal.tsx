@@ -133,27 +133,35 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="red" padding={1} width={width}>
-      <Text bold color="red">⚠ {truncEnd(title, innerWidth)}</Text>
-      <Text dimColor>This action cannot be undone.</Text>
-      <Text> </Text>
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      padding={1}
+      width={width}
+      backgroundColor="black"
+    >
+      <Text bold color="cyan" backgroundColor="black">Confirm action</Text>
+      <Text color="red" bold backgroundColor="black">⚠ {truncEnd(title, innerWidth)}</Text>
+      <Text dimColor backgroundColor="black">This action cannot be undone.</Text>
+      <Text backgroundColor="black"> </Text>
       {body.map((line, i) => (
         line === ""
-          ? <Text key={i}> </Text>
-          : <Text key={i} wrap="truncate-end">{truncEnd(line, innerWidth)}</Text>
+          ? <Text key={i} backgroundColor="black"> </Text>
+          : <Text key={i} wrap="truncate-end" backgroundColor="black">{truncEnd(line, innerWidth)}</Text>
       ))}
-      <Text> </Text>
-      <Box>
-        <Text>{" ".repeat(Math.max(0, buttonsStart - 1))}</Text>
-        <Text backgroundColor={selectedButton === "confirm" ? "red" : undefined} color={selectedButton === "confirm" ? "white" : "red"} bold>
+      <Text backgroundColor="black"> </Text>
+      <Box backgroundColor="black">
+        <Text backgroundColor="black">{" ".repeat(Math.max(0, buttonsStart - 1))}</Text>
+        <Text backgroundColor={selectedButton === "confirm" ? "red" : "black"} color={selectedButton === "confirm" ? "white" : "red"} bold>
           {confirmText}
         </Text>
-        <Text>{" ".repeat(gutter)}</Text>
-        <Text backgroundColor={selectedButton === "cancel" ? "cyan" : undefined} color={selectedButton === "cancel" ? "black" : "cyan"} bold>
+        <Text backgroundColor="black">{" ".repeat(gutter)}</Text>
+        <Text backgroundColor={selectedButton === "cancel" ? "cyan" : "black"} color={selectedButton === "cancel" ? "black" : "cyan"} bold>
           {cancelText}
         </Text>
       </Box>
-      <Text dimColor wrap="truncate">← → / Tab move · Enter choose · Esc cancel</Text>
+      <Text dimColor wrap="truncate" backgroundColor="black">← → / Tab move · Enter choose · Esc cancel</Text>
     </Box>
   )
 }
