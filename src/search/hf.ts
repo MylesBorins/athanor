@@ -144,6 +144,32 @@ function isTextGenerationLike(pipelineTag: unknown): boolean {
   return pipelineTag === "text-generation" || pipelineTag === "conversational"
 }
 
+const DISALLOWED_TASK_TAGS = new Set([
+  "automatic-speech-recognition",
+  "text-to-speech",
+  "audio-to-audio",
+  "feature-extraction",
+  "image-classification",
+  "text-classification",
+  "token-classification",
+  "question-answering",
+  "sentence-similarity",
+  "object-detection",
+  "image-segmentation",
+  "image-to-text",
+  "visual-question-answering",
+  "document-question-answering",
+  "text-to-image",
+  "image-to-image",
+  "zero-shot-image-classification",
+  "depth-estimation"
+])
+
+function isLikelyAthanorSearchCandidate(tags: string[], pipelineTag?: string): boolean {
+  if (pipelineTag && !isTextGenerationLike(pipelineTag)) return false
+  return !tags.some(tag => DISALLOWED_TASK_TAGS.has(tag))
+}
+
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
   return body.flatMap((raw): SearchResult[] => {
@@ -155,7 +181,7 @@ function parse(body: unknown): SearchResult[] {
       : typeof b.pipelineTag === "string"
         ? b.pipelineTag
         : undefined
-    if (pipelineTag && !isTextGenerationLike(pipelineTag)) return []
+    if (!isLikelyAthanorSearchCandidate(tags, pipelineTag)) return []
     const sizeBytes = sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors)
     return [{
       id: String(b.id ?? b.modelId ?? ""),

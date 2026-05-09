@@ -146,11 +146,12 @@ describe("searchModels", () => {
   })
 
   it("filters out private, gated, and non-text-generation repos", async () => {
-    mockFetch(() => [
+     mockFetch(() => [
       { id: "public/mlx", tags: ["mlx"] },
       { id: "private/mlx", tags: ["mlx"], private: true },
       { id: "gated/gguf", tags: ["gguf"], gated: true },
       { id: "audio/asr", tags: ["mlx"], pipeline_tag: "automatic-speech-recognition" },
+      { id: "embed/mlx", tags: ["mlx", "feature-extraction"] },
       { id: "chat/mlx", tags: ["mlx"], pipeline_tag: "text-generation" }
     ])
     const r = await searchModels({ filter: "any" })
