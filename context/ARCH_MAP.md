@@ -4,7 +4,7 @@ Compressed, code-driven architecture context for future work.
 
 ## Modules
 
-- **entrypoint** — bootstraps base dirs, dispatches CLI vs TUI, starts optional control/router
+- **entrypoint** — bootstraps base dirs, dispatches CLI vs TUI, starts optional control API, and reconciles detached router lifecycle
 - **config** — home paths, defaults, config load/save, sanitization, effective runtime baselines (now 16K context defaults)
 - **types** — shared runtime and registry types
 - **registry** — atomic `models.json` CRUD, slug allocation, stable port allocation, shared materialization helpers
@@ -14,7 +14,7 @@ Compressed, code-driven architecture context for future work.
 - **presets** — tunable runtime overrides, explicit built-in recipes with context bands, preset editing helpers
 - **supervisor** — detached child lifecycle, policy enforcement, reattach, logs, metrics, inflight drain
 - **sync** — merge athanor providers into pi-agent files and update defaults
-- **router** — optional OpenAI-compatible proxy over published models
+- **router** — optional OpenAI-compatible proxy over published models plus detached lifecycle coordination
 - **control** — optional local HTTP API for activate/deactivate/status
 - **search** — HF search/trending queries and result formatting
 - **app** — thin orchestration layer for model operations + pi sync side effects
@@ -57,6 +57,7 @@ Compressed, code-driven architecture context for future work.
   - `src/sync/pi.ts`
 - **router**
   - `src/router/server.ts`
+  - `src/router/lifecycle.ts`
 - **control**
   - `src/control/server.ts`
 - **search**
@@ -100,7 +101,7 @@ Compressed, code-driven architecture context for future work.
 - `src/index.tsx` ensures base dirs
 - dispatches to CLI via `src/cli/index.ts`
 - if no CLI command handles argv, enters TUI mode
-- TUI startup does eager `ingestDiscovered()` and may start control API / router
+- TUI startup does eager `ingestDiscovered()`, starts the control API when configured, and reconciles detached router state rather than owning router lifetime directly
 
 ### Scan / discovery
 - `src/discovery/scanner.ts` scans HF cache + local GGUF roots
@@ -124,6 +125,7 @@ Compressed, code-driven architecture context for future work.
 - CLI/TUI/control call `src/app/models.ts`
 - service resolves model entry, calls `src/supervisor/index.ts`
 - supervisor applies policy, spawns detached child, health-checks, persists runtime state, reattaches on startup
+- router lifecycle is coordinated alongside these flows via `src/router/lifecycle.ts` so router mode follows active model state rather than foreground TUI lifetime
 - stop drains router inflight work when needed, terminates pid, updates persisted state
 
 ### Pi sync
@@ -136,7 +138,7 @@ Compressed, code-driven architecture context for future work.
 
 ### TUI flow
 - `src/ui/App.tsx` now mainly composes hooks + layout
-- `useAppData()` handles polling, watcher updates, system/instance stats
+- `useAppData()` handles polling, watcher updates, system/instance stats; instance polling now comes from persisted live state rather than only the local process's supervisor map so router-driven switches remain visible
 - `useModelActions()` handles start/stop/restart/expose/delete/rescan actions
 - `useAppInput()` handles keyboard routing
 - `useMouseWheel()` handles raw mouse protocol and scroll routing

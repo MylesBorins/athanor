@@ -214,7 +214,7 @@ npm start
 npm run dev
 ```
 
-That runs a small custom watcher (`scripts/dev-watch.mjs`) which watches only `src/**/*.ts` and `src/**/*.tsx`, then respawns `tsx src/index.tsx` with `ATHANOR_DEV_TUI=1`. This avoids `tsx watch`'s stdin/restart behavior, which can interfere with Ink/TUI key handling in tmux. In this dev mode athanor still starts the real ingress path (router when needed, control API if enabled) so pi-agent integration behaves like the normal app, but it skips the alt-screen/cursor toggles to make UI iteration safer in split panes. The TUI also collapses to compact/minimal layouts in short or narrow terminals so model selection stays usable in tmux splits. For one-shot runs without the dev safeguards, keep using `npm start`.
+That runs a small custom watcher (`scripts/dev-watch.mjs`) which watches only `src/**/*.ts` and `src/**/*.tsx`, then respawns `tsx src/index.tsx` with `ATHANOR_DEV_TUI=1`. This avoids `tsx watch`'s stdin/restart behavior, which can interfere with Ink/TUI key handling in tmux. In this dev mode athanor still starts the real ingress path (router when needed, control API if enabled) so pi-agent integration behaves like the normal app, but it skips the alt-screen/cursor toggles to make UI iteration safer in split panes. The TUI also collapses to compact/minimal layouts in short or narrow terminals so model selection stays usable in tmux splits. Router-driven model switches are reflected in the TUI by polling persisted live instance state, not only the local process's in-memory supervisor map. For one-shot runs without the dev safeguards, keep using `npm start`.
 
 If you want a compiled build or to install the `athanor` binary globally:
 
@@ -522,7 +522,11 @@ athanor trending
 athanor trending --mlx --limit 15
 ```
 
-Supported sorts: `downloads` (default), `likes`, `trending`, `modified`, `size`. Each row shows download count, likes, license, and a relative last-modified time. The footer hints at the follow-up:
+Supported sorts: `downloads` (default), `likes`, `trending`, `modified`, `size`. Each row shows download count, likes, license, and a relative last-modified time.
+
+Search is intentionally biased toward athanor's actual domain: the Hub query asks for `pipeline_tag=text-generation`, and athanor also prunes obvious non-LLM tasks client-side (ASR, TTS, feature-extraction, image-generation, etc.). The goal is to surface local text-generation candidates for MLX / llama.cpp, not to behave like a general-purpose Hugging Face browser.
+
+The footer hints at the follow-up:
 
 ```
 → athanor pull <repo>                 # MLX: downloads the whole repo
@@ -565,7 +569,7 @@ This is off by default. Enable it only on trusted machines.
 
 When `router.enabled` is `true`, athanor exposes an OpenAI-compatible proxy (default `127.0.0.1:8080`) that fronts every exposed model on a single port. Pi-agent then sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at the router, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
 
-Router lifecycle follows active model serving state rather than the foreground TUI: when router mode is enabled and at least one model is running, athanor ensures the router is available; when the last model stops, the detached router companion may stop as well. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models.
+Router lifecycle follows active model serving state rather than the foreground TUI: when router mode is enabled and at least one model is running, athanor ensures the router is available; when the last model stops, the detached router companion stops too. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models. Reopening the TUI later reattaches to the same detached runtime/router state and reflects router-driven model switches from persisted instance state.
 
 ```
 GET  /health                                200 OK
@@ -603,9 +607,9 @@ Caveats:
 
 - **`athanor start` hangs or times out.** Check `~/.athanor/logs/<slug>-<pid>.log`. Most startup failures are the runtime itself complaining (missing weights, wrong quant, out of memory). Raise `supervisor.startupTimeoutMs` for very large models.
 - **`port already in use`.** Another process is on the model's stable port. Either stop it, or edit the entry's `port` in `~/.athanor/models.json` and restart.
-- **Pi-agent can't see a new model.** Make sure it's exposed (CLI: `athanor expose <slug>`) and run `athanor sync`. Confirm `~/.pi/agent/models.json` contains a provider named `athanor-<runtime>-<slug>` with the expected `baseUrl`, then open `/model` in pi (the file reloads on open).
+- **Pi-agent can't see a new model.** Make sure it's exposed (CLI: `athanor expose <slug>`) and run `athanor sync`. Confirm `~/.pi/agent/models.json` contains the expected athanor provider shape (per-model when router is off, `athanor-mlx` / `athanor-llama` aggregators when router is on), then open `/model` in pi (the file reloads on open).
 - **Models from other tools disappeared from pi.** They shouldn't — athanor only rewrites providers whose name starts with `athanor-`. If this happens, open an issue with the before/after of `~/.pi/agent/models.json`.
-- **Stale PID in registry.** If a child crashed without athanor noticing, `athanor status` will show nothing running but the port might be held. Run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
+- **Stale PID / router state.** If a child or detached router crashed without athanor noticing, reopening athanor or running `athanor sync` / `athanor status` will reconcile persisted state and clear dead router metadata opportunistically. If a model port is still held, run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
 - **`doctor` reports a missing binary.** Install `mlx_lm`, `mlx_vlm`, `llama.cpp`, or `huggingface_hub`, or adjust your shell's `PATH`. `mlx_vlm.server` is only needed if you plan to run VLM models; `athanor start` on a VLM entry will fail with a clear error if it's missing.
 - **`doctor --check-updates` reports `update available`.** Follow the printed one-line hint. Today the built-in hints cover uv-managed Python tools (`uv tool upgrade mlx-lm`, `uv tool upgrade mlx-vlm`, `uv tool upgrade hf`) and Homebrew's `llama.cpp` formula (`brew upgrade llama.cpp`).
 
