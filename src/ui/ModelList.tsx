@@ -82,22 +82,24 @@ export interface ModelListProps {
   // full slug uncut.
   cols?: number
   compact?: boolean
+  maxRows?: number
 }
 
 export const ModelList: React.FC<ModelListProps> = ({
-  models, selectedIndex, instances, stats, cols, compact = false
+  models, selectedIndex, instances, stats, cols, compact = false, maxRows
 }) => {
   if (models.length === 0) {
     return <Text dimColor>registry empty — press `p` to pull a model or `s` to scan</Text>
   }
   const width = cols ?? 200
+  const veryCompact = width < 96
   const tiny = compact || width < 90
   const narrow = width < 110
-  const showRuntime = !tiny
-  const showPort = !tiny
-  const showRecency = !compact
-  const showStats = !compact
-  const showSize = width >= 72
+  const showRuntime = !veryCompact && !tiny
+  const showPort = !veryCompact && !tiny
+  const showRecency = !compact && !veryCompact
+  const showStats = !compact && !veryCompact
+  const showSize = !veryCompact && width >= 72
   const FIXED_CHROME = 2 /* cursor */
     + 2 /* status */
     + (showRuntime ? 8 : 0)
@@ -106,15 +108,27 @@ export const ModelList: React.FC<ModelListProps> = ({
     + (showRecency ? 8 : 0)
     + (showStats ? 16 : 0)
   const SUFFIX_MAX = showStats ? (narrow ? 12 : 22) : 0
-  const nameBudget = Math.max(tiny ? 24 : 28, width - FIXED_CHROME - SUFFIX_MAX)
+  const nameBudget = Math.max(veryCompact ? 40 : tiny ? 24 : 28, width - FIXED_CHROME - SUFFIX_MAX)
+  const visibleModels = (() => {
+    if (!maxRows || maxRows <= 0 || models.length <= maxRows) {
+      return models.map((m, i) => ({ model: m, index: i }))
+    }
+    const half = Math.floor(maxRows / 2)
+    let start = Math.max(0, selectedIndex - half)
+    let end = Math.min(models.length, start + maxRows)
+    start = Math.max(0, end - maxRows)
+    return models.slice(start, end).map((model, offset) => ({ model, index: start + offset }))
+  })()
+
   return (
     <Box flexDirection="column">
-      {models.map((m, i) => {
+      {visibleModels.map(({ model: m, index: i }) => {
         const inst = instances.get(m.id)
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
-        const name = truncEnd(displayName(m), nameBudget).padEnd(nameBudget)
+        const rawName = truncEnd(displayName(m), nameBudget)
+        const name = (veryCompact || tiny) ? rawName : rawName.padEnd(nameBudget)
         const recency = recencyLabel(m.lastUsedAt).padStart(5)
         const runtime = runtimeLabel(m.runtime)
         const runtimeText = runtime.text.padEnd(5)
@@ -124,7 +138,12 @@ export const ModelList: React.FC<ModelListProps> = ({
           <Box key={m.id} width={cols}>
             <Text color={selected ? "cyan" : undefined}>{selected ? "› " : "  "}</Text>
             <Text color={color}>{ch} </Text>
-            <Text bold={selected} dimColor={!selected} color={selected ? "cyan" : undefined} wrap="truncate-end">
+            <Text
+              bold={selected}
+              dimColor={!selected}
+              color={selected ? "cyan" : undefined}
+              wrap={veryCompact ? "truncate-end" : "truncate-end"}
+            >
               {name}
             </Text>
             {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}

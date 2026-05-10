@@ -380,13 +380,13 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       : Math.max(1, filtered.length)
   const listRows = isEmpty ? bodyRows : visibleListRows
   const logRows = showLogPreview ? Math.max(4, bodyRows - listRows - 1) : 0
+  const compactViewportRows = !isEmpty && !showLogPreview && dims.rows <= 24 ? visibleListRows : undefined
   const listHelp = isEmpty
     ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · D · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · D downloads · q quit")
     : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
 
   return (
-    <Box width={dims.cols}>
-      <Box flexDirection="column" width={dims.cols}>
+    <Box width={dims.cols} flexDirection="column">
         <Banner
           status={`${instances.length} running · ${models.length} in registry`}
           sys={sys}
@@ -400,7 +400,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
                 <Suggestions selectedIndex={suggIdx} />
               </Box>
             : <>
-                <Box flexDirection="column" height={visibleListRows} overflow="hidden">
+                <Box flexDirection="column" height={compactViewportRows ?? visibleListRows} overflow="hidden">
                   <ModelList
                     models={filtered}
                     selectedIndex={selectedIdx}
@@ -408,6 +408,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
                     stats={instStats}
                     cols={dims.cols}
                     compact={compactList}
+                    maxRows={compactViewportRows}
                   />
                 </Box>
                 {showLogPreview
@@ -427,7 +428,6 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
           ? <Text wrap="truncate">/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
           : <Text dimColor wrap="truncate">{listHelp}</Text>}
         {message && watcherReady ? <Text color="yellow" wrap="truncate">{message}</Text> : null}
-      </Box>
       {downloadsOverlay}
       {presetOverlay}
       {confirmDeleteOverlay}
