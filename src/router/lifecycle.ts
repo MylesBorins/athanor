@@ -1,6 +1,8 @@
 import { spawn } from "child_process"
 import { loadConfig } from "../config/index.js"
 import { supervisor } from "../supervisor/index.js"
+import { listModels } from "../registry/index.js"
+import { recoverLiveInstances } from "../supervisor/reconcile.js"
 import {
   clearPersistedRouter,
   getPersistedRouter,
@@ -9,7 +11,7 @@ import {
   type PersistedRouter
 } from "../supervisor/state.js"
 
-function isRouterConfigured(): boolean {
+function shouldManageIngress(): boolean {
   return loadConfig().router.enabled
 }
 
@@ -32,9 +34,8 @@ function currentEntrypoint(): { cmd: string; args: string[] } {
   }
 }
 
-export function ensureRouterForActiveModels(): PersistedRouter | undefined {
-  if (!isRouterConfigured()) return undefined
-  if (supervisor.list().length === 0) return undefined
+export function ensureIngress(): PersistedRouter | undefined {
+  if (!shouldManageIngress()) return undefined
 
   const existing = currentRouterProcess()
   if (existing) return existing
@@ -58,9 +59,10 @@ export function ensureRouterForActiveModels(): PersistedRouter | undefined {
   return router
 }
 
-export async function stopRouterIfIdle(stopInProcess: () => Promise<void>): Promise<void> {
-  if (!isRouterConfigured()) return
-  if (supervisor.list().length > 0) return
+export async function stopIngressIfIdle(stopInProcess: () => Promise<void>): Promise<void> {
+  if (!shouldManageIngress()) return
+  const recovered = await recoverLiveInstances(listModels(), supervisor.list())
+  if (recovered.length > 0) return
 
   const persisted = currentRouterProcess()
   if (!persisted) {
@@ -72,11 +74,14 @@ export async function stopRouterIfIdle(stopInProcess: () => Promise<void>): Prom
   clearPersistedRouter()
 }
 
-export function reconcileRouterForCurrentState(): void {
-  if (!isRouterConfigured()) {
+export function reconcileIngressForCurrentState(): void {
+  if (!shouldManageIngress()) {
     clearPersistedRouter()
     return
   }
-  if (supervisor.list().length > 0) ensureRouterForActiveModels()
-  else if (getPersistedRouter() && !currentRouterProcess()) clearPersistedRouter()
+  // Ingress is part of normal athanor operation: keep it available
+  // while the app is active, and leave the detached companion running
+  // across UI exits when models remain active.
+  ensureIngress()
+  if (getPersistedRouter() && !currentRouterProcess()) clearPersistedRouter()
 }

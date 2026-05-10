@@ -11,8 +11,9 @@ import {
   pidAlive,
   savePersistedInstances
 } from "./state.js"
-import { touchModelLastUsed } from "../registry/index.js"
+import { listModels, touchModelLastUsed } from "../registry/index.js"
 import { awaitIdle } from "./inflight.js"
+import { recoverLiveInstances } from "./reconcile.js"
 
 export class Supervisor {
   private instances = new Map<string, ActiveInstance>()
@@ -24,10 +25,14 @@ export class Supervisor {
   private reattach(): void {
     const persisted = loadPersistedInstances()
     for (const inst of persisted) {
-      if (pidAlive(inst.pid)) {
+      if (inst.pid > 0 && pidAlive(inst.pid)) {
         this.instances.set(inst.id, { ...inst, status: "running" })
       }
     }
+    void recoverLiveInstances(listModels(), [...this.instances.values()]).then(recovered => {
+      this.instances = new Map(recovered.map(inst => [inst.id, inst]))
+      this.persist()
+    })
     this.persist()
   }
 

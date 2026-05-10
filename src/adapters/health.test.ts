@@ -1,7 +1,7 @@
 import * as http from "http"
 import type { AddressInfo } from "net"
 import { describe, it, expect, afterEach } from "vitest"
-import { healthUrl, probeHealth, waitForHealthy } from "./health.js"
+import { healthUrl, probeHealth, probeRuntimeModelId, waitForHealthy } from "./health.js"
 
 type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void
 
@@ -73,6 +73,26 @@ describe("probeHealth / waitForHealthy (real local server)", () => {
 
   it("returns false when the server is not listening", async () => {
     expect(await probeHealth("llama.cpp", 1, 200)).toBe(false)
+  })
+
+  it("probeRuntimeModelId matches the expected runtime model id", async () => {
+    const srv = await startServer({
+      "/v1/models": (_req, res) => {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ data: [{ id: "mlx-community/A" }] }))
+      }
+    })
+    servers.push(srv)
+    expect(await probeRuntimeModelId({
+      id: "mlx-community/A",
+      slug: "a",
+      path: "/cache/a",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/A" },
+      port: srv.port,
+      publish: true,
+      addedAt: 0
+    })).toBe(true)
   })
 
   it("waitForHealthy resolves once the endpoint goes healthy", async () => {

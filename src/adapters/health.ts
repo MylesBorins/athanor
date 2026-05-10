@@ -1,4 +1,11 @@
-import type { RuntimeType } from "../types/index.js"
+import type { ModelEntry, RuntimeType } from "../types/index.js"
+
+function expectedRuntimeModelId(entry: ModelEntry): string {
+  if (entry.runtime === "mlx") {
+    return entry.source.type === "hf" ? entry.source.repo : entry.path
+  }
+  return entry.piAlias ?? entry.slug
+}
 
 export function healthUrl(runtime: RuntimeType, port: number): string {
   switch (runtime) {
@@ -49,4 +56,27 @@ export async function waitForHealthy(
   throw new Error(
     `${runtime} did not become healthy on port ${port} within ${opts.timeoutMs}ms`
   )
+}
+
+async function fetchJson(url: string, timeoutMs: number): Promise<unknown | null> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(url, { signal: ctrl.signal })
+    if (!res.ok) return null
+    return await res.json().catch(() => null)
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function probeRuntimeModelId(entry: ModelEntry, timeoutMs = 1500): Promise<boolean> {
+  const body = await fetchJson(`http://127.0.0.1:${entry.port}/v1/models`, timeoutMs) as
+    | { data?: Array<{ id?: unknown }> }
+    | null
+  if (!body || !Array.isArray(body.data)) return false
+  const expected = expectedRuntimeModelId(entry)
+  return body.data.some(model => typeof model?.id === "string" && model.id === expected)
 }
