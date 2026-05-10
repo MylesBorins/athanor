@@ -21,7 +21,20 @@ function restore(p: string, s: string | null): void {
   }
 }
 
-describe("pi sync (provider-per-model)", () => {
+async function mockDirectPiSyncShape(): Promise<void> {
+  vi.doMock("../config/index.js", async () => {
+    const real: any = await vi.importActual("../config/index.js")
+    return {
+      ...real,
+      loadConfig: () => ({
+        ...real.DEFAULT_CONFIG,
+        router: { ...real.DEFAULT_CONFIG.router, enabled: false }
+      })
+    }
+  })
+}
+
+describe("pi sync", () => {
   let stashedModels: string | null = null
   let stashedSettings: string | null = null
 
@@ -36,7 +49,7 @@ describe("pi sync (provider-per-model)", () => {
     restore(PI_SETTINGS, stashedSettings)
   })
 
-  it("emits one provider per published model in pi's schema", async () => {
+  it("emits ingress-backed providers by default", async () => {
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
         {
@@ -51,19 +64,17 @@ describe("pi sync (provider-per-model)", () => {
         }
       ]
     }))
-    const { syncPi } = await import("./pi.js")
+    const { syncPi, ATHANOR_MLX_PROVIDER } = await import("./pi.js")
     syncPi({ instances: [] })
     const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
-    expect(Object.keys(written.providers)).toEqual(["athanor-mlx-qwen3-32b"])
-    const prov = written.providers["athanor-mlx-qwen3-32b"]
-    expect(prov.baseUrl).toBe("http://127.0.0.1:8081/v1")
+    expect(Object.keys(written.providers)).toEqual([ATHANOR_MLX_PROVIDER])
+    const prov = written.providers[ATHANOR_MLX_PROVIDER]
+    expect(prov.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(prov.api).toBe("openai-completions")
     expect(prov.apiKey).toBe("athanor")
     expect(prov.compat.supportsDeveloperRole).toBe(false)
     expect(prov.compat.supportsReasoningEffort).toBe(false)
     expect(prov.models).toHaveLength(1)
-    // MLX HF-sourced models must use the repo id as the pi model id so
-    // mlx_lm.server recognises the request's `model` field.
     expect(prov.models[0].id).toBe("mlx-community/Qwen3-32B-4bit")
     expect(prov.models[0].name).toContain("[mlx]")
   })
@@ -95,7 +106,8 @@ describe("pi sync (provider-per-model)", () => {
     expect(written.providers["my-openrouter"].baseUrl).toBe("https://openrouter.ai/api/v1")
   })
 
-  it("syncs contextWindow from effective merged runtime config", async () => {
+  it("syncs contextWindow from effective merged runtime config when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
         { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
@@ -109,11 +121,12 @@ describe("pi sync (provider-per-model)", () => {
     const { syncPi } = await import("./pi.js")
     syncPi({ instances: [] })
     const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
-    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(16384)
-    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(16384)
+    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(32768)
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(32768)
   })
 
-  it("prefers explicit preset overrides over defaults when syncing contextWindow", async () => {
+  it("prefers explicit preset overrides over defaults when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
         { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
@@ -133,22 +146,19 @@ describe("pi sync (provider-per-model)", () => {
     expect(p["athanor-llama-b"].models[0].contextWindow).toBe(8192)
   })
 
-  it("pi model id matches what each runtime accepts", async () => {
+  it("pi model id matches what each runtime accepts when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
-        // MLX HF: repo id wins (mlx_lm.server matches this literally).
         { id: "mlx-community/Foo", slug: "foo", path: "/cache/snap", runtime: "mlx",
           source: { type: "hf", repo: "mlx-community/Foo" }, port: 8081,
           publish: true, piAlias: "ignored-for-mlx-hf", addedAt: 0 },
-        // MLX local: filesystem path wins.
         { id: "local-mlx", slug: "local", path: "/models/local-mlx", runtime: "mlx",
           source: { type: "local" }, port: 8082,
           publish: true, addedAt: 0 },
-        // llama.cpp: piAlias wins (llama-server is launched with --alias).
         { id: "g.gguf", slug: "raw", path: "/m/g.gguf", runtime: "llama.cpp",
           source: { type: "local" }, port: 8083,
           publish: true, piAlias: "nice-name", addedAt: 0 },
-        // llama.cpp with no piAlias: falls back to slug.
         { id: "h.gguf", slug: "bare", path: "/m/h.gguf", runtime: "llama.cpp",
           source: { type: "local" }, port: 8084,
           publish: true, addedAt: 0 }
@@ -163,7 +173,8 @@ describe("pi sync (provider-per-model)", () => {
     expect(p["athanor-llama-bare"].models[0].id).toBe("bare")
   })
 
-  it("records the active instance status on the provider", async () => {
+  it("records the active instance status on the provider when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
         { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
@@ -201,7 +212,8 @@ describe("pi sync (provider-per-model)", () => {
     expect(settings.theme).toBe("dark")
   })
 
-  it("preserves unrelated keys when writing settings", async () => {
+  it("preserves unrelated keys when writing settings when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     fs.mkdirSync(path.dirname(PI_SETTINGS), { recursive: true })
     fs.writeFileSync(PI_SETTINGS, JSON.stringify({
       theme: "dark",
@@ -226,7 +238,8 @@ describe("pi sync (provider-per-model)", () => {
     expect(settings.defaultProvider).toBe("athanor-mlx-a")
   })
 
-  it("labels mlx-vlm models as [mlx-vlm] in the display name", async () => {
+  it("labels mlx-vlm models as [mlx-vlm] in the display name when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
       listModels: () => [
         { id: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
@@ -265,10 +278,6 @@ describe("pi sync (provider-per-model)", () => {
   })
 
   it("emits per-runtime aggregator providers when router is enabled", async () => {
-    // Router mode: one aggregator per runtime. Both providers share
-    // the router baseUrl but carry runtime-specific compat blocks —
-    // MLX rejects the developer role, llama-server accepts it.
-    // Per-model providers must not be emitted in this mode.
     vi.doMock("../config/index.js", async () => {
       const real: any = await vi.importActual("../config/index.js")
       return {
@@ -313,8 +322,6 @@ describe("pi sync (provider-per-model)", () => {
     const llama = written.providers[ATHANOR_LLAMA_PROVIDER]
     expect(llama.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(llama.models.map((m: { id: string }) => m.id)).toEqual(["bee"])
-    // llama-server accepts the developer role, so the flag is absent
-    // and pi falls back to its default (supported).
     expect(llama.compat).toEqual({ supportsReasoningEffort: false })
     expect(llama.athanorRuntime).toBe("llama.cpp")
   })
@@ -373,9 +380,6 @@ describe("pi sync (provider-per-model)", () => {
   })
 
   it("clears any legacy athanor-router provider on sync", async () => {
-    // Users upgrading from the single-aggregator version have an
-    // athanor-router entry on disk; the prefix-strip in syncModels
-    // must drop it alongside any stale per-model providers.
     vi.doMock("../config/index.js", async () => {
       const real: any = await vi.importActual("../config/index.js")
       return {

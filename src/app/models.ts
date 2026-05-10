@@ -14,7 +14,7 @@ import {
 import { loadConfig } from "../config/index.js"
 import { supervisor } from "../supervisor/index.js"
 import { syncPi } from "../sync/pi.js"
-import { ensureRouterForActiveModels, reconcileRouterForCurrentState, stopRouterIfIdle } from "../router/lifecycle.js"
+import { ensureIngress, reconcileIngressForCurrentState, stopIngressIfIdle } from "../router/lifecycle.js"
 import { stopRouter } from "../router/server.js"
 import { detectMachineProfile } from "../machine/profile.js"
 import { buildStartPreflight, type StartPreflight } from "./preflight.js"
@@ -52,7 +52,7 @@ export async function startModel(idOrSlug: string, opts?: { confirm?: boolean })
     return { entry, preflight, warned: true }
   }
   const instance = await supervisor.start(entry)
-  ensureRouterForActiveModels()
+  ensureIngress()
   syncPi({ activeDefault: instance, instances: supervisor.list() })
   return { entry, instance, preflight }
 }
@@ -63,14 +63,14 @@ export async function stopModel(idOrSlug?: string): Promise<StopModelResult> {
     // with an empty running set, but leave provider emission driven by
     // the registry's persistent `publish` flags.
     await supervisor.stopAll()
-    await stopRouterIfIdle(stopRouter)
+    await stopIngressIfIdle(stopRouter)
     syncPi({ instances: [] })
     return { stoppedAll: true }
   }
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
   await supervisor.stop(entry.id)
-  await stopRouterIfIdle(stopRouter)
+  await stopIngressIfIdle(stopRouter)
   syncPi({ instances: supervisor.list() })
   return { stoppedAll: false, entry }
 }
@@ -83,7 +83,7 @@ export async function restartModel(idOrSlug: string, opts?: { confirm?: boolean 
     return { entry, preflight, warned: true }
   }
   const instance = await supervisor.restart(entry)
-  ensureRouterForActiveModels()
+  ensureIngress()
   syncPi({ activeDefault: instance, instances: supervisor.list() })
   return { entry, instance, preflight }
 }
@@ -179,6 +179,6 @@ export function removeModelEntry(idOrSlug: string): void {
 // state mutation (for example after config changes that affect pi sync
 // shape). Prefer the higher-level operations above for normal flows.
 export function syncPiNow(activeDefault?: ActiveInstance): void {
-  reconcileRouterForCurrentState()
+  reconcileIngressForCurrentState()
   syncPi({ activeDefault, instances: supervisor.list() })
 }

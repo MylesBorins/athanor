@@ -39,9 +39,9 @@ describe("Config", () => {
       expect(loadConfig().controlApi.enabled).toBe(false)
     })
 
-    it("defaults router to disabled, bound to 127.0.0.1:8080", () => {
+    it("defaults router to enabled, bound to 127.0.0.1:8080", () => {
       const r = loadConfig().router
-      expect(r.enabled).toBe(false)
+      expect(r.enabled).toBe(true)
       expect(r.host).toBe("127.0.0.1")
       expect(r.port).toBe(8080)
       expect(r.drainTimeoutMs).toBe(30_000)
@@ -50,10 +50,10 @@ describe("Config", () => {
     it("exposes default mlx and llama knobs", () => {
       const c = loadConfig()
       expect(c.mlx.prefillStepSize).toBe(512)
-      expect(c.mlx.promptCacheSize).toBe(16384)
+      expect(c.mlx.promptCacheSize).toBe(32768)
       expect(c.llama.nGpuLayers).toBe(999)
       expect(c.llama.threads).toBe(8)
-      expect(c.llama.ctxSize).toBe(16384)
+      expect(c.llama.ctxSize).toBe(32768)
       expect(c.llama.batchSize).toBe(512)
       expect(c.llama.ubatchSize).toBe(256)
     })

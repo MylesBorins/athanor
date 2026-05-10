@@ -31,9 +31,9 @@ describe("app model service", () => {
     vi.resetModules()
     resetPiFiles()
     vi.doMock("../router/lifecycle.js", () => ({
-      ensureRouterForActiveModels: vi.fn(),
-      reconcileRouterForCurrentState: vi.fn(),
-      stopRouterIfIdle: vi.fn(async () => {})
+      ensureIngress: vi.fn(),
+      reconcileIngressForCurrentState: vi.fn(),
+      stopIngressIfIdle: vi.fn(async () => {})
     }))
     vi.doMock("../router/server.js", () => ({
       stopRouter: vi.fn(async () => {})
@@ -150,7 +150,7 @@ describe("app model service", () => {
     await mod.stopModel("--all")
 
     const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
-    expect(Object.keys(written.providers)).toEqual(["athanor-mlx-a"])
+    expect(Object.keys(written.providers)).toEqual(["athanor-mlx"])
     expect(fs.existsSync(PI_SETTINGS)).toBe(false)
   })
 
@@ -219,7 +219,7 @@ describe("app model service", () => {
     await mod.startModel("a", { confirm: true })
 
     const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
-    expect(settings.defaultProvider).toBe("athanor-mlx-a")
+    expect(settings.defaultProvider).toBe("athanor-mlx")
     expect(settings.defaultModel).toBe("mlx-community/A")
   })
 
@@ -249,7 +249,7 @@ describe("app model service", () => {
 
     expect(updated.preset).toEqual({
       runtime: "mlx",
-      mlx: { prefillStepSize: 512, promptCacheSize: 16384, decodeConcurrency: 1 }
+      mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 }
     })
   })
 

@@ -78,13 +78,13 @@ export const DEFAULT_CONFIG: Config = {
   },
   mlx: {
     prefillStepSize: 512,
-    promptCacheSize: 16384,
+    promptCacheSize: 32768,
     decodeConcurrency: 1
   },
   llama: {
     nGpuLayers: 999,
     threads: 8,
-    ctxSize: 16384,
+    ctxSize: 32768,
     batchSize: 512,
     ubatchSize: 256,
     parallel: 1
@@ -101,7 +101,7 @@ export const DEFAULT_CONFIG: Config = {
     host: "127.0.0.1"
   },
   router: {
-    enabled: false,
+    enabled: true,
     port: 8080,
     host: "127.0.0.1",
     drainTimeoutMs: 30_000

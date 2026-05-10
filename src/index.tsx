@@ -9,7 +9,7 @@ import { ensureBaseDirs } from "./config/index.js"
 import { startControlApi, stopControlApi } from "./control/server.js"
 import { startRouter, stopRouter } from "./router/server.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
-import { reconcileRouterForCurrentState } from "./router/lifecycle.js"
+import { reconcileIngressForCurrentState } from "./router/lifecycle.js"
 
 const ENTER_ALT_SCREEN = "\x1b[?1049h"
 const LEAVE_ALT_SCREEN = "\x1b[?1049l"
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   // in App.tsx, so no toast here.
 
   startControlApi()
-  reconcileRouterForCurrentState()
+  reconcileIngressForCurrentState()
 
   if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
   else process.stdout.write(CLEAR_SCREEN)
@@ -76,7 +76,10 @@ async function main(): Promise<void> {
   })
 
   const stopServers = async (): Promise<void> => {
-    await Promise.allSettled([stopControlApi(), stopRouter()])
+    // The detached ingress companion owns router lifetime. The foreground
+    // TUI should not tear it down on exit; it may still be serving pi or
+    // covering active models started earlier.
+    await Promise.allSettled([stopControlApi()])
   }
 
   const shutdown = async (reason: "SIGINT" | "SIGTERM"): Promise<void> => {
