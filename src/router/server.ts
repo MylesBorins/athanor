@@ -7,6 +7,7 @@ import { listModels } from "../registry/index.js"
 import { supervisor } from "../supervisor/index.js"
 import { resolveByRuntimeModelId, runtimeModelId } from "../adapters/index.js"
 import { begin, end } from "../supervisor/inflight.js"
+import { recoverLiveInstances } from "../supervisor/reconcile.js"
 
 // OpenAI-compatible proxy fronting every exposed athanor model on a
 // single port. See src/config/index.ts RouterConfig. The router
@@ -50,6 +51,18 @@ function synthesizeModelList(): unknown {
   }
 }
 
+async function ensureRequestTarget(entry: ReturnType<typeof resolveByRuntimeModelId>): Promise<ReturnType<typeof supervisor.get> | { port: number } | undefined> {
+  if (!entry) return undefined
+  const current = supervisor.get(entry.id)
+  if (current) return current
+
+  const recovered = await recoverLiveInstances([entry], supervisor.list())
+  const revived = recovered.find(inst => inst.id === entry.id)
+  if (revived) return revived
+
+  return supervisor.start(entry)
+}
+
 async function proxy(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -69,9 +82,12 @@ async function proxy(
 
   let inst
   try {
-    inst = await supervisor.start(entry)
+    inst = await ensureRequestTarget(entry)
   } catch (err) {
     return sendJson(res, 503, { error: `failed to start ${entry.slug}: ${String(err)}` })
+  }
+  if (!inst) {
+    return sendJson(res, 503, { error: `failed to resolve active target for ${entry.slug}` })
   }
 
   const headers: Record<string, string> = {}
