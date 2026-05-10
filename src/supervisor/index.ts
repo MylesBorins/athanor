@@ -84,15 +84,18 @@ export class Supervisor {
       }
       proc.unref()
 
+      const now = Date.now()
       const instance: ActiveInstance = {
         id: entry.id,
         slug: entry.slug,
         runtime: entry.runtime,
         port: entry.port,
         pid: proc.pid,
-        startedAt: Date.now(),
+        startedAt: now,
         status: "starting",
-        logFile: logFilePath(entry.slug, proc.pid)
+        logFile: logFilePath(entry.slug, proc.pid),
+        spawnStartedAt: now,
+        spawnedAt: now
       }
       try {
         fs.renameSync(stdoutLog.path, instance.logFile)
@@ -108,6 +111,7 @@ export class Supervisor {
           intervalMs: cfg.supervisor.healthPollIntervalMs
         })
         instance.status = "running"
+        instance.healthyAt = Date.now()
         this.persist()
         touchModelLastUsed(entry.id, Date.now())
         return instance

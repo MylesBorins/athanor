@@ -91,12 +91,16 @@ export function cmdStatus(): void {
           : `${(p.rssBytes / 1024 / 1024).toFixed(0)}M`)
       : "?"
     const tps = comp ? `${comp.tokPerSec.toFixed(1)} tok/s` : dim("— tok/s")
+    const startup = i.healthyAt && i.spawnStartedAt
+      ? dim(`ready ${((i.healthyAt - i.spawnStartedAt) / 1000).toFixed(1)}s`)
+      : dim("ready ?")
     const line = [
       padEndVisual(`${statusGlyph(i.status)} ${i.status}`, 11),
       padEndVisual(style.bold(i.slug), 32),
       padEndVisual(style.cyan(i.runtime), 10),
       padEndVisual(dim(`:${i.port}`), 7),
       padEndVisual(dim(`up ${formatUptime(i.startedAt)}`), 10),
+      padEndVisual(startup, 12),
       padEndVisual(cpu, 6),
       padEndVisual(rss, 6),
       tps

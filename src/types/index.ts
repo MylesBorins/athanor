@@ -98,6 +98,9 @@ export interface ActiveInstance {
   startedAt: number
   status: InstanceStatus
   logFile: string
+  spawnStartedAt?: number
+  spawnedAt?: number
+  healthyAt?: number
   exitCode?: number | null
   exitReason?: string
 }
