@@ -42,10 +42,14 @@ export function useMouseWheel(opts: UseMouseWheelOpts): React.MutableRefObject<n
   function listEndY(): number {
     const rows = dimsRef.current.rows
     const filteredLen = filteredLenRef.current
-    const bannerRows = 12
-    const chromeRows = bannerRows + 1 + 2 + 2 + 1
-    const bodyRows = Math.max(8, rows - chromeRows)
-    const listRows = Math.max(4, Math.min(filteredLen + 1, Math.floor(bodyRows * 0.55)))
+    const bannerRows = rows < 20 ? 2 : rows < 28 ? 2 : 12
+    const showLogPreview = filteredLen > 0 && rows >= 26
+    const footerRows = 2
+    const baseChromeRows = bannerRows + 1 + footerRows + 1
+    const bodyRows = Math.max(6, rows - baseChromeRows)
+    const listRows = showLogPreview
+      ? Math.max(4, Math.min(filteredLen, Math.floor((bodyRows - 1) * 0.6)))
+      : Math.max(1, filteredLen)
     return bannerRows + 1 + listRows
   }
 
