@@ -22,6 +22,7 @@ export interface AppDataState {
   instMap: Map<string, ActiveInstance>
   sys: SysStats | undefined
   instStats: Map<string, InstanceStats>
+  watcherReady: boolean
 }
 
 export interface UseAppDataOpts {
@@ -38,6 +39,8 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
   const [instances, setInstances] = useState<ActiveInstance[]>(liveInstances())
   const [sys, setSys] = useState<SysStats | undefined>()
   const [instStats, setInstStats] = useState<Map<string, InstanceStats>>(new Map())
+  const [watcherReady, setWatcherReady] = useState(false)
+  const [suppressWatcherToast, setSuppressWatcherToast] = useState(true)
 
   useEffect(() => {
     const tick = (): void => {
@@ -62,16 +65,26 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
   }, [])
 
   useEffect(() => {
+    let suppressInitialBurst = true
     const watcher = startCacheWatcher(added => {
       setModels(sortModelsByRunningThenSlug(listModels(), liveInstances()))
+      if (suppressInitialBurst || suppressWatcherToast) return
       const names = added.slice(0, 3).map(m => m.slug).join(", ")
       const more = added.length > 3 ? ` +${added.length - 3} more` : ""
       setMessage(`+${added.length} new: ${names}${more}`)
     })
-    return () => watcher.stop()
+    const readyTimer = setTimeout(() => {
+      suppressInitialBurst = false
+      setWatcherReady(true)
+      setSuppressWatcherToast(false)
+    }, 4000)
+    return () => {
+      clearTimeout(readyTimer)
+      watcher.stop()
+    }
   }, [setMessage])
 
   const instMap = useMemo(() => new Map(instances.map(i => [i.id, i])), [instances])
 
-  return { models, setModels, instances, setInstances, instMap, sys, instStats }
+  return { models, setModels, instances, setInstances, instMap, sys, instStats, watcherReady }
 }

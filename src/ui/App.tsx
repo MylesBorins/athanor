@@ -75,7 +75,8 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
      setInstances,
      instMap,
      sys,
-     instStats
+     instStats,
+     watcherReady
    } = useAppData({ setMessage })
 
   // Auto-focus the first running model the first time we see the
@@ -316,7 +317,11 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       : "full"
   const bannerRows = bannerMode === "full" ? 12 : bannerMode === "compact" ? 2 : 2
   const compactList = dims.cols < 100 || dims.rows < 24
-  const showLogPreview = models.length > 0 && dims.rows >= 24
+  // On short terminals the split list+log layout leaves awkward blank
+  // space under the model rows and makes the selector feel cramped.
+  // Require a bit more vertical headroom before reserving rows for the
+  // inline log preview.
+  const showLogPreview = models.length > 0 && dims.rows >= 26
   const divider = "─".repeat(Math.max(8, dims.cols - 2))
 
   if (mode === "logs") {
@@ -368,19 +373,20 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const selectedTitle = selected
     ? (selected.source.type === "hf" ? selected.source.repo : selected.slug)
     : undefined
-  const listRows = isEmpty
+  const visibleListRows = isEmpty
     ? bodyRows
     : showLogPreview
-      ? Math.max(4, Math.min(filtered.length + 1, Math.floor((bodyRows - 1) * 0.6)))
-      : bodyRows
+      ? Math.max(4, Math.min(filtered.length, Math.floor((bodyRows - 1) * 0.6)))
+      : Math.max(1, filtered.length)
+  const listRows = isEmpty ? bodyRows : visibleListRows
   const logRows = showLogPreview ? Math.max(4, bodyRows - listRows - 1) : 0
   const listHelp = isEmpty
     ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · D · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · D downloads · q quit")
     : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
 
   return (
-    <Box width={dims.cols} height={dims.rows}>
-      <Box flexDirection="column" width={dims.cols} height={dims.rows}>
+    <Box width={dims.cols}>
+      <Box flexDirection="column" width={dims.cols}>
         <Banner
           status={`${instances.length} running · ${models.length} in registry`}
           sys={sys}
@@ -394,7 +400,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
                 <Suggestions selectedIndex={suggIdx} />
               </Box>
             : <>
-                <Box flexDirection="column" height={listRows} overflow="hidden">
+                <Box flexDirection="column" height={visibleListRows} overflow="hidden">
                   <ModelList
                     models={filtered}
                     selectedIndex={selectedIdx}
@@ -420,7 +426,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         {mode === "filter"
           ? <Text wrap="truncate">/ {filter}<Text dimColor>  (esc/⏎ done)</Text></Text>
           : <Text dimColor wrap="truncate">{listHelp}</Text>}
-        <Box height={1}><Text color="yellow" wrap="truncate">{message || " "}</Text></Box>
+        {message && watcherReady ? <Text color="yellow" wrap="truncate">{message}</Text> : null}
       </Box>
       {downloadsOverlay}
       {presetOverlay}
