@@ -51,6 +51,19 @@ export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMateri
   }
 }
 
+function sourceAwareName(
+  runtime: RuntimeType,
+  source: ModelEntry["source"],
+  fallbackName: string
+): string {
+  if (runtime !== "llama.cpp") return fallbackName
+  if (source.type !== "hf") return fallbackName
+  const repoTail = source.repo.split("/").pop() ?? source.repo
+  if (!source.file) return repoTail
+  const fileBase = path.basename(source.file, ".gguf")
+  return `${repoTail}-${fileBase}`
+}
+
 export function pullToMaterializeInput(
   repo: string,
   file: string | undefined,
@@ -59,12 +72,13 @@ export function pullToMaterializeInput(
   resolvedPath: string,
   mlxCapabilities?: ModelEntry["mlxCapabilities"]
 ): RegistryMaterializeInput {
+  const source: ModelEntry["source"] = { type: "hf", repo, revision, file }
   return {
     id: file ? `${repo}:${file}` : repo,
-    name: file ? path.basename(file, ".gguf") : repo,
+    name: sourceAwareName(runtime, source, file ? path.basename(file, ".gguf") : repo),
     path: resolvedPath,
     runtime,
-    source: { type: "hf", repo, revision, file },
+    source,
     mlxCapabilities: runtime === "mlx" ? mlxCapabilities : undefined
   }
 }
@@ -87,7 +101,7 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     return { entry: existing, created: false, changed }
   }
 
-  const desiredSlug = slugify(input.name)
+  const desiredSlug = slugify(sourceAwareName(input.runtime, input.source, input.name))
   const slug = uniqueSlug(desiredSlug, snap.slugs)
   const port = allocatePort(snap.ports)
   const entry: ModelEntry = {

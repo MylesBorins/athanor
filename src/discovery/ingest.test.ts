@@ -92,6 +92,16 @@ describe("ingestDiscovered", () => {
     expect(slugs).toEqual(["dup", "dup-2"])
   })
 
+  it("includes the HF repo tail in default discovered GGUF slugs", () => {
+    ingestDiscovered([ggufDiscovered({
+      id: "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-Q4_K_M.gguf",
+      name: "Qwen3.5-27B-Q4_K_M",
+      path: "/models/Qwen3.5-27B-Q4_K_M.gguf",
+      source: { type: "hf", repo: "unsloth/Qwen3.5-27B-GGUF", file: "Qwen3.5-27B-Q4_K_M.gguf" }
+    })])
+    expect(listModels()[0]!.slug).toBe("qwen3-5-27b-gguf-qwen3-5-27b-q4-k-m")
+  })
+
   it("defaults new entries to publish=true with piAlias=slug", () => {
     ingestDiscovered([mlxDiscovered({ id: "x", name: "x" })])
     const m = listModels()[0]!

@@ -87,6 +87,13 @@ describe("registry materialization", () => {
     expect(updated.path).toBe("/models/two/model.gguf")
   })
 
+  it("includes the HF repo tail in default llama pull slugs", () => {
+    const result = materializeRegistryEntry(
+      pullToMaterializeInput("unsloth/Qwen3.5-27B-GGUF", "Qwen3.5-27B-Q4_K_M.gguf", "main", "llama.cpp", "/models/q.gguf")
+    )
+    expect(result.entry.slug).toBe("qwen3-5-27b-gguf-qwen3-5-27b-q4-k-m")
+  })
+
   it("returns unchanged=false only when no materialized fields changed", () => {
     materializeRegistryEntry(discoveredToMaterializeInput(discovered()))
     const result = materializeRegistryEntry(discoveredToMaterializeInput(discovered()))
