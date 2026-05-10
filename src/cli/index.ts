@@ -46,7 +46,7 @@ function usage(): void {
     ["hide",       "<id|slug>",                      "remove from pi-agent catalog"],
     ["rm",         "<id|slug>",                      "remove from registry (must be stopped)"],
     ["sync",       "",                               "manually rewrite pi catalog"],
-    ["router",     "[--host H] [--port P]",          "run the pi-agent router in the foreground"],
+    ["router",     "[--host H] [--port P]",          "run the athanor ingress server in the foreground"],
     ["config",     "",                               "print config and its path"],
     ["doctor",     "[--check-updates]",              "check for required binaries and versions"],
     ["(no args)",  "",                               "launch the TUI"]

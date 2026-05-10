@@ -416,13 +416,13 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
   },
   "mlx": {
     "prefillStepSize": 512,
-    "promptCacheSize": 16384,
+    "promptCacheSize": 32768,
     "decodeConcurrency": 1
   },
   "llama": {
     "nGpuLayers": 999,
     "threads": 8,
-    "ctxSize": 16384,
+    "ctxSize": 32768,
     "batchSize": 512,
     "ubatchSize": 256,
     "parallel": 1
@@ -439,7 +439,7 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
     "host": "127.0.0.1"
   },
   "router": {
-    "enabled": false,
+    "enabled": true,
     "port": 8080,
     "host": "127.0.0.1",
     "drainTimeoutMs": 30000
@@ -449,7 +449,7 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
 
 ### Per-model presets
 
-`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 16K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
+`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 32K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
 
 ```bash
 # inspect effective config, launch command, and running state
@@ -469,7 +469,7 @@ athanor recipes
 
 Built-in recipes: `balanced`, `fast`, `quality`, `long-context`, `coding`.
 
-- `balanced` — recommended default, 16K context
+- `balanced` — recommended default, 32K context
 - `fast` — lower latency, 8K context
 - `quality` — larger 32K context for more stable long reasoning
 - `coding` — 32K context for multi-file and agent workflows
@@ -565,11 +565,11 @@ POST /deactivate    { "id": "<id|slug>" }   stop a model
 
 This is off by default. Enable it only on trusted machines.
 
-## Router (optional)
+## Ingress
 
-When `router.enabled` is `true`, athanor exposes an OpenAI-compatible proxy (default `127.0.0.1:8080`) that fronts every exposed model on a single port. Pi-agent then sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at the router, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
+Athanor exposes an OpenAI-compatible ingress (default `127.0.0.1:8080`) that fronts every exposed model on a single port. Pi-agent sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at that ingress, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
 
-Router lifecycle follows active model serving state rather than the foreground TUI: when router mode is enabled and at least one model is running, athanor ensures the router is available; when the last model stops, the detached router companion stops too. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models. Reopening the TUI later reattaches to the same detached runtime/router state and reflects router-driven model switches from persisted instance state.
+Ingress lifecycle follows active model serving state rather than the foreground TUI. When athanor is open it ensures ingress availability; when active models remain after the UI exits, the detached ingress companion stays up; when the last model stops, the detached ingress companion stops too. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models. Reopening the TUI later reattaches to the same detached runtime/ingress state and reflects ingress-driven model switches from persisted instance state.
 
 ```
 GET  /health                                200 OK
@@ -579,15 +579,15 @@ POST /v1/completions       { "model": ... } same
 POST /v1/embeddings        { "model": ... } same
 ```
 
-Enable it by adding to `~/.athanor/config.json`:
+The ingress config lives under `router` in `~/.athanor/config.json` for backward compatibility:
 
 ```json
 { "router": { "enabled": true, "port": 8080, "host": "127.0.0.1", "drainTimeoutMs": 30000 } }
 ```
 
-With router mode on, pi sync emits only the aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime's model id (the HF repo for MLX, the launch alias for llama.cpp), the athanor slug, or the canonical id; all three are resolved. Unknown models return `404`.
+By default, pi sync emits the ingress-backed aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime's model id (the HF repo for MLX, the launch alias for llama.cpp), the athanor slug, or the canonical id; all three are resolved. Unknown models return `404`.
 
-For users who don't want to keep the TUI open, `athanor router` runs the server in the foreground and blocks on `Ctrl-C`:
+For users who don't want to keep the TUI open, `athanor router` runs the ingress server in the foreground and blocks on `Ctrl-C`:
 
 ```bash
 athanor router                       # uses config.router.host / .port
@@ -595,13 +595,13 @@ athanor router --port 9000           # override
 athanor router --host 0.0.0.0 --port 8080
 ```
 
-The subcommand ignores `router.enabled` — invoking it is itself the opt-in — but it still respects `127.0.0.1` as the default host. It shares the same pi-sync shape, so you can leave `router.enabled: false` in config and only start the router when you want it.
+The subcommand ignores `router.enabled` — invoking it is itself the opt-in — but it still respects `127.0.0.1` as the default host.
 
 Caveats:
 
 - **Cold start.** First request on an idle model blocks until the runtime is healthy (often 10–60s for large MLX). No keepalive is injected into the stream — make sure your client's timeout is generous.
 - **In-flight safety.** `athanor stop` on a currently-streaming model waits briefly (up to `router.drainTimeoutMs`, default 30s) for open proxied streams to finish before SIGTERM; past that, the runtime is terminated and in-flight responses are cut.
-- **Listen posture.** Same as the control API: `127.0.0.1` only, no auth, off by default.
+- **Listen posture.** Same as the control API: `127.0.0.1` only, no auth.
 
 ## Troubleshooting
 
