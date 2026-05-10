@@ -38,7 +38,7 @@ export const SUGGESTIONS: readonly Suggestion[] = [
     runtime: "mlx",
     label: "Qwen3.5-9B (4bit)",
     sizeLabel: "~5.6 GB",
-    note: "balanced everyday text model for most 16 GB Apple Silicon Macs",
+    note: "balanced everyday text model for most 16–24 GB Apple Silicon Macs",
     memoryTier: "16gb",
     taskTags: ["general", "chat", "coding"],
     rationale: "good default when you want noticeably more headroom than 4B without jumping straight to large-model memory pressure",

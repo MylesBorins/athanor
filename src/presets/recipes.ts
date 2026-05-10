@@ -25,8 +25,8 @@ const BUILTINS: Recipe[] = [
   {
     name: "balanced",
     description: "Recommended default. Good for most chat, coding, and agent workflows.",
-    mlx: { prefillStepSize: 512, promptCacheSize: 16384, decodeConcurrency: 1 },
-    llama: { ctxSize: 16384, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
+    mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 },
+    llama: { ctxSize: 32768, batchSize: 512, ubatchSize: 256, parallel: 1, threads: 8, nGpuLayers: 999 },
     source: "builtin"
   },
   {

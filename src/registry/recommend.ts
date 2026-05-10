@@ -36,7 +36,7 @@ function recommendContext(entry: ModelEntry, fitBand: FitBand, totalMemoryGiB: n
 } {
   const base = entry.trainedContextLength ?? 4096
   const fitCap = fitBand === "comfortable"
-    ? Math.min(base, 16384)
+    ? Math.min(base, 32768)
     : fitBand === "tight"
       ? Math.min(base, 8192)
       : Math.min(base, 4096)
@@ -46,7 +46,7 @@ function recommendContext(entry: ModelEntry, fitBand: FitBand, totalMemoryGiB: n
     : totalMemoryGiB <= 16
       ? 8192
       : totalMemoryGiB <= 32
-        ? 16384
+        ? 32768
         : 32768
 
   return {
@@ -101,7 +101,7 @@ function recommendPresetHint(entry: ModelEntry, fitBand: FitBand, recommendedCon
       presetHintReason: "use a smaller starting context and lower memory pressure first"
     }
   }
-  if (recommendedContext >= 16384) {
+  if (recommendedContext >= 32768) {
     return {
       presetHint: entry.runtime === "llama.cpp" ? "coding" : "coding",
       presetHintReason: "you have enough headroom to start with a larger working context"

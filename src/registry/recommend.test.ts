@@ -110,7 +110,7 @@ describe("buildRecommendation", () => {
       metadataSource: "gguf_header"
     }), machineProfile(32))
 
-    expect(rec.recommendedContext).toBe(16384)
+    expect(rec.recommendedContext).toBe(32768)
     expect(rec.presetHint).toBe("coding")
   })
 })
