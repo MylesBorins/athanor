@@ -249,7 +249,13 @@ describe("app model service", () => {
 
     expect(updated.preset).toEqual({
       runtime: "mlx",
-      mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 }
+      mlx: {
+        prefillStepSize: 512,
+        promptCacheSize: 32768,
+        decodeConcurrency: 1,
+        contextWindow: 32768,
+        promptCacheBytes: 16 * 1024 ** 3
+      }
     })
   })
 
@@ -309,7 +315,13 @@ describe("app model service", () => {
 
     expect(updated.preset).toEqual({
       runtime: "mlx",
-      mlx: { prefillStepSize: 512, promptCacheSize: 32768, decodeConcurrency: 1 }
+      mlx: {
+        prefillStepSize: 512,
+        promptCacheSize: 32768,
+        decodeConcurrency: 1,
+        contextWindow: 32768,
+        promptCacheBytes: 16 * 1024 ** 3
+      }
     })
   })
 })

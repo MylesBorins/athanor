@@ -2,6 +2,7 @@ import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
 import type { ActiveInstance, ModelEntry, RuntimeType } from "../types/index.js"
+import type { LlamaConfig, MlxConfig } from "../types/index.js"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
 import { mergedConfigFor, runtimeModelId } from "../adapters/index.js"
@@ -95,15 +96,13 @@ function modelIdFor(entry: ModelEntry): string {
   return runtimeModelId(entry)
 }
 
-function effectiveContextWindow(config: { ctxSize?: number; promptCacheSize?: number }): number | undefined {
-  return config.ctxSize ?? config.promptCacheSize
-}
-
 function contextWindowFor(entry: ModelEntry): number | undefined {
-  // pi should advertise the effective served context, not only explicit
-  // per-model overrides. That keeps pi's planner aligned with the
-  // runtime's actual launch args when a model inherits global defaults.
-  return effectiveContextWindow(mergedConfigFor(entry))
+  const merged = mergedConfigFor(entry)
+  if (entry.runtime === "mlx") {
+    const mlx = merged as MlxConfig
+    return mlx.contextWindow
+  }
+  return (merged as LlamaConfig).ctxSize
 }
 
 function runtimeLabel(entry: ModelEntry): string {

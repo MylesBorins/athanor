@@ -20,8 +20,16 @@ export type SupervisorPolicy = "single-active" | "multi-active-lru" | "manual"
 
 export interface MlxConfig {
   prefillStepSize: number
+  // Application-level caching. Must not be treated as a proxy for
+  // model context / KV cache size.
   promptCacheSize: number
   decodeConcurrency: number
+  // Model-level context window (KV cache ceiling). Maps to mlx_lm's
+  // --max-tokens (or equivalent) via adapter.
+  contextWindow: number
+  // GPU prompt cache memory cap (bytes). Passed to mlx_lm.server as
+  // --prompt-cache-bytes.
+  promptCacheBytes: number
 }
 
 export interface LlamaConfig {

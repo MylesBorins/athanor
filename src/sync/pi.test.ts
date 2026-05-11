@@ -132,7 +132,7 @@ describe("pi sync", () => {
         { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
           source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
           publish: true, addedAt: 0,
-          preset: { runtime: "mlx", mlx: { promptCacheSize: 32768 } } },
+          preset: { runtime: "mlx", mlx: { contextWindow: 32768 } } },
         { id: "b.gguf", slug: "b", path: "/m/b.gguf", runtime: "llama.cpp",
           source: { type: "local" }, port: 8082,
           publish: true, addedAt: 0,

@@ -6,7 +6,9 @@ import { mlxEntry } from "./__fixtures.js"
 const mlx: MlxConfig = {
   prefillStepSize: 256,
   promptCacheSize: 1024,
-  decodeConcurrency: 1
+  decodeConcurrency: 1,
+  contextWindow: 4096,
+  promptCacheBytes: 0
 }
 
 describe("MlxAdapter", () => {
@@ -25,6 +27,7 @@ describe("MlxAdapter", () => {
       "--model", "mlx-community/Qwen3-32B-4bit",
       "--port", "8090",
       "--host", "127.0.0.1",
+      "--max-tokens", "4096",
       "--prefill-step-size", "256",
       "--prompt-cache-size", "1024",
       "--decode-concurrency", "1"

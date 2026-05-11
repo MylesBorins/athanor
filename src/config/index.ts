@@ -1,6 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
+import { parsePromptCacheBytes } from "./promptCacheBytes.js"
 import type {
   LlamaConfig,
   MlxConfig,
@@ -79,7 +80,11 @@ export const DEFAULT_CONFIG: Config = {
   mlx: {
     prefillStepSize: 512,
     promptCacheSize: 32768,
-    decodeConcurrency: 1
+    decodeConcurrency: 1,
+    contextWindow: 32768,
+    // Human-friendly UI input is supported, but config schema is bytes.
+    // Defaults to 0 to let mlx_lm.server choose its own cap.
+    promptCacheBytes: 0
   },
   llama: {
     nGpuLayers: 999,
@@ -153,6 +158,14 @@ function sanitizeConfig(config: Config): Config {
   if (!positiveNumber(next.mlx.promptCacheSize)) {
     console.error("Invalid config.mlx.promptCacheSize; using default")
     next.mlx.promptCacheSize = DEFAULT_CONFIG.mlx.promptCacheSize
+  }
+  if (!positiveNumber(next.mlx.contextWindow)) {
+    console.error("Invalid config.mlx.contextWindow; using default")
+    next.mlx.contextWindow = DEFAULT_CONFIG.mlx.contextWindow
+  }
+  if (typeof next.mlx.promptCacheBytes !== "number" || !Number.isFinite(next.mlx.promptCacheBytes) || next.mlx.promptCacheBytes < 0) {
+    console.error("Invalid config.mlx.promptCacheBytes; using default")
+    next.mlx.promptCacheBytes = DEFAULT_CONFIG.mlx.promptCacheBytes
   }
   if (!positiveNumber(next.mlx.decodeConcurrency)) {
     console.error("Invalid config.mlx.decodeConcurrency; using default")
@@ -260,7 +273,21 @@ export function loadConfig(): Config {
       const data = fs.readFileSync(CONFIG_PATH, "utf8")
       const parsed = JSON.parse(data) as unknown
       const loaded = isRecord(parsed) ? parsed as Partial<Config> : {}
-      return sanitizeConfig(deepMerge(DEFAULT_CONFIG, loaded))
+      const merged = deepMerge(DEFAULT_CONFIG, loaded)
+
+            // Support human-friendly promptCacheBytes like "8gb" / "4096mb".
+      // Internal representation is always bytes.
+      if (merged.mlx && "promptCacheBytes" in merged.mlx) {
+        try {
+          const parsedBytes = parsePromptCacheBytes((merged as any).mlx.promptCacheBytes)
+          if (parsedBytes !== undefined) merged.mlx.promptCacheBytes = parsedBytes
+        } catch (e) {
+          console.error(`Invalid config.mlx.promptCacheBytes; using default: ${e}`)
+          merged.mlx.promptCacheBytes = DEFAULT_CONFIG.mlx.promptCacheBytes
+        }
+      }
+
+      return sanitizeConfig(merged)
     }
   } catch (err) {
     console.error(`Failed to load config: ${err}`)

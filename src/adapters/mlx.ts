@@ -47,16 +47,29 @@ export class MlxAdapter implements RuntimeAdapter {
       "--port", String(entry.port),
       "--host", "127.0.0.1"
     ]
+
     if (entry.mlxFlavor === "vlm") {
+      // mlx_vlm.server does not accept lm-only tuning flags.
       return { cmd: "mlx_vlm.server", args: common, env: MLX_OFFLINE_ENV }
     }
+
+    if (merged.promptCacheSize > merged.contextWindow) {
+      console.warn(
+        `promptCacheSize (${merged.promptCacheSize}) exceeds contextWindow (${merged.contextWindow}); may reduce cache efficiency`
+      )
+    }
+
     return {
       cmd: mlxBinary(entry),
       args: [
         ...common,
+        "--max-tokens", String(merged.contextWindow),
         "--prefill-step-size", String(merged.prefillStepSize),
         "--prompt-cache-size", String(merged.promptCacheSize),
-        "--decode-concurrency", String(merged.decodeConcurrency)
+        "--decode-concurrency", String(merged.decodeConcurrency),
+        ...(merged.promptCacheBytes > 0
+          ? ["--prompt-cache-bytes", String(merged.promptCacheBytes)]
+          : [])
       ],
       env: MLX_OFFLINE_ENV
     }
