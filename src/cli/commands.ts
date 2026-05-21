@@ -64,6 +64,8 @@ export {
   cmdSearch
 } from "./system-commands.js"
 export type { SearchCmdOpts } from "./system-commands.js"
+export { cmdSnippet } from "./snippet-commands.js"
+
 
 export async function cmdPull(repo: string, file?: string, revision?: string): Promise<void> {
   // The pull sidecar emits structured ProgressEvents; we render a

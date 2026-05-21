@@ -20,9 +20,10 @@ describe("detectMachineProfile", () => {
     expect(profile.totalMemoryBytes).toBe(16 * 1024 ** 3)
     expect(profile.totalMemoryGiB).toBe(16)
     expect(profile.chip).toBe("Apple M4")
+    expect(profile.memoryBandwidthGBs).toBe(120.0)
   })
 
-  it("falls back to null chip string when sysctl fails", async () => {
+  it("falls back to null chip string and undefined bandwidth when sysctl fails", async () => {
     vi.doMock("os", () => ({
       default: {},
       totalmem: () => 8 * 1024 ** 3
@@ -36,5 +37,6 @@ describe("detectMachineProfile", () => {
 
     expect(profile.totalMemoryGiB).toBe(8)
     expect(profile.chip).toBeNull()
+    expect(profile.memoryBandwidthGBs).toBeUndefined()
   })
 })

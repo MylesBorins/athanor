@@ -120,4 +120,95 @@ describe("startRouter", () => {
     await stopRouter()
     await upstream.close()
   })
+
+  it("counts tokens from an SSE stream during a proxy request", async () => {
+    const upstream = await new Promise<{ port: number; close: () => Promise<void> }>(resolve => {
+      const server = http.createServer((req, res) => {
+        if (req.url === "/v1/models") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: [{ id: "mlx-community/A" }] }))
+          return
+        }
+        if (req.url === "/v1/chat/completions") {
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            "connection": "keep-alive"
+          })
+          res.write("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+          res.write("data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n")
+          res.write("data: [DONE]\n\n")
+          res.end()
+          return
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as AddressInfo).port
+        resolve({
+          port,
+          close: () => new Promise<void>((resClose, rej) => server.close(err => err ? rej(err) : resClose()))
+        })
+      })
+    })
+
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/A",
+        slug: "a",
+        path: "/cache/a",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/A" },
+        port: upstream.port,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        get: () => ({ port: upstream.port }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { getLiveRouterStats } = await import("../supervisor/metrics.js")
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/A", messages: [{ role: "user", content: "hi" }], stream: true })
+    })
+
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain("hello")
+    expect(text).toContain("world")
+
+    const stats = getLiveRouterStats("mlx-community/A")
+    expect(stats).not.toBeNull()
+    expect(stats!.tokens).toBe(2)
+
+    await stopRouter()
+    await upstream.close()
+  })
 })
+

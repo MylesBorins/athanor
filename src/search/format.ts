@@ -1,5 +1,6 @@
 import { style, padEndVisual } from "../cli/style.js"
 import type { SearchResult } from "./hf.js"
+import type { SearchRecommendation } from "./recommend.js"
 
 export function formatCount(n: number | undefined): string {
   if (n === undefined) return "?"
@@ -33,16 +34,25 @@ export function formatRelTime(iso: string | undefined): string {
   return `${Math.floor(mo / 12)}y ago`
 }
 
-export function formatResultRow(r: SearchResult): string {
+function fitLabel(rec?: SearchRecommendation | null): string {
+  if (!rec) return style.dim("?")
+  if (rec.fitBand === "comfortable") return style.green("fit:comfortable")
+  if (rec.fitBand === "tight") return style.yellow("fit:tight")
+  return style.red("fit:risky")
+}
+
+export function formatResultRow(r: SearchResult, rec?: SearchRecommendation | null): string {
   const id        = style.bold(r.id)
   const size      = r.sizeBytes !== undefined ? style.gray(formatBytes(r.sizeBytes)) : style.dim("—")
   const downloads = style.gray(`${formatCount(r.downloads)} ${style.dim("↓")}`)
   const likes     = style.gray(`${formatCount(r.likes)} ${style.dim("♥")}`)
   const license   = r.license ? style.cyan(r.license) : ""
   const ago       = style.gray(formatRelTime(r.lastModified))
+  const fit       = fitLabel(rec)
   return [
     padEndVisual(id, 48),
     padEndVisual(size, 9),
+    padEndVisual(fit, 18),
     padEndVisual(downloads, 14),
     padEndVisual(likes, 12),
     padEndVisual(license, 18),

@@ -4,7 +4,7 @@ import { supervisor } from "../supervisor/index.js"
 import { scanModelsAndReport, deleteModelFromDisk, restartModel, setFlavor, setPublished, startModel, stopModel, syncPiNow } from "../app/models.js"
 import { SUGGESTIONS } from "../pull/suggestions.js"
 import { tailLog } from "../supervisor/logs.js"
-import { parseCompletionStats, sampleProcessStats } from "../supervisor/metrics.js"
+import { parseCompletionStats, sampleProcessStats, getLiveRouterStats } from "../supervisor/metrics.js"
 import { formatEntryLine, formatUptime } from "./format.js"
 import { style, sym, statusGlyph, padEndVisual } from "./style.js"
 import { head, dim, info, ok, warn } from "./shared.js"
@@ -83,7 +83,7 @@ export function cmdStatus(): void {
   const proc = sampleProcessStats(instances.map(i => i.pid))
   for (const i of instances) {
     const p = proc.get(i.pid)
-    const comp = parseCompletionStats(tailLog(i.logFile, 16384))
+    const comp = getLiveRouterStats(i.id) ?? parseCompletionStats(tailLog(i.logFile, 16384))
     const cpu = p ? `${p.cpuPct.toFixed(0)}%` : "?"
     const rss = p
       ? (p.rssBytes / 1024 / 1024 / 1024 >= 1

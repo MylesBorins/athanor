@@ -1,3 +1,10 @@
+/**
+ * Mathematical equations, constants, and VRAM estimation heuristics are adapted
+ * from whichllm under the MIT License:
+ * Copyright (c) 2026 Andyyyy64
+ * https://github.com/Andyyyy64/whichllm
+ */
+
 import type { MetadataSource, ModelEntry } from "../types/index.js"
 import type { MachineProfile } from "../machine/profile.js"
 
@@ -18,9 +25,78 @@ export interface Recommendation {
 const COMFORTABLE_THRESHOLD = 0.60
 const TIGHT_THRESHOLD = 0.75
 
-function estimateFootprintGiB(sizeBytes: number | undefined): number {
-  const weightGiB = (sizeBytes ?? 0) / (1024 ** 3)
-  return weightGiB * 1.1 + 0.5
+// Empirical KV-cache coefficient: bytes per B-active-param per K-context-token
+// for FP16 K/V tensors.
+const KV_BYTES_PER_BPARAM_PER_KCTX = 3.5 * 1024 * 1024 // 3.5 MB
+const MOE_ATTENTION_PARAM_MULTIPLIER = 4.0
+const FRAMEWORK_OVERHEAD_BYTES = 500 * 1024 * 1024 // 500 MB
+
+function estimateParamCount(entry: ModelEntry, weightGiB: number): number {
+  if (entry.paramCount) return entry.paramCount
+
+  // Estimate parameter count based on quantization and file size.
+  // 4-bit quants use roughly 0.5 bytes per parameter.
+  // 8-bit quants use roughly 1.0 byte per parameter.
+  // FP16/BF16 models use roughly 2.0 bytes per parameter.
+  let bytesPerWeight = 2.0
+  const q = entry.quantization?.toUpperCase()
+  if (q) {
+    if (q.includes("Q4") || q.includes("AWQ") || q.includes("GPTQ") || q.includes("4-BIT") || q.includes("4BIT")) {
+      bytesPerWeight = 0.5
+    } else if (q.includes("Q8") || q.includes("8-BIT") || q.includes("8BIT") || q.includes("INT8") || q.includes("FP8")) {
+      bytesPerWeight = 1.0
+    }
+  } else {
+    // Check if repo name or ID implies quantization
+    const idLower = entry.id.toLowerCase()
+    if (idLower.includes("4bit") || idLower.includes("awq") || idLower.includes("gptq") || idLower.includes("q4")) {
+      bytesPerWeight = 0.5
+    } else if (idLower.includes("8bit") || idLower.includes("int8") || idLower.includes("q8")) {
+      bytesPerWeight = 1.0
+    }
+  }
+
+  const weightBytes = entry.sizeBytes ?? 0
+  return weightBytes / bytesPerWeight
+}
+
+function estimateActiveParams(entry: ModelEntry, totalParams: number): number {
+  if (entry.activeParams) return entry.activeParams
+  if (entry.isMoe) {
+    // For Mixture of Experts, typically 10-25% of parameters are active per token.
+    // Use 15% as a safe default proxy.
+    return totalParams * 0.15
+  }
+  return totalParams
+}
+
+export function estimateFootprintGiB(entry: ModelEntry, contextLength: number): number {
+  const weightGiB = (entry.sizeBytes ?? 0) / (1024 ** 3)
+  const totalParams = estimateParamCount(entry, weightGiB)
+  const activeParams = estimateActiveParams(entry, totalParams)
+
+  // 1. Weight Size GiB
+  const weightsGiB = weightGiB
+
+  // 2. KV Cache Size GiB
+  // Active-params * MoE multiplier gives a reasonable proxy for attention layers
+  const paramsB = entry.isMoe
+    ? (activeParams / 1e9) * MOE_ATTENTION_PARAM_MULTIPLIER
+    : (activeParams / 1e9)
+  const ctxK = contextLength / 1024
+  const kvBytes = paramsB * ctxK * KV_BYTES_PER_BPARAM_PER_KCTX
+  const kvGiB = kvBytes / (1024 ** 3)
+
+  // 3. Activation Memory GiB
+  const activationBase = 400 * 1024 * 1024 // 400 MB floor
+  const activationParamTerm = activeParams * 0.08
+  const activationCtxTerm = (contextLength / 4096) * 150 * 1024 * 1024
+  const activationGiB = (activationBase + activationParamTerm + activationCtxTerm) / (1024 ** 3)
+
+  // 4. Framework Overhead GiB
+  const frameworkGiB = FRAMEWORK_OVERHEAD_BYTES / (1024 ** 3)
+
+  return weightsGiB + kvGiB + activationGiB + frameworkGiB
 }
 
 function computeFitBand(estimatedFootprintGiB: number, totalMemoryGiB: number): FitBand {
@@ -81,9 +157,11 @@ function buildExplanation(entry: ModelEntry, fitBand: FitBand, estimatedFootprin
 
   if (entry.quantization) clauses.push(QUANT_NOTES[entry.quantization] ?? `${entry.quantization} quant`)
   if (entry.isMoe) {
+    const activeParamsVal = entry.activeParams || 0
+    const paramCountVal = entry.paramCount || 0
     clauses.push(
-      entry.activeParams && entry.paramCount
-        ? `MoE: ~${entry.activeParams}B active params per token (${entry.paramCount}B stored)`
+      activeParamsVal && paramCountVal
+        ? `MoE: ~${activeParamsVal}B active params per token (${paramCountVal}B stored)`
         : "MoE architecture — total params stored, fewer active per token"
     )
   }
@@ -114,10 +192,20 @@ function recommendPresetHint(entry: ModelEntry, fitBand: FitBand, recommendedCon
 }
 
 export function buildRecommendation(entry: ModelEntry, machine: MachineProfile): Recommendation {
-  const estimatedFootprintGiB = estimateFootprintGiB(entry.sizeBytes)
+  // 1. Calculate provisional footprint at a baseline 4096 context length
+  const provisionalFootprint = estimateFootprintGiB(entry, 4096)
+  const provisionalFitBand = computeFitBand(provisionalFootprint, machine.totalMemoryGiB)
+
+  // 2. Determine recommended context length
+  const context = recommendContext(entry, provisionalFitBand, machine.totalMemoryGiB)
+
+  // 3. Calculate final footprint at the recommended context length
+  const estimatedFootprintGiB = estimateFootprintGiB(entry, context.value)
   const fitBand = computeFitBand(estimatedFootprintGiB, machine.totalMemoryGiB)
-  const context = recommendContext(entry, fitBand, machine.totalMemoryGiB)
+
+  // 4. Determine final preset hint
   const preset = recommendPresetHint(entry, fitBand, context.value)
+
   return {
     fitBand,
     estimatedFootprintGiB,
@@ -128,3 +216,4 @@ export function buildRecommendation(entry: ModelEntry, machine: MachineProfile):
     ...preset
   }
 }
+

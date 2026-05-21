@@ -337,6 +337,7 @@ athanor scan                     rescan model dirs and update registry
 athanor ls                       list registry entries (with live status)
 athanor status                   list running instances
 athanor show     <id|slug>       inspect a model: runtime, effective config, launch command
+athanor snippet  <id|slug>       generate OpenAI API and pi-agent integration code snippets
 athanor start    <id|slug>       start a model
 athanor stop     [<id|slug>|--all]stop one or all
 athanor restart  <id|slug>       stop + start
@@ -643,6 +644,18 @@ src/
   ui/           # Ink TUI (list, pull modal, preset editor)
   types/        # shared types
 ```
+## Credits and Acknowledgements
+
+Parts of Athanor's technical implementation, mathematical equations, and developer features were inspired by and adapted from the open-source project [whichllm](https://github.com/Andyyyy64/whichllm) under the MIT License:
+
+- **Memory Bandwidth & Hardware Profiling**: Unified memory bandwidth constants mapped from sysctl-reported chip names (`src/machine/profile.ts`).
+- **Context-Aware VRAM Footprint Calculations**: Context-aware VRAM footprint calculations using FP16 coefficients (3.5 MB per B-active-param per K-context-token), MoE multipliers, and dynamic activation sizes (`src/registry/recommend.ts`).
+- **Programmatic Search Synthesis**: Programmatically converting raw safetensors base models into realistic MLX and GGUF quantized variant search results (`src/search/hf.ts`).
+- **Developer Snippets Command**: The `athanor snippet` command templates for client integration (`src/cli/snippet-commands.ts`).
+
+We thank `@Andyyyy64` and the `whichllm` contributors for their excellent research and open-source contributions.
+
+---
 
 ## License
 

@@ -6,8 +6,10 @@ import { listModels } from "../registry/index.js"
 import { binaryUpdateStatus, binaryVersion, which } from "./doctor.js"
 import { style, sym } from "./style.js"
 import { SearchBrowser } from "../ui/SearchBrowser.js"
-import { searchModels, groupByRuntime, type SearchFilter, type SearchSort } from "../search/hf.js"
+import { HfSearchRateLimitError, searchModels, groupByRuntime, type SearchFilter, type SearchSort } from "../search/hf.js"
 import { formatResultRow } from "../search/format.js"
+import { buildSearchRecommendation, sortByFit } from "../search/recommend.js"
+import { detectMachineProfile } from "../machine/profile.js"
 import { startRouter, stopRouter } from "../router/server.js"
 import { dim, head, info, ok, warn } from "./shared.js"
 
@@ -59,22 +61,34 @@ export async function cmdSearch(opts: SearchCmdOpts): Promise<void> {
     await runSearchTui(opts)
     return
   }
-  const results = await searchModels(opts)
+  let results
+  try {
+    results = await searchModels(opts)
+  } catch (err) {
+    if (err instanceof HfSearchRateLimitError) {
+      warn("Hugging Face search is rate-limited right now (HTTP 429)")
+      console.log(dim("hint: wait a bit and retry, lower --limit, or use --mlx / --gguf instead of the default combined search"))
+      return
+    }
+    throw err
+  }
   if (results.length === 0) { warn("no results"); return }
+  const machine = detectMachineProfile()
+  if (opts.sort === "fit") results = sortByFit(results, machine)
   const { mlx, gguf, other } = groupByRuntime(results)
   if (mlx.length) {
     head(`MLX  ${dim(`(${mlx.length})`)}`)
-    for (const r of mlx) console.log("  " + formatResultRow(r))
+    for (const r of mlx) console.log("  " + formatResultRow(r, buildSearchRecommendation(r, machine)))
     console.log()
   }
   if (gguf.length) {
     head(`GGUF  ${dim(`(${gguf.length}) — llama.cpp`)}`)
-    for (const r of gguf) console.log("  " + formatResultRow(r))
+    for (const r of gguf) console.log("  " + formatResultRow(r, buildSearchRecommendation(r, machine)))
     console.log()
   }
   if (other.length) {
     head(`other  ${dim(`(${other.length})`)}`)
-    for (const r of other) console.log("  " + formatResultRow(r))
+    for (const r of other) console.log("  " + formatResultRow(r, buildSearchRecommendation(r, machine)))
     console.log()
   }
   console.log(dim("next:"))

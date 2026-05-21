@@ -85,12 +85,12 @@ describe("searchModels", () => {
     expect(r.map(x => x.id)).toEqual(["huge", "med", "small", "none"])
   })
 
-  it("requests text-generation filtering and expand[] metadata", async () => {
+  it("requests expand[] metadata and does not restrict pipeline_tag via query param", async () => {
     const calls: string[] = []
     mockFetch(url => { calls.push(url); return [] })
     await searchModels({ filter: "mlx" })
     const u = calls[0]
-    expect(u).toContain("pipeline_tag=text-generation")
+    expect(u).not.toContain("pipeline_tag=")
     expect(u).toContain("expand%5B%5D=gguf")
     expect(u).toContain("expand%5B%5D=safetensors")
     expect(u).toContain("expand%5B%5D=downloads")
@@ -120,8 +120,8 @@ describe("searchModels", () => {
     expect(r[0].sizeBytes).toBe(807_694_112)
   })
 
-  it("leaves sizeBytes undefined when neither field is present", async () => {
-    mockFetch(() => [{ id: "a/b", tags: [] }])
+  it("leaves sizeBytes undefined when metadata is absent on a runtime-tagged result", async () => {
+    mockFetch(() => [{ id: "a/b", tags: ["mlx"] }])
     const r = await searchModels({ filter: "mlx" })
     expect(r[0].sizeBytes).toBeUndefined()
   })
@@ -152,10 +152,11 @@ describe("searchModels", () => {
       { id: "gated/gguf", tags: ["gguf"], gated: true },
       { id: "audio/asr", tags: ["mlx"], pipeline_tag: "automatic-speech-recognition" },
       { id: "embed/mlx", tags: ["mlx", "feature-extraction"] },
+      { id: "vlm/mlx", tags: ["mlx"], pipeline_tag: "image-text-to-text" },
       { id: "chat/mlx", tags: ["mlx"], pipeline_tag: "text-generation" }
     ])
     const r = await searchModels({ filter: "any" })
-    expect(r.map(x => x.id)).toEqual(["public/mlx", "chat/mlx"])
+    expect(r.map(x => x.id)).toEqual(["public/mlx", "vlm/mlx", "chat/mlx"])
   })
 
   it("applies the limit after merging for filter='any'", async () => {
@@ -167,6 +168,40 @@ describe("searchModels", () => {
     })
     const r = await searchModels({ filter: "any", limit: 5 })
     expect(r.length).toBe(5)
+  })
+
+  it("ignores raw base models without mlx/gguf runtime signals in normal list search", async () => {
+    mockFetch(() => [{
+      id: "meta-llama/Llama-3-8B",
+      tags: [],
+      safetensors: { parameters: { BF16: 8_000_000_000 }, total: 8_000_000_000 }
+    }])
+    const r = await searchModels({ filter: "any" })
+    expect(r).toEqual([])
+  })
+
+  it("includes an exact repo-id fallback result for owner/name queries", async () => {
+    const calls: string[] = []
+    mockFetch(url => {
+      calls.push(url)
+      if (url.includes("/api/models/Qwen/Qwen3.6-27B")) {
+        return {
+          id: "Qwen/Qwen3.6-27B",
+          tags: ["text-generation", "license:apache-2.0"],
+          downloads: 12345,
+          likes: 678,
+          safetensors: { parameters: { BF16: 27_000_000_000 } }
+        }
+      }
+      return []
+    })
+    const r = await searchModels({ filter: "any", query: "Qwen/Qwen3.6-27B" })
+    expect(calls.length).toBe(3)
+    expect(r.map(x => x.id)).toContain("Qwen/Qwen3.6-27B")
+    const exact = r.find(x => x.id === "Qwen/Qwen3.6-27B")!
+    expect(exact.sourceFallback).toBe("exact-repo")
+    expect(exact.runtime).toBeUndefined()
+    expect(exact.sizeBytes).toBe(54_000_000_000)
   })
 })
 
@@ -219,6 +254,28 @@ describe("searchModelsPage", () => {
     const p2 = await searchModelsPage({ filter: "any" }, p1.cursor)
     expect(p2.results.map(r => r.id)).toEqual(["m/2"])
     expect(p2.cursor).toBeUndefined()
+  })
+
+  it("includes the exact repo-id fallback on the first page for owner/name queries", async () => {
+    mockFetchWithLink(url => {
+      if (url.includes("/api/models/Qwen/Qwen3.6-27B")) {
+        return {
+          body: {
+            id: "Qwen/Qwen3.6-27B",
+            tags: ["text-generation", "license:apache-2.0"],
+            downloads: 12345,
+            likes: 678,
+            safetensors: { parameters: { BF16: 27_000_000_000 } }
+          }
+        }
+      }
+      if (url.includes("filter=mlx")) return { body: [] }
+      if (url.includes("filter=gguf")) return { body: [] }
+      return { body: [] }
+    })
+    const p = await searchModelsPage({ filter: "any", query: "Qwen/Qwen3.6-27B" })
+    expect(p.results.map(r => r.id)).toContain("Qwen/Qwen3.6-27B")
+    expect(p.results.find(r => r.id === "Qwen/Qwen3.6-27B")?.sourceFallback).toBe("exact-repo")
   })
 })
 

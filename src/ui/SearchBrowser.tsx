@@ -16,6 +16,8 @@ import { fetchRepoTree } from "../pull/api.js"
 import { DownloadsModal } from "./DownloadsModal.js"
 import { PullModal } from "./PullModal.js"
 import { useDownloads } from "./useDownloads.js"
+import { detectMachineProfile } from "../machine/profile.js"
+import { buildSearchRecommendation, sortByFit } from "../search/recommend.js"
 
 // Column definitions shared by Header and Row so click-on-header
 // sort wiring and visual alignment can't drift. Widths include the
@@ -85,9 +87,14 @@ function SearchDetailsModal({
 }) {
   const runtime = runtimeBadge(result)
   const isGguf = result.runtime === "llama.cpp"
+  const machine = detectMachineProfile()
+  const rec = buildSearchRecommendation(result, machine, hint ?? undefined)
   const bodyLines = [
     { label: "runtime", value: runtime.label, color: runtime.color },
     { label: "size", value: result.sizeBytes !== undefined ? formatBytes(result.sizeBytes) : "—" },
+    { label: "fit", value: rec ? `${rec.fitBand} · ~${rec.estimatedFootprintGiB.toFixed(1)} GiB` : "unknown", color: rec?.fitBand === "comfortable" ? "green" : rec?.fitBand === "tight" ? "yellow" : rec?.fitBand === "risky" ? "red" : undefined },
+    { label: "context", value: rec ? `${formatCount(rec.recommendedContext)} · ${rec.recommendedContextNote}` : "unknown" },
+    { label: "confidence", value: rec?.confidence ?? "unknown" },
     { label: "downloads", value: formatCount(result.downloads) },
     { label: "likes", value: formatCount(result.likes) },
     { label: "updated", value: formatRelTime(result.lastModified) },
@@ -136,6 +143,9 @@ function SearchDetailsModal({
           <Text color={line.color} wrap="truncate-end" backgroundColor="black">{truncEnd(line.value, valueWidth)}</Text>
         </Box>
       ))}
+      {rec?.explanation
+        ? <Text dimColor wrap="wrap" backgroundColor="black">{truncEnd(rec.explanation, innerWidth)}</Text>
+        : null}
       {isGguf
         ? <>
             <Text backgroundColor="black"> </Text>
@@ -197,7 +207,7 @@ function SearchDetailsModal({
   )
 }
 
-const SORT_CYCLE: SearchSort[] = ["downloads", "likes", "trending", "modified", "size"]
+const SORT_CYCLE: SearchSort[] = ["downloads", "likes", "trending", "modified", "size", "fit"]
 const FILTER_CYCLE: SearchFilter[] = ["any", "mlx", "gguf"]
 
 function runtimeBadge(r: SearchResult): { label: string; color: string } {
@@ -294,6 +304,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
   const { exit } = useApp()
   const { stdout } = useStdout()
   const { stdin, setRawMode, isRawModeSupported } = useStdin()
+  const machine = useMemo(() => detectMachineProfile(), [])
   const [dims, setDims] = useState({
     cols: stdout?.columns ?? 100,
     rows: stdout?.rows ?? 30
@@ -352,8 +363,10 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
         // for single-filter + sort=size the server uses popularity so
         // we re-order client-side here. Other single-filter sorts come
         // back server-sorted and pass through unchanged.
-        const needsSort = filter === "any" || sort === "size"
-        const ordered = needsSort ? sortByKey(sort, p.results) : p.results
+        const needsSort = filter === "any" || sort === "size" || sort === "fit"
+        const ordered = sort === "fit"
+          ? sortByFit(p.results, machine)
+          : needsSort ? sortByKey(sort, p.results) : p.results
         setResults(ordered)
         setCursor(p.cursor)
         setSelectedIdx(0); setScrollOff(0)
@@ -389,7 +402,8 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
         }
         setResults(prev => {
           const merged = prev.concat(fresh)
-          const needsSort = filter === "any" || sort === "size"
+          const needsSort = filter === "any" || sort === "size" || sort === "fit"
+          if (sort === "fit") return sortByFit(merged, machine, selectionHintsById)
           return needsSort ? sortByKey(sort, merged) : merged
         })
         setCursor(p.cursor)
@@ -603,16 +617,16 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
       if (mode === "edit") { setMode("browse"); return }
       return
     }
-    if (input === "q") {
-      onExit()
-      if (!embedded) exit()
-      return
-    }
     if (mode === "edit") {
       if (key.return) { setMode("browse"); return }
       if (key.downArrow) { setMode("browse"); return }
       if (key.backspace || key.delete) { setQuery(q => q.slice(0, -1)); return }
       if (input && !key.ctrl && !key.meta) setQuery(q => q + input)
+      return
+    }
+    if (input === "q") {
+      onExit()
+      if (!embedded) exit()
       return
     }
     if (mode === "inspect") {

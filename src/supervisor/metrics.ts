@@ -144,6 +144,7 @@ export function sampleSystemStats(): SysStats {
 
 export function _resetMetricsState(): void {
   prevTick = null
+  liveRouterStats.clear()
 }
 
 // llama-server emits a timing block per request. We match only the decode
@@ -192,3 +193,30 @@ export function parseCompletionStats(chunk: string): CompletionStats | null {
 
   return pick ? pick.stats : null
 }
+
+const liveRouterStats = new Map<string, CompletionStats>()
+
+export function updateLiveRouterStats(id: string, tokens: number, elapsedMs: number): void {
+  const tokPerSec = elapsedMs > 0 ? (tokens / elapsedMs) * 1000 : 0
+  liveRouterStats.set(id, {
+    tokens,
+    elapsedMs,
+    tokPerSec,
+    at: Date.now()
+  })
+}
+
+export function clearLiveRouterStats(id: string): void {
+  liveRouterStats.delete(id)
+}
+
+export function getLiveRouterStats(id: string): CompletionStats | null {
+  const stats = liveRouterStats.get(id)
+  if (!stats) return null
+  if (Date.now() - stats.at > 4000) {
+    liveRouterStats.delete(id)
+    return null
+  }
+  return stats
+}
+

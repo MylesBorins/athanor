@@ -49,9 +49,19 @@ describe("formatResultRow", () => {
       runtime: "mlx",
       license: "apache-2.0",
       sizeBytes: 16 * 1024 * 1024 * 1024
+    }, {
+      fitBand: "comfortable",
+      estimatedFootprintGiB: 12.3,
+      recommendedContext: 32768,
+      recommendedContextNote: "trained max: 32768",
+      confidence: "high",
+      explanation: "fits comfortably",
+      runnable: true,
+      runtimeLabel: "mlx"
     }))
     expect(row).toContain("mlx-community/Qwen3-32B-4bit")
     expect(row).toContain("16 GB")
+    expect(row).toContain("fit:comfortable")
     expect(row).toContain("12.3k")
     expect(row).toContain("430")
     expect(row).toContain("apache-2.0")

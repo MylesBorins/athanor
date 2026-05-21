@@ -9,6 +9,7 @@ import {
   parseCompletionStats,
   sampleProcessStats,
   sampleSystemStats,
+  getLiveRouterStats,
   type SysStats
 } from "../supervisor/metrics.js"
 import { tailLog } from "../supervisor/logs.js"
@@ -53,7 +54,7 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
         const next = new Map<string, InstanceStats>()
         for (const inst of insts) {
           const logChunk = tailLog(inst.logFile, 16384)
-          const completion = parseCompletionStats(logChunk) ?? prev.get(inst.id)?.completion
+          const completion = getLiveRouterStats(inst.id) ?? parseCompletionStats(logChunk) ?? prev.get(inst.id)?.completion
           next.set(inst.id, { proc: proc.get(inst.pid), completion })
         }
         return next

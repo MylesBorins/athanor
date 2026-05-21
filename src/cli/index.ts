@@ -18,6 +18,7 @@ import {
   cmdScan,
   cmdSearch,
   cmdShow,
+  cmdSnippet,
   cmdStart,
   cmdStatus,
   cmdStop,
@@ -32,6 +33,7 @@ function usage(): void {
     ["ls",         "",                               "list registry"],
     ["status",     "",                               "list running instances"],
     ["show",       "<id|slug>",                      "inspect a model (config, command, state)"],
+    ["snippet",    "<id|slug>",                      "generate integration code snippets"],
     ["start",      "<id|slug>",                      "start a model"],
     ["stop",       "[<id|slug>|--all]",              "stop one or all"],
     ["restart",    "<id|slug>",                      ""],
@@ -100,6 +102,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
     case "trending":
       await cmdSearch({ ...parseSearchOpts(rest), sort: "trending" }); return true
     case "show":        cmdShow(required(rest[0], "id|slug")); return true
+    case "snippet":     cmdSnippet(required(rest[0], "id|slug")); return true
     case "recipes":     cmdRecipes(); return true
     case "preset": {
       const slug = required(rest[0], "id|slug")
@@ -169,7 +172,7 @@ function parseSearchOpts(rest: string[]): {
   const author = getFlag(args, "--author")
   const sortRaw = getFlag(args, "--sort")
   const limitRaw = getFlag(args, "--limit")
-  const sort = (["downloads", "likes", "trending", "modified", "size"] as const)
+  const sort = (["downloads", "likes", "trending", "modified", "size", "fit"] as const)
     .find(s => s === sortRaw) as SearchSort | undefined
   const limit = limitRaw ? Number(limitRaw) : undefined
   // Remaining positional tokens (not following a consumed flag) form

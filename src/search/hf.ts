@@ -10,7 +10,7 @@ import { fetchRepoInfo, fetchRepoTree, type HfSibling } from "../pull/api.js"
 export type SearchFilter = "mlx" | "gguf" | "any"
 // "size" has no server-side equivalent on the Hub API; we ask the
 // server for popularity-ranked candidates and re-sort client-side.
-export type SearchSort = "downloads" | "likes" | "trending" | "modified" | "size"
+export type SearchSort = "downloads" | "likes" | "trending" | "modified" | "size" | "fit"
 
 export interface SearchOpts {
   query?: string
@@ -38,6 +38,9 @@ export interface SearchResult {
   // safetensors we sum parameters dict × bytes-per-dtype. Undefined
   // for repos the Hub hasn't parsed.
   sizeBytes?: number
+  // Result came from an exact repo-id fallback rather than the normal
+  // runtime-tag search, so callers can label it differently if needed.
+  sourceFallback?: "exact-repo"
 }
 
 export interface SearchSelectionHint {
@@ -54,6 +57,17 @@ export interface SearchSelectionHint {
   cardLicense?: string
 }
 
+export class HfSearchRateLimitError extends Error {
+  readonly status = 429
+  readonly url: string
+
+  constructor(url: string) {
+    super(`HF search 429 for ${url}`)
+    this.name = "HfSearchRateLimitError"
+    this.url = url
+  }
+}
+
 const API = "https://huggingface.co/api/models"
 
 function sortParam(sort: SearchSort): string {
@@ -62,9 +76,10 @@ function sortParam(sort: SearchSort): string {
     case "likes":     return "likes"
     case "trending":  return "trendingScore"
     case "modified":  return "lastModified"
-    // No server-side size sort. Use downloads to bias toward results
-    // that actually carry size metadata, then re-sort in sortBySize.
+    // No server-side fit/size sort. Use downloads to bias toward results
+    // that actually carry useful metadata, then re-sort client-side.
     case "size":      return "downloads"
+    case "fit":       return "downloads"
   }
 }
 
@@ -79,6 +94,7 @@ function sortValue(sort: SearchSort, r: SearchResult): number {
     case "trending":  return r.trendingScore ?? -1
     case "modified":  return r.lastModified ? Date.parse(r.lastModified) : -1
     case "size":      return r.sizeBytes ?? -1
+    case "fit":       return r.downloads ?? -1
   }
 }
 
@@ -141,7 +157,11 @@ function sizeFromGguf(gg: unknown): number | undefined {
 }
 
 function isTextGenerationLike(pipelineTag: unknown): boolean {
-  return pipelineTag === "text-generation" || pipelineTag === "conversational"
+  return (
+    pipelineTag === "text-generation" ||
+    pipelineTag === "conversational" ||
+    pipelineTag === "image-text-to-text"
+  )
 }
 
 const DISALLOWED_TASK_TAGS = new Set([
@@ -170,31 +190,41 @@ function isLikelyAthanorSearchCandidate(tags: string[], pipelineTag?: string): b
   return !tags.some(tag => DISALLOWED_TASK_TAGS.has(tag))
 }
 
+function parseOne(raw: unknown, sourceFallback?: "exact-repo"): SearchResult | null {
+  const b = raw as Record<string, unknown>
+  if (b.private === true || b.gated === true) return null
+  const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
+  const pipelineTag = typeof b.pipeline_tag === "string"
+    ? b.pipeline_tag
+    : typeof b.pipelineTag === "string"
+      ? b.pipelineTag
+      : undefined
+  if (!isLikelyAthanorSearchCandidate(tags, pipelineTag)) return null
+
+  const rawId = String(b.id ?? b.modelId ?? "")
+  if (!rawId) return null
+  const runtime = runtimeFromTags(rawId, tags)
+  return {
+    id: rawId,
+    downloads: typeof b.downloads === "number" ? b.downloads : undefined,
+    likes: typeof b.likes === "number" ? b.likes : undefined,
+    lastModified: typeof b.lastModified === "string" ? b.lastModified : undefined,
+    trendingScore: typeof b.trendingScore === "number" ? b.trendingScore : undefined,
+    tags,
+    runtime,
+    license: extractLicense(tags),
+    pipelineTag,
+    sizeBytes: sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors),
+    sourceFallback
+  }
+}
+
 function parse(body: unknown): SearchResult[] {
   if (!Array.isArray(body)) return []
   return body.flatMap((raw): SearchResult[] => {
-    const b = raw as Record<string, unknown>
-    if (b.private === true || b.gated === true) return []
-    const tags = Array.isArray(b.tags) ? (b.tags as string[]) : []
-    const pipelineTag = typeof b.pipeline_tag === "string"
-      ? b.pipeline_tag
-      : typeof b.pipelineTag === "string"
-        ? b.pipelineTag
-        : undefined
-    if (!isLikelyAthanorSearchCandidate(tags, pipelineTag)) return []
-    const sizeBytes = sizeFromGguf(b.gguf) ?? sizeFromSafetensors(b.safetensors)
-    return [{
-      id: String(b.id ?? b.modelId ?? ""),
-      downloads: typeof b.downloads === "number" ? b.downloads : undefined,
-      likes: typeof b.likes === "number" ? b.likes : undefined,
-      lastModified: typeof b.lastModified === "string" ? b.lastModified : undefined,
-      trendingScore: typeof b.trendingScore === "number" ? b.trendingScore : undefined,
-      tags,
-      runtime: runtimeFromTags(String(b.id ?? ""), tags),
-      license: extractLicense(tags),
-      pipelineTag,
-      sizeBytes
-    }]
+    const parsed = parseOne(raw)
+    if (!parsed?.runtime) return []
+    return [parsed]
   }).filter(r => r.id.length > 0)
 }
 
@@ -209,7 +239,6 @@ function buildSearchUrl(filterTag: string | null, opts: SearchOpts): string {
   if (opts.query)  params.set("search", opts.query)
   if (opts.author) params.set("author", opts.author)
   if (filterTag)   params.set("filter", filterTag)
-  params.set("pipeline_tag", "text-generation")
   params.set("sort", sortParam(opts.sort ?? "downloads"))
   params.set("direction", "-1")
   params.set("limit", String(opts.limit ?? PAGE_SIZE))
@@ -237,6 +266,7 @@ function parseLinkNext(link: string | null): string | undefined {
 
 async function fetchPage(url: string): Promise<{ results: SearchResult[]; next?: string }> {
   const res = await fetch(url, { headers: { Accept: "application/json" } })
+  if (res.status === 429) throw new HfSearchRateLimitError(url)
   if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)
   const results = parse(await res.json())
   const next = parseLinkNext(res.headers.get("link"))
@@ -246,6 +276,24 @@ async function fetchPage(url: string): Promise<{ results: SearchResult[]; next?:
 async function queryOne(filterTag: string | null, opts: SearchOpts): Promise<SearchResult[]> {
   const { results } = await fetchPage(buildSearchUrl(filterTag, opts))
   return results
+}
+
+function looksLikeRepoId(query: string | undefined): boolean {
+  if (!query) return false
+  const q = query.trim()
+  if (!q || q.includes(" ")) return false
+  const parts = q.split("/")
+  return parts.length === 2 && parts.every(Boolean)
+}
+
+async function queryExactRepo(repo: string): Promise<SearchResult[]> {
+  const url = `${API}/${repo}`
+  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  if (res.status === 404) return []
+  if (res.status === 429) throw new HfSearchRateLimitError(url)
+  if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)
+  const parsed = parseOne(await res.json(), "exact-repo")
+  return parsed ? [parsed] : []
 }
 
 function dedupe(results: SearchResult[]): SearchResult[] {
@@ -269,27 +317,29 @@ export async function searchModels(opts: SearchOpts = {}): Promise<SearchResult[
   const filter = opts.filter ?? "any"
   const sort   = opts.sort   ?? "downloads"
   let merged: SearchResult[]
-  if (filter === "mlx")  merged = await queryOne("mlx",  opts)
+  if (filter === "mlx") merged = await queryOne("mlx", opts)
   else if (filter === "gguf") merged = await queryOne("gguf", opts)
   else {
-    const [mlx, gguf] = await Promise.all([
-      queryOne("mlx",  opts),
-      queryOne("gguf", opts)
+    const extra = looksLikeRepoId(opts.query) ? queryExactRepo(opts.query!.trim()) : Promise.resolve([] as SearchResult[])
+    const [mlx, gguf, exact] = await Promise.all([
+      queryOne("mlx", opts),
+      queryOne("gguf", opts),
+      extra
     ])
-    merged = dedupe([...mlx, ...gguf])
-    merged = sortByKey(sort, merged)
+    merged = sortByKey(sort, dedupe([...mlx, ...gguf, ...exact]))
   }
-  if (filter !== "any" && sort === "size") merged = sortBySize(merged)
+  if (filter !== "any" && (sort === "size" || sort === "fit")) merged = sortBySize(merged)
   return merged.slice(0, opts.limit ?? 20)
 }
 
 // Opaque cursor passed back to searchModelsPage to fetch the next
-// page. For filter=any we paginate the mlx and gguf streams
-// independently; either side may exhaust before the other.
+// page. For filter=any we paginate the mlx, gguf, and raw streams
+// independently; any side may exhaust before the others.
 export interface SearchCursor {
   one?:  string
   mlx?:  string
   gguf?: string
+  raw?:  string
 }
 
 export interface SearchPage {
@@ -314,20 +364,24 @@ export async function searchModelsPage(
     const { results, next } = await fetchPage(url)
     return { results, cursor: next ? { one: next } : undefined }
   }
-  // filter === "any": paginate both streams, then globally sort the
-  // combined page by the active key. A round-robin interleave would
-  // show "popular-mlx, popular-gguf, 2nd-mlx, 2nd-gguf, …" which is
-  // what makes the original result order look like two lists glued
-  // together rather than a single ranked list.
-  const mlxUrl  = cursor?.mlx  ?? (cursor ? undefined : buildSearchUrl("mlx",  opts))
+  // filter === "any": paginate mlx and gguf streams independently, then globally sort
+  // the combined page by the active key. On the first page only, if the
+  // query looks like an exact repo id (owner/name), also merge a direct
+  // repo fetch so source-model repos can surface without the heavy raw search.
+  const firstPage = cursor === undefined
+  const mlxUrl  = cursor?.mlx  ?? (cursor ? undefined : buildSearchUrl("mlx", opts))
   const ggufUrl = cursor?.gguf ?? (cursor ? undefined : buildSearchUrl("gguf", opts))
-  const [mlx, gguf] = await Promise.all([
-    mlxUrl  ? fetchPage(mlxUrl)  : Promise.resolve({ results: [] as SearchResult[], next: undefined }),
-    ggufUrl ? fetchPage(ggufUrl) : Promise.resolve({ results: [] as SearchResult[], next: undefined })
+  const exact = firstPage && looksLikeRepoId(opts.query)
+    ? queryExactRepo(opts.query!.trim())
+    : Promise.resolve([] as SearchResult[])
+  const [mlx, gguf, extra] = await Promise.all([
+    mlxUrl ? fetchPage(mlxUrl) : Promise.resolve({ results: [] as SearchResult[], next: undefined }),
+    ggufUrl ? fetchPage(ggufUrl) : Promise.resolve({ results: [] as SearchResult[], next: undefined }),
+    exact
   ])
-  const merged = sortByKey(sort, dedupe([...mlx.results, ...gguf.results]))
+  const merged = sortByKey(sort, dedupe([...mlx.results, ...gguf.results, ...extra]))
   const next: SearchCursor = {}
-  if (mlx.next)  next.mlx  = mlx.next
+  if (mlx.next) next.mlx = mlx.next
   if (gguf.next) next.gguf = gguf.next
   return {
     results: merged,

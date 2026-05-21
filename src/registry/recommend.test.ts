@@ -35,7 +35,7 @@ describe("buildRecommendation", () => {
     }), machineProfile(16))
 
     expect(rec.fitBand).toBe("comfortable")
-    expect(rec.estimatedFootprintGiB).toBeCloseTo(2.7, 5)
+    expect(rec.estimatedFootprintGiB).toBeCloseTo(3.6093155, 5)
     expect(rec.recommendedContext).toBe(8192)
     expect(rec.recommendedContextNote).toBe("trained max: 32768")
     expect(rec.confidence).toBe("high")

@@ -1,6 +1,6 @@
 import * as http from "http"
 import type { Server } from "http"
-import { Readable } from "stream"
+import { Readable, Transform } from "stream"
 import { pipeline } from "stream/promises"
 import * as fs from "fs"
 import * as os from "os"
@@ -11,6 +11,7 @@ import { supervisor } from "../supervisor/index.js"
 import { resolveByRuntimeModelId, runtimeModelId } from "../adapters/index.js"
 import { begin, end } from "../supervisor/inflight.js"
 import { recoverLiveInstances } from "../supervisor/reconcile.js"
+import { updateLiveRouterStats, clearLiveRouterStats } from "../supervisor/metrics.js"
 
 // OpenAI-compatible proxy fronting every exposed athanor model on a
 // single port. See src/config/index.ts RouterConfig. The router
@@ -110,6 +111,60 @@ async function waitForUpstreamModelList(
   throw new Error(`upstream not ready for ${slug} after ${timeoutMs}ms: ${String(lastErr)}`)
 }
 
+class SSETokenCounter extends Transform {
+  private buffer = ""
+  private tokenCount = 0
+  private startTime = 0
+  private onTokenCountUpdate: (tokens: number, elapsedMs: number) => void
+
+  constructor(onTokenCountUpdate: (tokens: number, elapsedMs: number) => void) {
+    super()
+    this.onTokenCountUpdate = onTokenCountUpdate
+  }
+
+  override _transform(chunk: any, encoding: string, callback: (error?: Error | null, data?: any) => void) {
+    const text = chunk.toString("utf8")
+    this.buffer += text
+    
+    let boundary: number
+    while ((boundary = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, boundary).trim()
+      this.buffer = this.buffer.slice(boundary + 1)
+      
+      if (line.startsWith("data: ")) {
+        const dataStr = line.slice(6).trim()
+        if (dataStr && dataStr !== "[DONE]") {
+          if (this.startTime === 0) {
+            this.startTime = Date.now()
+          }
+          this.tokenCount++
+          const elapsed = Date.now() - this.startTime
+          this.onTokenCountUpdate(this.tokenCount, elapsed)
+        }
+      }
+    }
+    this.push(chunk)
+    callback()
+  }
+
+  override _flush(callback: (error?: Error | null, data?: any) => void) {
+    const line = this.buffer.trim()
+    if (line.startsWith("data: ")) {
+      const dataStr = line.slice(6).trim()
+      if (dataStr && dataStr !== "[DONE]") {
+        if (this.startTime === 0) {
+          this.startTime = Date.now()
+        }
+        this.tokenCount++
+        const elapsed = Date.now() - this.startTime
+        this.onTokenCountUpdate(this.tokenCount, elapsed)
+      }
+    }
+    callback()
+  }
+}
+
+
 async function proxy(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -132,6 +187,9 @@ async function proxy(
     routerLog(`[router] ${req.method} ${req.url ?? ""} unknown model ${JSON.stringify({ model: parsed.model })}`)
     return sendJson(res, 404, { error: `unknown model '${parsed.model}'` })
   }
+
+  clearLiveRouterStats(entry.id)
+
 
   routerLog(`[router] ${req.method} ${req.url ?? ""} model resolved ${JSON.stringify({ model: parsed.model, runtimeId: entry.id, slug: entry.slug })}`)
 
@@ -195,10 +253,17 @@ async function proxy(
     })
     res.writeHead(upstream.status, outHeaders)
     if (!upstream.body) { res.end(); return }
+    const tokenCounter = new SSETokenCounter((tokens, elapsedMs) => {
+      updateLiveRouterStats(entry.id, tokens, elapsedMs)
+    })
     try {
       // Web ReadableStream -> Node Readable -> chunked http response.
       // Preserves SSE framing because we never buffer to a string.
-      await pipeline(Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]), res)
+      await pipeline(
+        Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]),
+        tokenCounter,
+        res
+      )
     } catch {
       // Client disconnected or upstream errored mid-stream; both ends
       // are closed by pipeline on rejection.

@@ -4,7 +4,10 @@ import {
   parseCompletionStats,
   parseVmStat,
   sampleSystemStats,
-  _resetMetricsState
+  _resetMetricsState,
+  updateLiveRouterStats,
+  clearLiveRouterStats,
+  getLiveRouterStats
 } from "./metrics.js"
 
 describe("parseProcStats", () => {
@@ -169,3 +172,38 @@ describe("parseVmStat", () => {
     expect(parseVmStat("Pages free: 1.", 1024)).toBeNull()
   })
 })
+
+describe("liveRouterStats", () => {
+  beforeEach(() => {
+    _resetMetricsState()
+  })
+
+  it("updates, retrieves, and clears live router completion stats", () => {
+    expect(getLiveRouterStats("model-a")).toBeNull()
+
+    updateLiveRouterStats("model-a", 10, 500) // 10 tokens in 500ms => 20 tok/s
+    const s = getLiveRouterStats("model-a")
+    expect(s).not.toBeNull()
+    expect(s!.tokens).toBe(10)
+    expect(s!.elapsedMs).toBe(500)
+    expect(s!.tokPerSec).toBe(20)
+
+    clearLiveRouterStats("model-a")
+    expect(getLiveRouterStats("model-a")).toBeNull()
+  })
+
+  it("expires live router stats after 4 seconds", () => {
+    updateLiveRouterStats("model-a", 5, 250)
+    
+    // Stub or mock Date.now to test decay
+    const now = Date.now()
+    const origNow = Date.now
+    try {
+      Date.now = () => now + 4001
+      expect(getLiveRouterStats("model-a")).toBeNull()
+    } finally {
+      Date.now = origNow
+    }
+  })
+})
+
