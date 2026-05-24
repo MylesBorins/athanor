@@ -14,6 +14,7 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Pi context correctness** — `contextWindow` from effective merged runtime config; 16K default baselines; explicit recipe context bands
 - **Router lifecycle detach** — `src/router/lifecycle.ts`; router follows active model state, not TUI lifetime (see `plans/done/router-lifecycle-detach.md`)
 - **Duplicate registry cleanup** — path dedup in scanner + `deduplicateRegistry()` on load/startup (see `plans/done/fix-dupe-models.md`)
+- **Model display alignment** — HF repo primary in TUI/pi; hub GGUF runtime ids match registry id in pi (see `src/registry/display.ts`, `src/adapters/model-id.ts`)
 - **Recommendation / fit guidance** — detected metadata on `ModelEntry`, `src/registry/recommend.ts`, `show`/TUI fit bands, preflight warnings, enriched starter suggestions
 
 Test suite as of 2026-05-24: 45 files, 334 tests.

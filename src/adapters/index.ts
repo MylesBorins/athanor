@@ -8,6 +8,9 @@ import type {
 import { MlxAdapter } from "./mlx.js"
 import { LlamaAdapter } from "./llama.js"
 import { loadConfig } from "../config/index.js"
+import { runtimeModelId } from "./model-id.js"
+
+export { runtimeModelId } from "./model-id.js"
 
 export const runtimes: Record<RuntimeType, RuntimeAdapter> = {
   "mlx": new MlxAdapter(),
@@ -42,21 +45,6 @@ export function buildCommandFor(
   const adapter = getAdapter(entry.runtime)
   const merged = mergedConfigFor(entry)
   return adapter.buildCommand(entry, merged)
-}
-
-// Identifier the runtime accepts in OpenAI-compatible requests. Must
-// match exactly what each runtime was launched with, otherwise:
-//   - mlx_lm.server treats a mismatched "model" field as an HF repo
-//     to download (see ml-explore/mlx-lm#1133),
-//   - llama-server echoes whatever alias is configured via --alias in
-//     its /v1/models response.
-// pi's models.json uses this string as the model `id`.
-export function runtimeModelId(entry: ModelEntry): string {
-  if (entry.runtime === "mlx") {
-    if (entry.source.type === "hf") return entry.source.repo
-    return entry.path
-  }
-  return entry.piAlias ?? entry.slug
 }
 
 // Reverse lookup used by the router: given whatever pi-agent puts in a

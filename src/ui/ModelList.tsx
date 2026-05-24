@@ -2,6 +2,7 @@ import React from "react"
 import { Box, Text } from "ink"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import type { CompletionStats, ProcStats } from "../supervisor/metrics.js"
+import { modelListParts } from "../registry/display.js"
 
 function statusIndicator(status?: string): { ch: string; color: string } {
   switch (status) {
@@ -39,11 +40,6 @@ function runtimeSuffix(stats?: InstanceStats): string {
   }
   if (stats.completion) parts.push(`${stats.completion.tokPerSec.toFixed(1)} tok/s`)
   return parts.join(" · ")
-}
-
-export function modelListParts(m: ModelEntry): { slug: string; repo?: string } {
-  if (m.source.type === "hf") return { slug: m.slug, repo: m.source.repo }
-  return { slug: m.slug }
 }
 
 function runtimeLabel(runtime: ModelEntry["runtime"]): { text: string; color: string } {
@@ -128,15 +124,18 @@ export const ModelList: React.FC<ModelListProps> = ({
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
-        const { slug, repo } = modelListParts(m)
-        const repoReserve = repo ? Math.min(repo.length + 3, Math.max(14, Math.floor(nameBudget * 0.55))) : 0
-        const slugBudget = Math.max(8, nameBudget - repoReserve)
-        const slugText = truncEnd(slug, slugBudget)
-        const repoBudget = Math.max(0, nameBudget - slugText.length - 3)
-        const repoText = repo && repoBudget > 6 ? truncEnd(repo, repoBudget) : undefined
+        const { primary, secondary } = modelListParts(m)
+        const secondaryReserve = secondary
+          ? Math.min(secondary.length + 3, Math.max(12, Math.floor(nameBudget * 0.4)))
+          : 0
+        const primaryBudget = Math.max(12, nameBudget - secondaryReserve)
+        const primaryText = truncEnd(primary, primaryBudget)
+        const secondaryBudget = Math.max(0, nameBudget - primaryText.length - 3)
+        const secondaryText = secondary && secondaryBudget > 6
+          ? truncEnd(secondary, secondaryBudget)
+          : undefined
         const recency = recencyLabel(m.lastUsedAt).padStart(5)
         const runtime = runtimeLabel(m.runtime)
-        const runtimeText = runtime.text.padEnd(5)
         const portText = `:${m.port}`.padEnd(7)
         const sizeText = formatModelSize(m.sizeBytes).padStart(5)
         return (
@@ -149,12 +148,12 @@ export const ModelList: React.FC<ModelListProps> = ({
               color={selected ? "cyan" : undefined}
               wrap="truncate-end"
             >
-              {(veryCompact || tiny) ? slugText : slugText.padEnd(slugBudget)}
+              {(veryCompact || tiny) ? primaryText : primaryText.padEnd(primaryBudget)}
             </Text>
-            {repoText ? (
-              <Text dimColor wrap="truncate-end">{` · ${repoText}`}</Text>
+            {secondaryText ? (
+              <Text dimColor wrap="truncate-end">{` · ${secondaryText}`}</Text>
             ) : null}
-            {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}
+            {showRuntime ? <Text color={runtime.color}>{` · ${runtime.text}`}</Text> : null}
             {showPort ? <Text dimColor>{` · ${portText}`}</Text> : null}
             {showSize ? <Text dimColor>{` · ${sizeText || "  ?  "}`}</Text> : null}
             {showRecency ? <Text dimColor>{` · ${recency}`}</Text> : null}

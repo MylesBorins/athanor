@@ -5,12 +5,13 @@ import type {
   RuntimeType
 } from "../types/index.js"
 import { healthUrl } from "./health.js"
+import { runtimeModelId } from "./model-id.js"
 
 export class LlamaAdapter implements RuntimeAdapter {
   type: RuntimeType = "llama.cpp"
 
   buildCommand(entry: ModelEntry, merged: LlamaConfig): { cmd: string; args: string[] } {
-    const alias = entry.piAlias ?? entry.slug
+    const alias = runtimeModelId(entry)
     return {
       cmd: "llama-server",
       args: [

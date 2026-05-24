@@ -173,6 +173,25 @@ describe("pi sync", () => {
     expect(p["athanor-llama-bare"].models[0].id).toBe("bare")
   })
 
+  it("uses registry id as pi model id for hf gguf with default piAlias when router mode is disabled", async () => {
+    await mockDirectPiSyncShape()
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf",
+          slug: "qwen3-6-27b-q4-k-m", path: "/m/q.gguf", runtime: "llama.cpp",
+          source: { type: "hf", repo: "unsloth/Qwen3.6-27B-GGUF", file: "Qwen3.6-27B-Q4_K_M.gguf" },
+          port: 8081, publish: true, piAlias: "qwen3-6-27b-q4-k-m", addedAt: 0 }
+      ]
+    }))
+    const { syncPi } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
+    expect(p["athanor-llama-qwen3-6-27b-q4-k-m"].models[0].id)
+      .toBe("unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf")
+    expect(p["athanor-llama-qwen3-6-27b-q4-k-m"].models[0].name)
+      .toBe("[llama.cpp] unsloth/Qwen3.6-27B-GGUF (athanor)")
+  })
+
   it("records the active instance status on the provider when router mode is disabled", async () => {
     await mockDirectPiSyncShape()
     vi.doMock("../registry/index.js", () => ({
@@ -256,7 +275,7 @@ describe("pi sync", () => {
     const providerName = `${ATHANOR_PROVIDER_PREFIX}mlx-qwen2-5-vl-7b-instruct-4bit`
     expect(out.providers[providerName]).toBeDefined()
     expect(out.providers[providerName].models[0].name)
-      .toBe("[mlx-vlm] qwen2-5-vl-7b-instruct-4bit (athanor)")
+      .toBe("[mlx-vlm] mlx-community/Qwen2.5-VL-7B-Instruct-4bit (athanor)")
   })
 
   it("short-circuits when enablePiSync is false", async () => {

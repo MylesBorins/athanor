@@ -6,6 +6,7 @@ import type { LlamaConfig, MlxConfig } from "../types/index.js"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
 import { mergedConfigFor, runtimeModelId } from "../adapters/index.js"
+import { piDisplayNameFor } from "../registry/display.js"
 
 // pi-agent stores both models and settings under ~/.pi/agent/.
 // Schema reference: docs/models.md and docs/settings.md in the
@@ -105,15 +106,6 @@ function contextWindowFor(entry: ModelEntry): number | undefined {
   return (merged as LlamaConfig).ctxSize
 }
 
-function runtimeLabel(entry: ModelEntry): string {
-  if (entry.runtime === "mlx" && entry.mlxFlavor === "vlm") return "mlx-vlm"
-  return entry.runtime
-}
-
-function displayNameFor(entry: ModelEntry): string {
-  return `[${runtimeLabel(entry)}] ${entry.slug} (athanor)`
-}
-
 function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderConfig {
   return {
     baseUrl: baseUrlFor(entry.port),
@@ -131,7 +123,7 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
     },
     models: [{
       id: modelIdFor(entry),
-      name: displayNameFor(entry),
+      name: piDisplayNameFor(entry),
       input: ["text"],
       contextWindow: contextWindowFor(entry)
     }],
@@ -192,7 +184,7 @@ function runtimeRouterProviderFor(
     compat: compatFor(runtime),
     models: entries.map(e => ({
       id: modelIdFor(e),
-      name: displayNameFor(e),
+      name: piDisplayNameFor(e),
       input: ["text"],
       contextWindow: contextWindowFor(e)
     })),

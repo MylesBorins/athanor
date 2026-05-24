@@ -8,7 +8,7 @@
 - **Downloads** new models from HuggingFace via the `hf` CLI.
 - **Runs** them via `mlx_lm.server` or `llama-server`, one or more at a time, each on a stable port.
 - **Supervises** the processes as detached children with per-process log files and automatic reattach.
-- **Publishes** them to a pi-agent catalog (`~/.pi/agent/models.json`) as one custom provider per model, leaving your other (cloud, Ollama, etc.) providers alone.
+- **Publishes** exposed models to pi-agent (`~/.pi/agent/models.json`) — by default via ingress-backed `athanor-mlx` / `athanor-llama` aggregators — leaving your other (cloud, Ollama, etc.) providers alone.
 - **Exposes** an optional local control API so other tools can ask athanor to activate a model on demand.
 
 ## Prerequisites
@@ -243,7 +243,7 @@ athanor ls           # now usable directly
 | `preset`    | per-model overrides that merge on top of global runtime config |
 | `mlxFlavor` | `"lm"` or `"vlm"` — picks which MLX binary to use (MLX only)  |
 | `publish`   | whether pi-agent sees this model                              |
-| `piAlias`   | the name pi-agent uses (defaults to `slug`)                   |
+| `piAlias`   | optional llama launch alias; when set to something other than `slug`, overrides the default runtime model id |
 | `tags`      | free-form labels (`chat`, `coder`, …)                         |
 
 ### Stable per-model ports
@@ -251,6 +251,8 @@ athanor ls           # now usable directly
 Each model is bound to a port at first ingest and keeps it forever. This means pi-agent's catalog is configured **once per model**; switching which model is active does not change pi's URLs, only the `status` field athanor writes into each entry.
 
 Port range is configurable (`portRange` in `~/.athanor/config.json`, default 8081–8099).
+
+On load, athanor collapses duplicate registry rows that share the same normalized on-disk path (keeping the HF-sourced entry when present) and upgrades local GGUF paths under `org--repo/` directories to HF source metadata when possible.
 
 ### MLX capabilities and flavor routing
 
@@ -261,7 +263,7 @@ MLX entries track two independent axes:
 
 The split is deliberate: many VLM-tagged repos (e.g. Qwen2.5-VL, Qwen3-VL-MLX) run fine as text-only under `mlx_lm.server`, which is lighter, faster to load, and doesn't need a PyTorch install. Auto-routing every VLM-capable repo to `mlx_vlm.server` would silently break text-only workflows whenever torch isn't available. So athanor defaults everything to `lm` and leaves the upgrade to you.
 
-In `athanor ls` and `athanor show`, entries with `mlxFlavor: "vlm"` display `mlx-vlm` in the runtime column; `athanor show` also prints a `caps` row and, for vision-capable entries still on `lm`, a hint pointing at `athanor flavor <slug> vlm`. In pi-agent, VLM-flavored entries render as `[mlx-vlm] <slug> (athanor)`; the provider id stays `athanor-mlx-<slug>` regardless of flavor, so pi URLs don't churn if a model's flavor is toggled later.
+In `athanor ls` and `athanor show`, entries with `mlxFlavor: "vlm"` display `mlx-vlm` in the runtime column; `athanor show` also prints a `caps` row and, for vision-capable entries still on `lm`, a hint pointing at `athanor flavor <slug> vlm`. In the TUI model list, hub-backed entries show the HF repo as the primary label with the slug dimmed after it; local entries show the slug only. In pi-agent, VLM-flavored entries render as `[mlx-vlm] <repo> (athanor)`; the provider id stays `athanor-mlx-<slug>` regardless of flavor, so pi URLs don't churn if a model's flavor is toggled later.
 
 ### Supervisor and policies
 
@@ -288,18 +290,36 @@ Caveats worth knowing:
 
 ### Pi-agent sync
 
-Athanor publishes into pi-agent's [custom providers](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md) system. On every state change it rewrites `~/.pi/agent/models.json`:
+Athanor publishes into pi-agent's [custom providers](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md) system. On every state change it rewrites `~/.pi/agent/models.json`.
 
-- Each exposed athanor model becomes **its own pi provider** named `athanor-<runtime>-<slug>` (e.g. `athanor-mlx-qwen3-32b`, `athanor-llama-llama3-8b`), with `baseUrl` pointing at that model's stable port. One provider per model is required because a pi provider has exactly one `baseUrl` and each athanor model runs on its own port. The runtime segment keeps the backing engine visible in pi's `/model` picker. MLX VLM entries keep the `athanor-mlx-<slug>` provider id (so URLs don't churn if flavor is corrected) but render as `[mlx-vlm] <slug> (athanor)` in pi's model list.
+**Default shape (ingress on):** pi sees up to two aggregator providers — `athanor-mlx` and `athanor-llama` — both pointing at the ingress port (`127.0.0.1:8080/v1` by default). Each lists only exposed models of that runtime. See [Ingress](#ingress) for lifecycle and request routing.
+
+**Direct shape (`router.enabled: false`):** each exposed model becomes **its own pi provider** named `athanor-<runtime>-<slug>` (e.g. `athanor-mlx-qwen3-32b`), with `baseUrl` pointing at that model's stable port. One provider per model is required because a pi provider has exactly one `baseUrl` and each athanor model runs on its own port.
+
+Common rules for both shapes:
+
 - Providers whose name does **not** start with `athanor-` are preserved untouched — your OpenAI, Anthropic, Ollama, OpenRouter, etc. entries are safe.
-- Each athanor provider uses `api: "openai-completions"` (both `mlx_lm.server` and `llama-server` are OpenAI-compatible), a placeholder `apiKey: "athanor"` (required but ignored by both runtimes), and `compat: { supportsDeveloperRole: false, supportsReasoningEffort: false }` — the same flags pi's docs recommend for Ollama/vLLM-style local servers.
-- The provider's single model uses an `id` that matches exactly what the runtime was launched with, because `mlx_lm.server` compares the request's `model` field literally and falls back to a HuggingFace lookup on mismatch (see [ml-explore/mlx-lm#1133](https://github.com/ml-explore/mlx-lm/issues/1133)). Concretely:
-  - **MLX HF-sourced models** are launched with `--model <repo>` (e.g. `--model mlx-community/Qwen3-32B-4bit`) and the pi `id` is that same repo string. `mlx_lm.server` resolves the repo from the local HF cache with no network access.
-  - **MLX local models** are launched with `--model <path>` and the pi `id` is that same path.
-  - **llama.cpp models** are launched with `-m <path> --alias <piAlias|slug>` and the pi `id` is that alias. `llama-server` ignores the request's `model` field, so the alias is just what appears in `/v1/models`.
-- `~/.pi/agent/settings.json` is only touched when an athanor model is started as the active default, at which point `defaultProvider` and `defaultModel` are set to point at it. All other settings keys (`theme`, `compaction`, etc.) are preserved.
+- Each athanor provider uses `api: "openai-completions"`, a placeholder `apiKey: "athanor"`, and runtime-appropriate `compat` flags.
+- pi's `/model` picker lists models by **`id`**, not `name`. The `name` field is advisory detail text. Athanor sets both so they stay aligned with what each runtime was launched with:
+  - **MLX HF-sourced models** — launched with `--model <repo>`; pi `id` is that repo string.
+  - **MLX local models** — launched with `--model <path>`; pi `id` is that path.
+  - **llama.cpp HF GGUF** — launched with `--alias <registry-id>` where the id is `author/repo:file.gguf`; pi `id` matches. This keeps hub source visible in pi the same way MLX repos are. Slug and canonical id remain valid request aliases via the ingress resolver.
+  - **llama.cpp local / custom alias** — launched with `--alias <piAlias|slug>` when you've set an explicit `piAlias` different from `slug`; pi `id` is that alias.
+- Hub-backed entries use `[runtime] <repo> (athanor)` for the pi `name` field regardless of runtime.
+- `~/.pi/agent/settings.json` is only touched when an athanor model is started as the active default.
 
-Example exposed provider (MLX, HF-sourced):
+Example aggregator model entry (llama GGUF, HF-sourced):
+
+```json
+{
+  "id": "unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf",
+  "name": "[llama.cpp] unsloth/Qwen3.6-27B-GGUF (athanor)",
+  "input": ["text"],
+  "contextWindow": 32768
+}
+```
+
+Example direct provider (MLX, HF-sourced):
 
 ```json
 {
@@ -315,9 +335,9 @@ Example exposed provider (MLX, HF-sourced):
       "models": [
         {
           "id": "mlx-community/Qwen3-32B-4bit",
-          "name": "[mlx] qwen3-32b (athanor)",
+          "name": "[mlx] mlx-community/Qwen3-32B-4bit (athanor)",
           "input": ["text"],
-          "contextWindow": 16384
+          "contextWindow": 32768
         }
       ]
     }
@@ -325,7 +345,7 @@ Example exposed provider (MLX, HF-sourced):
 }
 ```
 
-Then in pi: `pi --provider athanor-mlx-qwen3-32b --model mlx-community/Qwen3-32B-4bit`, or just select it from `/model`.
+After upgrading athanor or changing runtime ids, run `athanor sync` and **restart** affected llama models so `--alias` matches what pi expects. pi reloads `models.json` when you open `/model`.
 
 Disable athanor's sync entirely with `"enablePiSync": false` in `~/.athanor/config.json`.
 
@@ -586,7 +606,7 @@ The ingress config lives under `router` in `~/.athanor/config.json` for backward
 { "router": { "enabled": true, "port": 8080, "host": "127.0.0.1", "drainTimeoutMs": 30000 } }
 ```
 
-By default, pi sync emits the ingress-backed aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime's model id (the HF repo for MLX, the launch alias for llama.cpp), the athanor slug, or the canonical id; all three are resolved. Unknown models return `404`.
+By default, pi sync emits the ingress-backed aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime model id (HF repo for MLX; registry `author/repo:file.gguf` for hub GGUF; custom `piAlias` or slug for local llama), the athanor slug, or the canonical registry id; all resolve. Unknown models return `404`.
 
 For users who don't want to keep the TUI open, `athanor router` runs the ingress server in the foreground and blocks on `Ctrl-C`:
 
@@ -608,7 +628,7 @@ Caveats:
 
 - **`athanor start` hangs or times out.** Check `~/.athanor/logs/<slug>-<pid>.log`. Most startup failures are the runtime itself complaining (missing weights, wrong quant, out of memory). Raise `supervisor.startupTimeoutMs` for very large models.
 - **`port already in use`.** Another process is on the model's stable port. Either stop it, or edit the entry's `port` in `~/.athanor/models.json` and restart.
-- **Pi-agent can't see a new model.** Make sure it's exposed (CLI: `athanor expose <slug>`) and run `athanor sync`. Confirm `~/.pi/agent/models.json` contains the expected athanor provider shape (per-model when router is off, `athanor-mlx` / `athanor-llama` aggregators when router is on), then open `/model` in pi (the file reloads on open).
+- **Pi-agent can't see a new model.** Make sure it's exposed (CLI: `athanor expose <slug>`) and run `athanor sync`. Confirm `~/.pi/agent/models.json` contains the expected athanor provider shape (per-model when `router.enabled` is false, `athanor-mlx` / `athanor-llama` aggregators when true — the default), then open `/model` in pi (the file reloads on open). If you upgraded athanor and llama model ids changed, restart the model after syncing.
 - **Models from other tools disappeared from pi.** They shouldn't — athanor only rewrites providers whose name starts with `athanor-`. If this happens, open an issue with the before/after of `~/.pi/agent/models.json`.
 - **Stale PID / router state.** If a child or detached router crashed without athanor noticing, reopening athanor or running `athanor sync` / `athanor status` will reconcile persisted state and clear dead router metadata opportunistically. If a model port is still held, run `athanor stop <slug>` (a no-op when nothing is live) then `athanor start <slug>`.
 - **`doctor` reports a missing binary.** Install `mlx_lm`, `mlx_vlm`, `llama.cpp`, or `huggingface_hub`, or adjust your shell's `PATH`. `mlx_vlm.server` is only needed if you plan to run VLM models; `athanor start` on a VLM entry will fail with a clear error if it's missing.
@@ -630,14 +650,14 @@ Tests redirect `ATHANOR_HOME` and `PI_HOME` to per-run temporary directories via
 
 ```
 src/
-  adapters/     # mlx (lm + vlm) + llama.cpp command builders and health probes
+  adapters/     # mlx (lm + vlm) + llama.cpp command builders, health probes, runtime model ids
   cli/          # hand-rolled CLI dispatcher, doctor, output formatting
   config/       # config file load + defaults
   control/      # optional HTTP control API (off by default)
   discovery/    # HF cache scanner + registry ingest (MLX capability detection lives here)
   presets/      # preset merge, tunable-key metadata, recipes
   pull/         # HuggingFace repo inspection and download
-  registry/     # models.json CRUD, slug + port allocation
+  registry/     # models.json CRUD, slug + port allocation, dedup, display labels
   search/       # HuggingFace Hub search + trending
   supervisor/   # detached process lifecycle, policy, reattach
   sync/         # namespaced pi-agent catalog merge

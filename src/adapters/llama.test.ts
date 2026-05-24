@@ -45,6 +45,18 @@ describe("LlamaAdapter", () => {
     expect(args[i + 1]).toBe("raw")
   })
 
+  it("uses registry id as alias for hf gguf with default piAlias", () => {
+    const entry = llamaEntry({
+      id: "unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf",
+      slug: "qwen3-6-27b-q4-k-m",
+      piAlias: "qwen3-6-27b-q4-k-m",
+      source: { type: "hf", repo: "unsloth/Qwen3.6-27B-GGUF", file: "Qwen3.6-27B-Q4_K_M.gguf" }
+    })
+    const { args } = adapter.buildCommand(entry, llama)
+    const i = args.indexOf("--alias")
+    expect(args[i + 1]).toBe("unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf")
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

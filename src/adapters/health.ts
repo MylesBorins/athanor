@@ -1,11 +1,5 @@
 import type { ModelEntry, RuntimeType } from "../types/index.js"
-
-function expectedRuntimeModelId(entry: ModelEntry): string {
-  if (entry.runtime === "mlx") {
-    return entry.source.type === "hf" ? entry.source.repo : entry.path
-  }
-  return entry.piAlias ?? entry.slug
-}
+import { runtimeModelId } from "./model-id.js"
 
 export function healthUrl(runtime: RuntimeType, port: number): string {
   switch (runtime) {
@@ -77,6 +71,6 @@ export async function probeRuntimeModelId(entry: ModelEntry, timeoutMs = 1500): 
     | { data?: Array<{ id?: unknown }> }
     | null
   if (!body || !Array.isArray(body.data)) return false
-  const expected = expectedRuntimeModelId(entry)
+  const expected = runtimeModelId(entry)
   return body.data.some(model => typeof model?.id === "string" && model.id === expected)
 }

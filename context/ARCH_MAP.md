@@ -33,6 +33,7 @@ Compressed, code-driven architecture context for future work.
   - `src/registry/index.ts`
   - `src/registry/materialize.ts`
   - `src/registry/recommend.ts`
+  - `src/registry/display.ts`
 - **discovery**
   - `src/discovery/scanner.ts`
   - `src/discovery/ingest.ts`
@@ -42,6 +43,7 @@ Compressed, code-driven architecture context for future work.
   - `src/pull/download.ts`
 - **adapters**
   - `src/adapters/index.ts`
+  - `src/adapters/model-id.ts`
   - `src/adapters/mlx.ts`
   - `src/adapters/llama.ts`
   - `src/adapters/health.ts`
@@ -74,6 +76,7 @@ Compressed, code-driven architecture context for future work.
   - `src/cli/pull-renderer.ts`
 - **ui**
   - `src/ui/App.tsx`
+  - `src/ui/ModelList.tsx`
   - `src/ui/useAppData.ts`
   - `src/ui/useModelActions.ts`
   - `src/ui/useAppInput.ts`
@@ -131,6 +134,8 @@ Compressed, code-driven architecture context for future work.
 
 ### Pi sync
 - `src/sync/pi.ts` reads registry + config and rewrites only `athanor-*` providers in pi files
+- pi `/model` lists by runtime model `id`; `name` is advisory and comes from `src/registry/display.ts`
+- hub GGUF runtime ids default to registry `author/repo:file.gguf` via `src/adapters/model-id.ts` (custom `piAlias` wins when set)
 - pi `contextWindow` now comes from effective merged runtime config (`mergedConfigFor`), so advertised context matches actual launch settings even when a model inherits global defaults
 - router off: one provider per published model
 - router on: up to two runtime aggregators (`athanor-mlx`, `athanor-llama`)

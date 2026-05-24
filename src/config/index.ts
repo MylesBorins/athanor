@@ -41,12 +41,11 @@ export interface ControlApiConfig {
 }
 
 // OpenAI-compatible proxy that fronts every exposed model on a single
-// port. When enabled, pi-agent sees up to two aggregator providers —
-// `athanor-mlx` and `athanor-llama` — both pointing at the router and
-// each carrying the compat flags that runtime needs. Model-switching
-// inside pi triggers on-demand supervisor.start() for the selected
-// entry. Off by default and 127.0.0.1-only, same posture as the
-// control API.
+// port. When enabled (the default), pi-agent sees up to two aggregator
+// providers — `athanor-mlx` and `athanor-llama` — both pointing at the
+// router and each carrying the compat flags that runtime needs. Model-
+// switching inside pi triggers on-demand supervisor.start() for the
+// selected entry. 127.0.0.1-only, same posture as the control API.
 export interface RouterConfig {
   enabled: boolean
   port: number
