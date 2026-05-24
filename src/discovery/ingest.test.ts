@@ -84,8 +84,8 @@ describe("ingestDiscovered", () => {
 
   it("produces unique slugs when discovered names collide", () => {
     const rep = ingestDiscovered([
-      mlxDiscovered({ id: "a", name: "dup" }),
-      mlxDiscovered({ id: "b", name: "dup" })
+      mlxDiscovered({ id: "a", name: "dup", path: "/cache/mlx/dup-1" }),
+      mlxDiscovered({ id: "b", name: "dup", path: "/cache/mlx/dup-2" })
     ])
     expect(rep.added).toHaveLength(2)
     const slugs = listModels().map(m => m.slug).sort()

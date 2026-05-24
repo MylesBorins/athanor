@@ -9,6 +9,7 @@ import { ensureBaseDirs } from "./config/index.js"
 import { startControlApi, stopControlApi } from "./control/server.js"
 import { startRouter, stopRouter } from "./router/server.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
+import { deduplicateRegistry } from "./registry/index.js"
 import { reconcileIngressForCurrentState } from "./router/lifecycle.js"
 
 const ENTER_ALT_SCREEN = "\x1b[?1049h"
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
   // model added while the TUI was closed) are picked up without the
   // user having to press `s`. ingestDiscovered is idempotent; when
   // nothing changed it's a no-op write.
+  deduplicateRegistry()
   const rep = ingestDiscovered()
   let initialMessage: string | undefined
   if (rep.added.length > 0) {

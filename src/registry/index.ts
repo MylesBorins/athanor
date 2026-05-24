@@ -1,4 +1,5 @@
 import * as fs from "fs"
+import * as path from "path"
 import type {
   ModelEntry,
   Registry,
@@ -10,13 +11,23 @@ function emptyRegistry(): Registry {
   return { version: 1, models: [] }
 }
 
+/** Canonical on-disk path for dedup: resolve symlinks, strip trailing slashes. */
+export function normalizeModelPath(modelPath: string): string {
+  const trimmed = modelPath.replace(/\/+$/, "") || modelPath
+  try {
+    return fs.realpathSync(trimmed)
+  } catch {
+    return path.resolve(trimmed)
+  }
+}
+
 function atomicWrite(filepath: string, data: string): void {
   const tmp = filepath + ".tmp"
   fs.writeFileSync(tmp, data, "utf8")
   fs.renameSync(tmp, filepath)
 }
 
-export function loadRegistry(): Registry {
+function readRegistryFromDisk(): Registry {
   try {
     if (!fs.existsSync(PATHS.registry)) return emptyRegistry()
     const raw = JSON.parse(fs.readFileSync(PATHS.registry, "utf8"))
@@ -27,6 +38,112 @@ export function loadRegistry(): Registry {
     console.error(`Failed to load registry: ${err}`)
     return emptyRegistry()
   }
+}
+
+function parseOrgRepoDir(dirName: string): { org: string; repo: string } | null {
+  const firstSep = dirName.indexOf("--")
+  if (firstSep < 0) return null
+  const org = dirName.slice(0, firstSep)
+  const repo = dirName.slice(firstSep + 2)
+  if (!org || !repo) return null
+  return { org, repo }
+}
+
+function upgradeLocalSourceFromPath(entry: ModelEntry): boolean {
+  if (entry.source.type !== "local" || entry.runtime !== "llama.cpp") return false
+  const parentDir = path.basename(path.dirname(entry.path))
+  const parsed = parseOrgRepoDir(parentDir)
+  if (!parsed) return false
+  const file = path.basename(entry.path)
+  entry.source = { type: "hf", repo: `${parsed.org}/${parsed.repo}`, file }
+  entry.id = `${parsed.org}/${parsed.repo}:${file}`
+  return true
+}
+
+function pickDuplicatePrimary(a: ModelEntry, b: ModelEntry): [ModelEntry, ModelEntry] {
+  if (a.source.type === "hf" && b.source.type !== "hf") return [a, b]
+  if (b.source.type === "hf" && a.source.type !== "hf") return [b, a]
+  return a.addedAt <= b.addedAt ? [a, b] : [b, a]
+}
+
+function mergeUserOwnedFields(primary: ModelEntry, donor: ModelEntry): void {
+  if (!primary.preset && donor.preset) primary.preset = donor.preset
+  if (!primary.tags?.length && donor.tags?.length) primary.tags = [...donor.tags]
+  if (primary.mlxFlavor === undefined && donor.mlxFlavor !== undefined) {
+    primary.mlxFlavor = donor.mlxFlavor
+  }
+  if (primary.publish && !donor.publish) primary.publish = donor.publish
+  if (
+    (!primary.piAlias || primary.piAlias === primary.slug) &&
+    donor.piAlias &&
+    donor.piAlias !== donor.slug
+  ) {
+    primary.piAlias = donor.piAlias
+  }
+}
+
+function mergeDuplicateEntries(primary: ModelEntry, donor: ModelEntry): void {
+  if (donor.source.type === "hf" && primary.source.type === "local") {
+    primary.id = donor.id
+    primary.source = donor.source
+  }
+  if (donor.sizeBytes !== undefined && primary.sizeBytes !== donor.sizeBytes) {
+    primary.sizeBytes = donor.sizeBytes
+  }
+  if (donor.runtime === "mlx" && donor.mlxCapabilities !== undefined) {
+    if (donor.mlxCapabilities.length > 0) primary.mlxCapabilities = [...donor.mlxCapabilities]
+    else delete primary.mlxCapabilities
+  }
+  if (donor.architectureFamily !== undefined) primary.architectureFamily = donor.architectureFamily
+  if (donor.trainedContextLength !== undefined) primary.trainedContextLength = donor.trainedContextLength
+  if (donor.quantization !== undefined) primary.quantization = donor.quantization
+  if (donor.paramCount !== undefined) primary.paramCount = donor.paramCount
+  if (donor.isMoe !== undefined) primary.isMoe = donor.isMoe
+  if (donor.activeParams !== undefined) primary.activeParams = donor.activeParams
+  if (donor.metadataSource !== undefined) primary.metadataSource = donor.metadataSource
+  mergeUserOwnedFields(primary, donor)
+}
+
+/** Collapse registry rows that share the same normalized path. */
+export function deduplicateRegistry(reg: Registry = readRegistryFromDisk()): Registry {
+  let changed = false
+  for (const entry of reg.models) {
+    if (upgradeLocalSourceFromPath(entry)) changed = true
+  }
+
+  const groups = new Map<string, ModelEntry[]>()
+  for (const entry of reg.models) {
+    const key = normalizeModelPath(entry.path)
+    const list = groups.get(key)
+    if (list) list.push(entry)
+    else groups.set(key, [entry])
+  }
+
+  const merged: ModelEntry[] = []
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]!)
+      continue
+    }
+    changed = true
+    let primary = group[0]!
+    for (let i = 1; i < group.length; i++) {
+      const [nextPrimary, donor] = pickDuplicatePrimary(primary, group[i]!)
+      primary = nextPrimary
+      mergeDuplicateEntries(primary, donor)
+    }
+    merged.push(primary)
+  }
+
+  if (changed) {
+    reg.models = merged
+    saveRegistry(reg)
+  }
+  return reg
+}
+
+export function loadRegistry(): Registry {
+  return deduplicateRegistry(readRegistryFromDisk())
 }
 
 export function saveRegistry(registry: Registry): void {

@@ -3,6 +3,7 @@ import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js
 import {
   allocatePort,
   loadRegistry,
+  normalizeModelPath,
   saveRegistry,
   slugify,
   snapshot,
@@ -93,10 +94,30 @@ export function pullToMaterializeInput(
 export function materializeRegistryEntry(input: RegistryMaterializeInput): RegistryMaterializeResult {
   const reg = loadRegistry()
   const snap = snapshot(reg)
-  const existing = reg.models.find(m => m.id === input.id)
+  let existing = reg.models.find(m => m.id === input.id)
+
+  // Deduplicate by path: pull and scan can produce different IDs for
+  // the same on-disk file (e.g. pull uses "repo:file" while
+  // scanGgufModels for the llama dir uses the full path). When we
+  // find a path collision, merge into the existing entry rather than
+  // creating a duplicate registry row.
+  let upgradedSource = false
+  const normalizedInputPath = normalizeModelPath(input.path)
+  if (!existing) {
+    existing = reg.models.find(m => normalizeModelPath(m.path) === normalizedInputPath)
+    if (existing) {
+      // Upgrade the source and id if the new input carries richer
+      // metadata (e.g. a scan-local entry gets an HF source from pull).
+      if (existing.source.type === "local" && input.source.type === "hf") {
+        existing.id = input.id
+        existing.source = input.source
+        upgradedSource = true
+      }
+    }
+  }
 
   if (existing) {
-    const changed = updateExistingEntry(existing, input)
+    const changed = updateExistingEntry(existing, input) || upgradedSource
     if (changed) saveRegistry(reg)
     return { entry: existing, created: false, changed }
   }

@@ -52,10 +52,11 @@ Entry points: `bin/athanor` → `dist/index.js` (built) or `npm start` (tsx) →
 
 ## Context files
 
-Keep reusable architecture context under `context/`.
+Keep reusable architecture context under `context/`. See `context/README.md` for the index.
 
 - `context/ARCH_MAP.md` — compressed architecture map for routine work
-- `context/ARCH_REVIEW.md` — deeper review notes, findings, and phased plan
+- `context/ARCH_REVIEW.md` — completed refactor summary and remaining backlog
+- `context/plans/` — active task plans (completed plans in `context/plans/done/`)
 
 Context discipline:
 - consult `context/ARCH_MAP.md` first for normal coding tasks

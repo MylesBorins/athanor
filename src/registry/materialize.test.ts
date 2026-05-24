@@ -5,7 +5,8 @@ import { listModels, updateModel } from "./index.js"
 import {
   discoveredToMaterializeInput,
   materializeRegistryEntry,
-  pullToMaterializeInput
+  pullToMaterializeInput,
+  type RegistryMaterializeInput
 } from "./materialize.js"
 import type { DiscoveredModel } from "../types/index.js"
 
@@ -99,5 +100,128 @@ describe("registry materialization", () => {
     const result = materializeRegistryEntry(discoveredToMaterializeInput(discovered()))
     expect(result.created).toBe(false)
     expect(result.changed).toBe(false)
+  })
+
+  it("deduplicates by path when pull and scan produce different ids for the same file", () => {
+    // Simulate pull: creates entry with repo:file id
+    const pullResult = materializeRegistryEntry(
+      pullToMaterializeInput(
+        "unsloth/Qwen3.6-27B-GGUF",
+        "qwen3-6-27b-q6-k.gguf",
+        undefined,
+        "llama.cpp",
+        "/models/unsloth--Qwen3.6-27B-GGUF/qwen3-6-27b-q6-k.gguf"
+      )
+    )
+    expect(pullResult.created).toBe(true)
+    expect(pullResult.entry.id).toBe("unsloth/Qwen3.6-27B-GGUF:qwen3-6-27b-q6-k.gguf")
+    const pullSlug = pullResult.entry.slug
+    const pullPort = pullResult.entry.port
+
+    // Simulate scan: same file but with fullPath id and local source
+    const scanInput = {
+      id: "/models/unsloth--Qwen3.6-27B-GGUF/qwen3-6-27b-q6-k.gguf",
+      name: "qwen3-6-27b-q6-k",
+      path: "/models/unsloth--Qwen3.6-27B-GGUF/qwen3-6-27b-q6-k.gguf",
+      runtime: "llama.cpp" as const,
+      source: { type: "local" } as const,
+      sizeBytes: 15_000_000_000,
+      quantization: "Q6_K",
+      architectureFamily: "qwen",
+      metadataSource: "gguf_header" as const
+    }
+    const scanResult = materializeRegistryEntry(scanInput)
+
+    // Should NOT create a duplicate
+    expect(scanResult.created).toBe(false)
+    expect(listModels().length).toBe(1)
+
+    // Original slug and port preserved
+    const entry = listModels()[0]!
+    expect(entry.slug).toBe(pullSlug)
+    expect(entry.port).toBe(pullPort)
+
+    // HF source preserved (not downgraded to local)
+    expect(entry.source.type).toBe("hf")
+    expect((entry.source as { type: "hf"; repo: string }).repo).toBe("unsloth/Qwen3.6-27B-GGUF")
+
+    // Detected metadata from scan merged in
+    expect(entry.sizeBytes).toBe(15_000_000_000)
+    expect(entry.quantization).toBe("Q6_K")
+    expect(entry.architectureFamily).toBe("qwen")
+  })
+
+  it("upgrades local source to hf when pull follows scan", () => {
+    // Simulate scan first (local source, fullPath id)
+    const scanInput = {
+      id: "/models/my-model.gguf",
+      name: "my-model",
+      path: "/models/my-model.gguf",
+      runtime: "llama.cpp" as const,
+      source: { type: "local" } as const,
+      sizeBytes: 5_000_000,
+      metadataSource: "file_size_only" as const
+    }
+    const scanResult = materializeRegistryEntry(scanInput)
+    expect(scanResult.created).toBe(true)
+    expect(scanResult.entry.source.type).toBe("local")
+    const originalSlug = scanResult.entry.slug
+
+    // Simulate pull of the same file (hf source, repo:file id)
+    const pullResult = materializeRegistryEntry(
+      pullToMaterializeInput(
+        "author/model-gguf",
+        "my-model.gguf",
+        undefined,
+        "llama.cpp",
+        "/models/my-model.gguf"
+      )
+    )
+    expect(pullResult.created).toBe(false)
+    expect(listModels().length).toBe(1)
+
+    const entry = listModels()[0]!
+    expect(entry.slug).toBe(originalSlug)
+    expect(entry.source.type).toBe("hf")
+    expect((entry.source as { type: "hf"; repo: string }).repo).toBe("author/model-gguf")
+    expect(entry.id).toBe("author/model-gguf:my-model.gguf")
+  })
+
+  it("persists source upgrade even when no other fields change", () => {
+    // Race condition: watcher scan creates local entry with same path
+    // and sizeBytes as the pull will produce. updateExistingEntry returns
+    // false because nothing changed except source, so the save must be
+    // driven by the upgrade itself.
+    const scanInput: RegistryMaterializeInput = {
+      id: "/models/same-model.gguf",
+      name: "same-model",
+      path: "/models/same-model.gguf",
+      runtime: "llama.cpp",
+      source: { type: "local" },
+      sizeBytes: 5_000_000
+    }
+    const scanResult = materializeRegistryEntry(scanInput)
+    expect(scanResult.created).toBe(true)
+
+    // Pull of the same file with identical path and sizeBytes.
+    // updateExistingEntry returns false (no fields to update),
+    // but the source upgrade must still persist.
+    const pullResult = materializeRegistryEntry(
+      pullToMaterializeInput(
+        "author/model",
+        "same-model.gguf",
+        undefined,
+        "llama.cpp",
+        "/models/same-model.gguf"
+      )
+    )
+    // Manually patch sizeBytes to match so updateExistingEntry is no-op
+    // (pullToMaterializeInput doesn't set sizeBytes; scanner does).
+    // The key assertion: source must be "hf" in the persisted registry.
+    expect(pullResult.created).toBe(false)
+    const entry = listModels()[0]!
+    expect(entry.source.type).toBe("hf")
+    expect((entry.source as { type: "hf"; repo: string }).repo).toBe("author/model")
+    expect(entry.id).toBe("author/model:same-model.gguf")
   })
 })

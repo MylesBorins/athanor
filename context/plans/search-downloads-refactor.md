@@ -99,12 +99,11 @@ The search/download UX refactor is substantially implemented and validated with 
   - [ ] Make the search surface clearer that athanor is for local LLM inference, not a general-purpose model registry.
 
 ### D. Repo / workflow hygiene
-- [ ] Decide what to do with `context/plans/2026-05-08-athanor.md`.
-- [ ] Stage any remaining intended files.
-- [ ] Re-run:
+- [x] Remove stale reference to deleted plan file `2026-05-08-athanor.md` (never existed in repo)
+- [ ] Re-run before merge:
   - [ ] `npx tsc --noEmit`
   - [ ] `npm run test:run`
-- [ ] Update README again if any additional user-visible keybindings/flows change.
+- [ ] Update README again if any additional user-visible keybindings/flows change
 
 ## Files Changed
 - `README.md`

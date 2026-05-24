@@ -2,12 +2,17 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import * as fs from "fs"
 import * as path from "path"
 import * as os from "os"
+import { PATHS } from "../config/index.js"
 import {
+  deduplicateByPath,
   detectArchitectureFamily,
   detectMlxCapabilities,
   detectMlxMetadata,
-  detectGgufMetadata
+  detectGgufMetadata,
+  parseOrgRepoDir,
+  scanModels
 } from "./scanner.js"
+import type { DiscoveredModel } from "../types/index.js"
 
 describe("discovery scanner metadata helpers", () => {
   let tmp: string
@@ -66,5 +71,68 @@ describe("discovery scanner metadata helpers", () => {
     expect(meta.architectureFamily).toBeUndefined()
     expect(meta.quantization).toBeUndefined()
     expect(meta.metadataSource).toBe("file_size_only")
+  })
+
+  it("parseOrgRepoDir reads athanor pull directory names", () => {
+    expect(parseOrgRepoDir("unsloth--Qwen3.6-27B-GGUF")).toEqual({
+      org: "unsloth",
+      repo: "Qwen3.6-27B-GGUF"
+    })
+    expect(parseOrgRepoDir("flat-name")).toBeNull()
+  })
+
+  it("scanGgufModels assigns hf source for gguf files under org--repo folders", () => {
+    const repoDir = path.join(tmp, "unsloth--Qwen3.6-27B-GGUF")
+    fs.mkdirSync(repoDir, { recursive: true })
+    const ggufPath = path.join(repoDir, "Qwen3.6-27B-Q4_K_M.gguf")
+    fs.writeFileSync(ggufPath, "gguf")
+
+    const prevConfig = fs.existsSync(PATHS.config)
+      ? fs.readFileSync(PATHS.config, "utf8")
+      : null
+    fs.writeFileSync(PATHS.config, JSON.stringify({
+      modelDirs: { mlx: path.join(tmp, "mlx-empty"), llama: tmp }
+    }))
+
+    try {
+      const models = scanModels().filter(m => m.path === ggufPath)
+      expect(models).toHaveLength(1)
+      expect(models[0]!.source).toEqual({
+        type: "hf",
+        repo: "unsloth/Qwen3.6-27B-GGUF",
+        file: "Qwen3.6-27B-Q4_K_M.gguf"
+      })
+    } finally {
+      if (prevConfig === null) {
+        try { fs.unlinkSync(PATHS.config) } catch { /* absent */ }
+      } else {
+        fs.writeFileSync(PATHS.config, prevConfig)
+      }
+    }
+  })
+
+  it("deduplicateByPath keeps the hf-sourced entry when paths collide", () => {
+    const modelPath = path.join(tmp, "shared.gguf")
+    fs.writeFileSync(modelPath, "gguf")
+    const local: DiscoveredModel = {
+      id: modelPath,
+      name: "shared",
+      path: modelPath,
+      runtime: "llama.cpp",
+      source: { type: "local" },
+      sizeBytes: 100
+    }
+    const hf: DiscoveredModel = {
+      id: "author/repo:shared.gguf",
+      name: "shared",
+      path: modelPath,
+      runtime: "llama.cpp",
+      source: { type: "hf", repo: "author/repo", file: "shared.gguf" },
+      sizeBytes: 100
+    }
+    const deduped = deduplicateByPath([local, hf])
+    expect(deduped).toHaveLength(1)
+    expect(deduped[0]!.source.type).toBe("hf")
+    expect(deduped[0]!.id).toBe("author/repo:shared.gguf")
   })
 })

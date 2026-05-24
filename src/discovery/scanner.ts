@@ -1,7 +1,8 @@
 import * as fs from "fs"
 import * as path from "path"
-import type { DiscoveredModel, MlxCapability, RuntimeType } from "../types/index.js"
+import type { DiscoveredModel, MlxCapability, ModelSource, RuntimeType } from "../types/index.js"
 import { getModelDirs } from "../config/index.js"
+import { normalizeModelPath } from "../registry/index.js"
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === "object" && !Array.isArray(v)
@@ -182,16 +183,20 @@ function snapshotSizeBytes(snapshotDir: string): number {
   }
 }
 
+/** org--repo dir names from athanor pull (`author/repo` → `author--repo`). */
+export function parseOrgRepoDir(dirName: string): { org: string; repo: string } | null {
+  const firstSep = dirName.indexOf("--")
+  if (firstSep < 0) return null
+  const org = dirName.slice(0, firstSep)
+  const repo = dirName.slice(firstSep + 2)
+  if (!org || !repo) return null
+  return { org, repo }
+}
+
 function parseHfCacheDir(dirName: string): { org: string; repo: string } | null {
   // models--<org>--<repo-with-dashes-preserved>
   if (!dirName.startsWith("models--")) return null
-  const rest = dirName.slice("models--".length)
-  const firstSep = rest.indexOf("--")
-  if (firstSep < 0) return null
-  const org = rest.slice(0, firstSep)
-  const repo = rest.slice(firstSep + 2)
-  if (!org || !repo) return null
-  return { org, repo }
+  return parseOrgRepoDir(dirName.slice("models--".length))
 }
 
 function scanMlxModels(baseDir: string): Model[] {
@@ -249,15 +254,31 @@ function scanGgufModels(baseDir: string): Model[] {
         } else if (entry.name.endsWith(".gguf")) {
           const stats = fs.statSync(fullPath)
           const name = path.basename(entry.name, ".gguf")
-          models.push({
-            id: fullPath,
-            name,
-            path: fullPath,
-            runtime: "llama.cpp",
-            source: { type: "local" },
-            sizeBytes: stats.size,
-            ...detectGgufMetadata(fullPath, name)
-          })
+          const file = entry.name
+          const parentDir = path.basename(path.dirname(fullPath))
+          const parsed = parseOrgRepoDir(parentDir)
+          if (parsed) {
+            const hfRepo = `${parsed.org}/${parsed.repo}`
+            models.push({
+              id: `${hfRepo}:${file}`,
+              name,
+              path: fullPath,
+              runtime: "llama.cpp",
+              source: { type: "hf", repo: hfRepo, file },
+              sizeBytes: stats.size,
+              ...detectGgufMetadata(fullPath, name)
+            })
+          } else {
+            models.push({
+              id: fullPath,
+              name,
+              path: fullPath,
+              runtime: "llama.cpp",
+              source: { type: "local" },
+              sizeBytes: stats.size,
+              ...detectGgufMetadata(fullPath, name)
+            })
+          }
         }
       }
     } catch (err) {
@@ -321,6 +342,25 @@ function scanHFCacheGgufModels(hubDir: string): Model[] {
   return models
 }
 
+function sourceRank(source: ModelSource): number {
+  return source.type === "hf" ? 1 : 0
+}
+
+export function deduplicateByPath(models: DiscoveredModel[]): DiscoveredModel[] {
+  const byPath = new Map<string, DiscoveredModel>()
+  for (const model of models) {
+    const key = normalizeModelPath(model.path)
+    const existing = byPath.get(key)
+    if (!existing) {
+      byPath.set(key, model)
+      continue
+    }
+    const keep = sourceRank(model.source) > sourceRank(existing.source) ? model : existing
+    byPath.set(key, keep)
+  }
+  return [...byPath.values()]
+}
+
 export function scanModels(): Model[] {
   const dirs = getModelDirs()
 
@@ -328,7 +368,7 @@ export function scanModels(): Model[] {
   const ggufModels     = scanGgufModels(dirs.llama)
   const hfGgufModels   = scanHFCacheGgufModels(dirs.mlx)  // reuses HF hub cache dir
 
-  return [...mlxModels, ...ggufModels, ...hfGgufModels]
+  return deduplicateByPath([...mlxModels, ...ggufModels, ...hfGgufModels])
 }
 
 export function getModelByPath(modelPath: string): Model | undefined {

@@ -41,8 +41,9 @@ function runtimeSuffix(stats?: InstanceStats): string {
   return parts.join(" · ")
 }
 
-function displayName(m: ModelEntry): string {
-  return m.source.type === "hf" ? m.source.repo : m.slug
+export function modelListParts(m: ModelEntry): { slug: string; repo?: string } {
+  if (m.source.type === "hf") return { slug: m.slug, repo: m.source.repo }
+  return { slug: m.slug }
 }
 
 function runtimeLabel(runtime: ModelEntry["runtime"]): { text: string; color: string } {
@@ -127,8 +128,12 @@ export const ModelList: React.FC<ModelListProps> = ({
         const { ch, color } = statusIndicator(inst?.status)
         const selected = i === selectedIndex
         const suffix = inst ? runtimeSuffix(stats?.get(m.id)) : ""
-        const rawName = truncEnd(displayName(m), nameBudget)
-        const name = (veryCompact || tiny) ? rawName : rawName.padEnd(nameBudget)
+        const { slug, repo } = modelListParts(m)
+        const repoReserve = repo ? Math.min(repo.length + 3, Math.max(14, Math.floor(nameBudget * 0.55))) : 0
+        const slugBudget = Math.max(8, nameBudget - repoReserve)
+        const slugText = truncEnd(slug, slugBudget)
+        const repoBudget = Math.max(0, nameBudget - slugText.length - 3)
+        const repoText = repo && repoBudget > 6 ? truncEnd(repo, repoBudget) : undefined
         const recency = recencyLabel(m.lastUsedAt).padStart(5)
         const runtime = runtimeLabel(m.runtime)
         const runtimeText = runtime.text.padEnd(5)
@@ -142,10 +147,13 @@ export const ModelList: React.FC<ModelListProps> = ({
               bold={selected}
               dimColor={!selected}
               color={selected ? "cyan" : undefined}
-              wrap={veryCompact ? "truncate-end" : "truncate-end"}
+              wrap="truncate-end"
             >
-              {name}
+              {(veryCompact || tiny) ? slugText : slugText.padEnd(slugBudget)}
             </Text>
+            {repoText ? (
+              <Text dimColor wrap="truncate-end">{` · ${repoText}`}</Text>
+            ) : null}
             {showRuntime ? <Text color={runtime.color}>{runtimeText}</Text> : null}
             {showPort ? <Text dimColor>{` · ${portText}`}</Text> : null}
             {showSize ? <Text dimColor>{` · ${sizeText || "  ?  "}`}</Text> : null}

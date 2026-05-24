@@ -3,7 +3,8 @@
 This directory stores project plan documents used by the local pi plan-mode extension.
 
 ## Layout
-- `*.md` — individual plan files
+- `*.md` — active or proposed plan files
+- `done/*.md` — completed plans (kept for reference)
 - `.plan-state.json` — extension state (current active plan and mode)
 
 ## Workflow
