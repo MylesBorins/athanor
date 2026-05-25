@@ -129,6 +129,14 @@ export async function cmdStart(idOrSlug: string): Promise<void> {
 
 export async function cmdStop(idOrSlug?: string): Promise<void> {
   const res = await stopModel(idOrSlug)
+  if (!res.stopped) {
+    if (res.stoppedAll) {
+      ok("no running instances to stop")
+    } else {
+      ok(`${style.bold(res.entry!.slug)} was not running`)
+    }
+    return
+  }
   if (res.stoppedAll) {
     ok("stopped all")
     return

@@ -128,9 +128,9 @@ export class Supervisor {
     }
   }
 
-  async stop(id: string): Promise<void> {
+  async stop(id: string): Promise<boolean> {
     const inst = this.instances.get(id)
-    if (!inst) return
+    if (!inst) return false
     // Wait briefly for any router-proxied streams targeting this model
     // to finish, so SSE clients aren't cut mid-token. Bounded by
     // config.router.drainTimeoutMs (0 disables). No-op when the router
@@ -140,10 +140,14 @@ export class Supervisor {
     await this.killPid(inst.pid)
     this.instances.delete(id)
     this.persist()
+    return true
   }
 
-  async stopAll(): Promise<void> {
-    for (const id of [...this.instances.keys()]) await this.stop(id)
+  async stopAll(): Promise<boolean> {
+    const ids = [...this.instances.keys()]
+    if (ids.length === 0) return false
+    for (const id of ids) await this.stop(id)
+    return true
   }
 
   async restart(entry: ModelEntry): Promise<ActiveInstance> {

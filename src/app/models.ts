@@ -29,6 +29,7 @@ export interface StartModelResult {
 export interface StopModelResult {
   stoppedAll: boolean
   entry?: ModelEntry
+  stopped: boolean
 }
 
 export function scanModelsAndReport(): IngestReport {
@@ -62,17 +63,17 @@ export async function stopModel(idOrSlug?: string): Promise<StopModelResult> {
     // Stopping all instances does not change publish state. Re-sync pi
     // with an empty running set, but leave provider emission driven by
     // the registry's persistent `publish` flags.
-    await supervisor.stopAll()
+    const stopped = await supervisor.stopAll()
     await stopIngressIfIdle(stopRouter)
     syncPi({ instances: [] })
-    return { stoppedAll: true }
+    return { stoppedAll: true, stopped }
   }
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  await supervisor.stop(entry.id)
+  const stopped = await supervisor.stop(entry.id)
   await stopIngressIfIdle(stopRouter)
   syncPi({ instances: supervisor.list() })
-  return { stoppedAll: false, entry }
+  return { stoppedAll: false, entry, stopped }
 }
 
 export async function restartModel(idOrSlug: string, opts?: { confirm?: boolean }): Promise<StartModelResult> {

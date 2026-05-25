@@ -23,13 +23,12 @@ const PI_SETTINGS_PATH = path.join(PI_DIR, "agent", "settings.json")
 //
 // When `config.router.enabled` is true, pi instead sees up to two
 // aggregating providers — `athanor-mlx` and `athanor-llama` — both
-// pointing at the router port. The split exists because pi's provider
-// compat flags differ by runtime: mlx_lm/vlm don't accept the
-// developer role, llama-server does. Per-model athanor-* providers
-// are cleared in router mode so the /model picker isn't cluttered
-// with duplicates; the legacy `athanor-router` aggregator (if present
-// from an older install) is cleared the same way, because both
-// constants share this prefix.
+// pointing at the router port. The split keeps the backing engine
+// obvious in pi's /model picker and in the JSON file. Per-model
+// athanor-* providers are cleared in router mode so the /model picker
+// isn't cluttered with duplicates; the legacy `athanor-router` aggregator
+// (if present from an older install) is cleared the same way, because
+// both constants share this prefix.
 export const ATHANOR_PROVIDER_PREFIX = "athanor-"
 export const ATHANOR_MLX_PROVIDER = "athanor-mlx"
 export const ATHANOR_LLAMA_PROVIDER = "athanor-llama"
@@ -46,7 +45,6 @@ interface PiModelConfig {
   contextWindow?: number
   maxTokens?: number
   cost?: { input: number; output: number; cacheRead: number; cacheWrite: number }
-  compat?: Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -56,7 +54,6 @@ interface PiProviderConfig {
   apiKey?: string
   headers?: Record<string, string>
   authHeader?: boolean
-  compat?: Record<string, unknown>
   models?: PiModelConfig[]
   [key: string]: unknown
 }
@@ -113,14 +110,6 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
     // Both mlx_lm.server and llama-server accept (and ignore) any token.
     // pi requires the field to be present.
     apiKey: "athanor",
-    // Local OpenAI-compatible servers typically don't speak the
-    // developer role or reasoning_effort. Pi's own docs recommend
-    // these flags for Ollama/vLLM/SGLang; mlx_lm.server and
-    // llama-server are in the same family.
-    compat: {
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false
-    },
     models: [{
       id: modelIdFor(entry),
       name: piDisplayNameFor(entry),
@@ -162,16 +151,6 @@ export interface SyncInputs {
   instances?: ActiveInstance[]
 }
 
-// Per-runtime compat flags. MLX (both mlx_lm and mlx_vlm) rejects the
-// developer role; llama-server accepts it when the chat template does.
-// reasoning_effort is not honoured by either engine today.
-function compatFor(runtime: RuntimeType): Record<string, unknown> {
-  if (runtime === "mlx") {
-    return { supportsDeveloperRole: false, supportsReasoningEffort: false }
-  }
-  return { supportsReasoningEffort: false }
-}
-
 function runtimeRouterProviderFor(
   entries: ModelEntry[],
   runtime: RuntimeType,
@@ -181,7 +160,6 @@ function runtimeRouterProviderFor(
     baseUrl: routerBaseUrl,
     api: "openai-completions",
     apiKey: "athanor",
-    compat: compatFor(runtime),
     models: entries.map(e => ({
       id: modelIdFor(e),
       name: piDisplayNameFor(e),
@@ -235,9 +213,10 @@ function syncModels(
 
   if (router.enabled) {
     // Router mode: one aggregator per runtime, no per-model entries.
-    // The compat block differs between mlx and llama.cpp, which is why
-    // we don't share a single provider. Providers with no exposed
-    // members are suppressed so the /model picker isn't cluttered.
+    // We keep two providers because the runtime segment keeps the
+    // backing engine obvious in pi's /model picker and in the JSON file.
+    // Providers with no exposed members are suppressed so the /model
+    // picker isn't cluttered.
     const baseUrl = `http://${router.host}:${router.port}/v1`
     const exposed = entries.filter(e => e.publish)
     const mlxEntries = exposed.filter(e => e.runtime === "mlx")

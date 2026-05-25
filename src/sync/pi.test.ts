@@ -72,8 +72,6 @@ describe("pi sync", () => {
     expect(prov.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(prov.api).toBe("openai-completions")
     expect(prov.apiKey).toBe("athanor")
-    expect(prov.compat.supportsDeveloperRole).toBe(false)
-    expect(prov.compat.supportsReasoningEffort).toBe(false)
     expect(prov.models).toHaveLength(1)
     expect(prov.models[0].id).toBe("mlx-community/Qwen3-32B-4bit")
     expect(prov.models[0].name).toContain("[mlx]")
@@ -331,17 +329,12 @@ describe("pi sync", () => {
     expect(mlx.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(mlx.api).toBe("openai-completions")
     expect(mlx.models.map((m: { id: string }) => m.id)).toEqual(["mlx-community/A"])
-    expect(mlx.compat).toEqual({
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false
-    })
     expect(mlx.athanorRouter).toBe(true)
     expect(mlx.athanorRuntime).toBe("mlx")
 
     const llama = written.providers[ATHANOR_LLAMA_PROVIDER]
     expect(llama.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(llama.models.map((m: { id: string }) => m.id)).toEqual(["bee"])
-    expect(llama.compat).toEqual({ supportsReasoningEffort: false })
     expect(llama.athanorRuntime).toBe("llama.cpp")
   })
 
