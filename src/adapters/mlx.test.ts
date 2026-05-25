@@ -8,7 +8,12 @@ const mlx: MlxConfig = {
   promptCacheSize: 1024,
   decodeConcurrency: 1,
   contextWindow: 4096,
-  promptCacheBytes: 0
+  promptCacheBytes: 0,
+  temp: 0,
+  topP: 1,
+  topK: 0,
+  minP: 0,
+  promptConcurrency: 8
 }
 
 describe("MlxAdapter", () => {

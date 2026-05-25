@@ -83,7 +83,13 @@ export const DEFAULT_CONFIG: Config = {
     contextWindow: 32768,
     // Human-friendly UI input is supported, but config schema is bytes.
     // Defaults to 0 to let mlx_lm.server choose its own cap.
-    promptCacheBytes: 0
+    promptCacheBytes: 0,
+    // Sampling defaults — server uses these as per-request fall-backs.
+    temp: 0,
+    topP: 1,
+    topK: 0,
+    minP: 0,
+    promptConcurrency: 8
   },
   llama: {
     nGpuLayers: 999,
@@ -169,6 +175,26 @@ function sanitizeConfig(config: Config): Config {
   if (!positiveNumber(next.mlx.decodeConcurrency)) {
     console.error("Invalid config.mlx.decodeConcurrency; using default")
     next.mlx.decodeConcurrency = DEFAULT_CONFIG.mlx.decodeConcurrency
+  }
+  if (!nonNegativeNumber(next.mlx.temp)) {
+    console.error("Invalid config.mlx.temp; using default")
+    next.mlx.temp = DEFAULT_CONFIG.mlx.temp
+  }
+  if (!nonNegativeNumber(next.mlx.topP)) {
+    console.error("Invalid config.mlx.topP; using default")
+    next.mlx.topP = DEFAULT_CONFIG.mlx.topP
+  }
+  if (!nonNegativeNumber(next.mlx.topK)) {
+    console.error("Invalid config.mlx.topK; using default")
+    next.mlx.topK = DEFAULT_CONFIG.mlx.topK
+  }
+  if (!nonNegativeNumber(next.mlx.minP)) {
+    console.error("Invalid config.mlx.minP; using default")
+    next.mlx.minP = DEFAULT_CONFIG.mlx.minP
+  }
+  if (!positiveNumber(next.mlx.promptConcurrency)) {
+    console.error("Invalid config.mlx.promptConcurrency; using default")
+    next.mlx.promptConcurrency = DEFAULT_CONFIG.mlx.promptConcurrency
   }
 
   if (!nonNegativeNumber(next.llama.nGpuLayers)) {

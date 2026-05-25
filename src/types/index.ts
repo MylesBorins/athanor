@@ -30,6 +30,13 @@ export interface MlxConfig {
   // GPU prompt cache memory cap (bytes). Passed to mlx_lm.server as
   // --prompt-cache-bytes.
   promptCacheBytes: number
+  // Sampling defaults — passed as CLI flags so the server uses them
+  // as per-request fall-backs.  Clients may override per-request.
+  temp: number
+  topP: number
+  topK: number
+  minP: number
+  promptConcurrency: number
 }
 
 export interface LlamaConfig {

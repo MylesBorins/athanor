@@ -59,6 +59,18 @@ export class MlxAdapter implements RuntimeAdapter {
       )
     }
 
+    // Only emit sampling flags when non-default to keep the command
+    // clean. Defaults here must match mlx-lm's CLI defaults:
+    //   temp=0, topP=1, topK=0, minP=0, promptConcurrency=8
+    // If any of these drift, the flag will be emitted unnecessarily
+    // (harmless) but the suppression pattern breaks.
+    const extra: string[] = []
+    if (merged.temp !== 0) extra.push("--temp", String(merged.temp))
+    if (merged.topP !== 1) extra.push("--top-p", String(merged.topP))
+    if (merged.topK !== 0) extra.push("--top-k", String(merged.topK))
+    if (merged.minP !== 0) extra.push("--min-p", String(merged.minP))
+    if (merged.promptConcurrency !== 8) extra.push("--prompt-concurrency", String(merged.promptConcurrency))
+
     return {
       cmd: mlxBinary(entry),
       args: [
@@ -69,7 +81,8 @@ export class MlxAdapter implements RuntimeAdapter {
         "--decode-concurrency", String(merged.decodeConcurrency),
         ...(merged.promptCacheBytes > 0
           ? ["--prompt-cache-bytes", String(merged.promptCacheBytes)]
-          : [])
+          : []),
+        ...extra
       ],
       env: MLX_OFFLINE_ENV
     }

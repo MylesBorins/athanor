@@ -24,6 +24,12 @@ function num(raw: string): number {
   return n
 }
 
+function float(raw: string): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) throw new Error(`expected a number, got "${raw}"`)
+  return n
+}
+
 const KEYS: KeySpec[] = [
   { runtime: "mlx", jsonName: "prefillStepSize",
     aliases: ["prefillStepSize", "prefill-step-size"],
@@ -40,6 +46,21 @@ const KEYS: KeySpec[] = [
   { runtime: "mlx", jsonName: "promptCacheBytes",
     aliases: ["promptCacheBytes", "prompt-cache-bytes"],
     parse: num, help: "mlx: prompt cache memory cap (bytes). Prefer config parsing for gb/mb units" },
+  { runtime: "mlx", jsonName: "temp",
+    aliases: ["temp", "temperature"],
+    parse: float, help: "mlx: sampling temperature (0 = greedy, default 0)" },
+  { runtime: "mlx", jsonName: "topP",
+    aliases: ["topP", "top-p"],
+    parse: float, help: "mlx: nucleus sampling threshold (default 1; omitting 1.0 is harmless since it matches mlx-lm's default)" },
+  { runtime: "mlx", jsonName: "topK",
+    aliases: ["topK", "top-k"],
+    parse: num, help: "mlx: top-k sampling (0 = disabled, default 0)" },
+  { runtime: "mlx", jsonName: "minP",
+    aliases: ["minP", "min-p"],
+    parse: float, help: "mlx: minimum probability for top-p sampling (default 0)" },
+  { runtime: "mlx", jsonName: "promptConcurrency",
+    aliases: ["promptConcurrency", "prompt-concurrency"],
+    parse: num, help: "mlx: parallel prompt prefill slots (default 8)" },
 
   { runtime: "llama.cpp", jsonName: "nGpuLayers",
     aliases: ["nGpuLayers", "n-gpu-layers", "ngl"],
