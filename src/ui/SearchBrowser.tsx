@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink"
+import type { ModelEntry } from "../types/index.js"
 import {
   enrichSelectionHint,
   searchModelsPage,
@@ -67,6 +68,7 @@ export interface SearchBrowserProps {
   onExit: (message?: string) => void
   onQueueDownload?: (input: { repo: string; file?: string }) => void
   embedded?: boolean
+  models?: ModelEntry[]
   machineMemBytes?: number
 }
 
@@ -299,12 +301,16 @@ function Header({ cols, layout, sort }: { cols: number; layout: Layout; sort: Se
 }
 
 export const SearchBrowser: React.FC<SearchBrowserProps> = ({
-  initialQuery, initialFilter, initialSort, onExit, onQueueDownload, embedded, machineMemBytes
+  initialQuery, initialFilter, initialSort, onExit, onQueueDownload, embedded, models, machineMemBytes
 }) => {
   const { exit } = useApp()
   const { stdout } = useStdout()
   const { stdin, setRawMode, isRawModeSupported } = useStdin()
   const machine = useMemo(() => detectMachineProfile(), [])
+  const downloadedIds = useMemo(() => {
+    if (!models) return new Set<string>()
+    return new Set(models.map(m => m.id))
+  }, [models])
   const [dims, setDims] = useState({
     cols: stdout?.columns ?? 100,
     rows: stdout?.rows ?? 30
@@ -367,7 +373,11 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
         const ordered = sort === "fit"
           ? sortByFit(p.results, machine)
           : needsSort ? sortByKey(sort, p.results) : p.results
-        setResults(ordered)
+        // Filter out already-downloaded models
+        const filtered = downloadedIds.size > 0
+          ? ordered.filter(r => !downloadedIds.has(r.id))
+          : ordered
+        setResults(filtered)
         setCursor(p.cursor)
         setSelectedIdx(0); setScrollOff(0)
       })
@@ -406,6 +416,10 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
           if (sort === "fit") return sortByFit(merged, machine, selectionHintsById)
           return needsSort ? sortByKey(sort, merged) : merged
         })
+        // Re-filter after merge
+        if (downloadedIds.size > 0) {
+          setResults(prev => prev.filter(r => !downloadedIds.has(r.id)))
+        }
         setCursor(p.cursor)
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))

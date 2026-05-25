@@ -208,6 +208,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   if (mode === "search") {
     return <SearchBrowser
       embedded
+      models={models}
       machineMemBytes={sys?.totalMemBytes}
       onQueueDownload={({ repo, file }) => {
         downloads.queueDownload({ repo, file })
