@@ -168,7 +168,9 @@ class SSETokenCounter extends Transform {
 async function proxy(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  body: Buffer
+  body: Buffer,
+  verbose: boolean = false,
+  startMs: number = Date.now()
 ): Promise<void> {
   let parsed: { model?: unknown }
   try {
@@ -268,6 +270,10 @@ async function proxy(
       // Client disconnected or upstream errored mid-stream; both ends
       // are closed by pipeline on rejection.
     }
+    if (verbose) {
+      const elapsed = Date.now() - startMs
+      routerLog(`[res] ${req.method} ${req.url ?? ""} ${upstream.status} ${elapsed}ms model=${parsed.model} slug=${entry.slug}`)
+    }
   } finally {
     end(entry.id)
   }
@@ -287,33 +293,30 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, verbo
   const url = new URL(req.url ?? "/", "http://127.0.0.1")
 
   if (verbose) {
-    routerLog(`[in] ${req.method} ${req.url ?? ""}`)
+    routerLog(`[req] ${req.method} ${req.url ?? ""}`)
   }
 
-  try {
-    if (req.method === "GET" && url.pathname === "/health") {
-      res.writeHead(200, { "content-type": "text/plain" }); res.end("ok")
-      return
-    }
-    if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) {
-      return sendJson(res, 200, synthesizeModelList())
-    }
-    if (req.method === "POST" && url.pathname.startsWith("/v1/")) {
-      const body = await readBody(req)
-      const model = verbose ? extractModelFromBody(body) : undefined
-      if (verbose && model) {
-        routerLog(`[in] ${req.method} ${req.url ?? ""} model=${model}`)
-      }
-      return proxy(req, res, body)
-    }
-    sendJson(res, 404, { error: `not found: ${req.method} ${url.pathname}` })
-  } finally {
-    if (verbose) {
-      const elapsed = Date.now() - startMs
-      const status = (res as any).statusCode ?? "??"
-      routerLog(`[out] ${req.method} ${req.url ?? ""} ${status} ${elapsed}ms`)
-    }
+  if (req.method === "GET" && url.pathname === "/health") {
+    res.writeHead(200, { "content-type": "text/plain" }); res.end("ok")
+    if (verbose) routerLog(`[res] ${req.method} ${req.url ?? ""} 200 ${Date.now() - startMs}ms`)
+    return
   }
+  if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) {
+    sendJson(res, 200, synthesizeModelList())
+    if (verbose) routerLog(`[res] ${req.method} ${req.url ?? ""} 200 ${Date.now() - startMs}ms`)
+    return
+  }
+  if (req.method === "POST" && url.pathname.startsWith("/v1/")) {
+    const body = await readBody(req)
+    if (verbose) {
+      const model = extractModelFromBody(body)
+      routerLog(`[req] ${req.method} ${req.url ?? ""} model=${model ?? "(none)"}`)
+    }
+    await proxy(req, res, body, verbose, startMs)
+    return
+  }
+  sendJson(res, 404, { error: `not found: ${req.method} ${url.pathname}` })
+  if (verbose) routerLog(`[res] ${req.method} ${req.url ?? ""} 404 ${Date.now() - startMs}ms`)
 }
 
 export interface StartRouterOptions {
