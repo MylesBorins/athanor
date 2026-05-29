@@ -376,6 +376,8 @@ athanor expose    <id|slug>      include in pi-agent catalog
 athanor hide      <id|slug>      remove from pi-agent catalog
 athanor rm       <id|slug>       remove from registry (must be stopped)
 athanor sync                     manually rewrite pi catalog
+athanor router   [--host H] [--port P] [--verbose]
+                                 run the ingress server in the foreground
 athanor config                   print resolved config and its path
 athanor doctor                   check that required binaries are on PATH and show installed versions
 athanor doctor --check-updates   also compare installed versions with latest available and print upgrade hints
@@ -463,7 +465,8 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
     "enabled": true,
     "port": 8080,
     "host": "127.0.0.1",
-    "drainTimeoutMs": 30000
+    "drainTimeoutMs": 30000,
+    "verbose": false
   }
 }
 ```
@@ -603,7 +606,7 @@ POST /v1/embeddings        { "model": ... } same
 The ingress config lives under `router` in `~/.athanor/config.json` for backward compatibility:
 
 ```json
-{ "router": { "enabled": true, "port": 8080, "host": "127.0.0.1", "drainTimeoutMs": 30000 } }
+{ "router": { "enabled": true, "port": 8080, "host": "127.0.0.1", "drainTimeoutMs": 30000, "verbose": false } }
 ```
 
 By default, pi sync emits the ingress-backed aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime model id (HF repo for MLX; registry `author/repo:file.gguf` for hub GGUF; custom `piAlias` or slug for local llama), the athanor slug, or the canonical registry id; all resolve. Unknown models return `404`.
@@ -614,9 +617,14 @@ For users who don't want to keep the TUI open, `athanor router` runs the ingress
 athanor router                       # uses config.router.host / .port
 athanor router --port 9000           # override
 athanor router --host 0.0.0.0 --port 8080
+athanor router --verbose             # log every request to ~/.athanor/logs/router.log
 ```
 
 The subcommand ignores `router.enabled` — invoking it is itself the opt-in — but it still respects `127.0.0.1` as the default host.
+
+### Verbose request logging
+
+When `router.verbose` is `true` in config (or `--verbose` is passed on the command line), the ingress logs every inbound request — method, path, model field (for POST), response status, and latency in milliseconds — to `~/.athanor/logs/router.log`. This is useful for diagnosing routing, cold-start latency, and model resolution issues without needing to intercept traffic externally. Off by default to avoid noise.
 
 Caveats:
 
