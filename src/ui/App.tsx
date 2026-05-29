@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Box, Text, useApp, useStdout, useStdin } from "ink"
 import type { ModelEntry } from "../types/index.js"
 import { listModels } from "../registry/index.js"
@@ -35,7 +35,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const { exit } = useApp()
   const { stdout } = useStdout()
   const { stdin, setRawMode, isRawModeSupported } = useStdin()
-  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [message, setMessage] = useState(initialMessage ?? "")
   const [mode, setMode] = useState<Mode>("list")
   const [filter, setFilter] = useState("")
@@ -89,10 +89,10 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   useEffect(() => {
     if (initialFocusDone.current) return
     if (models.length === 0) return
-    const idx = models.findIndex(m => instances.some(i => i.id === m.id))
-    if (idx >= 0) {
+    const running = models.find(m => instances.some(i => i.id === m.id))
+    if (running) {
       initialFocusDone.current = true
-      setSelectedIdx(idx)
+      setSelectedId(running.id)
     } else if (instances.length > 0) {
       // Instances present but none match a model — flag as done so
       // we don't re-scan on every tick.
@@ -108,9 +108,24 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     )
   }, [models, filter])
 
-  useEffect(() => {
-    if (selectedIdx >= filtered.length) setSelectedIdx(Math.max(0, filtered.length - 1))
-  }, [filtered, selectedIdx])
+  // Derive positional index from the tracked model ID. If the
+  // selected model disappeared from the filtered list (e.g. the
+  // filter hid it, or it was deleted), clamp to the last entry.
+  const selectedIdx = useMemo(() => {
+    if (!selectedId) return 0
+    const idx = filtered.findIndex(m => m.id === selectedId)
+    return idx >= 0 ? idx : Math.max(0, filtered.length - 1)
+  }, [selectedId, filtered])
+
+  // Positional setter that translates index movements back to IDs.
+  // Arrow keys and mouse wheel call this; the model under the new
+  // index becomes the tracked selection.
+  const setSelectedIdx = useCallback((update: React.SetStateAction<number>) => {
+    const nextIdx = typeof update === "function" ? update(selectedIdx) : update
+    const clamped = Math.max(0, Math.min(nextIdx, filtered.length - 1))
+    const target = filtered[clamped]
+    if (target) setSelectedId(target.id)
+  }, [selectedIdx, filtered])
 
   // Move the list cursor to follow any model that newly enters the
   // running set — covers manual start, restart, and router-driven
@@ -127,10 +142,14 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
     prevRunningRef.current = nowIds
     if (newly.length === 0) return
     const latest = newly.reduce((a, b) => (b.startedAt > a.startedAt ? b : a))
-    const idx = filtered.findIndex(m => m.id === latest.id)
-    if (idx >= 0) { setSelectedIdx(idx); return }
-    const fullIdx = models.findIndex(m => m.id === latest.id)
-    if (fullIdx >= 0) { setFilter(""); setSelectedIdx(fullIdx) }
+    if (filtered.some(m => m.id === latest.id)) {
+      setSelectedId(latest.id)
+      return
+    }
+    if (models.some(m => m.id === latest.id)) {
+      setFilter("")
+      setSelectedId(latest.id)
+    }
   }, [instances, filtered, models])
 
   const selected = filtered[selectedIdx]
