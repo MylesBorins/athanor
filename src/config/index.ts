@@ -53,6 +53,9 @@ export interface RouterConfig {
   // Max time supervisor.stop waits for in-flight router streams targeting
   // the model to drain before SIGTERM. 0 disables waiting.
   drainTimeoutMs: number
+  // Log every inbound request (method, path, model field, status, latency)
+  // to ~/.athanor/logs/router.log. Off by default.
+  verbose: boolean
 }
 
 export interface Config {
@@ -114,7 +117,8 @@ export const DEFAULT_CONFIG: Config = {
     enabled: true,
     port: 8080,
     host: "127.0.0.1",
-    drainTimeoutMs: 30_000
+    drainTimeoutMs: 30_000,
+    verbose: false
   }
 }
 
@@ -265,6 +269,7 @@ function sanitizeConfig(config: Config): Config {
   if (typeof next.enablePiSync !== "boolean") next.enablePiSync = DEFAULT_CONFIG.enablePiSync
   if (typeof next.controlApi.enabled !== "boolean") next.controlApi.enabled = DEFAULT_CONFIG.controlApi.enabled
   if (typeof next.router.enabled !== "boolean") next.router.enabled = DEFAULT_CONFIG.router.enabled
+  if (typeof next.router.verbose !== "boolean") next.router.verbose = DEFAULT_CONFIG.router.verbose
   if (typeof next.modelDirs.mlx !== "string" || next.modelDirs.mlx.length === 0) {
     next.modelDirs.mlx = DEFAULT_CONFIG.modelDirs.mlx
   }

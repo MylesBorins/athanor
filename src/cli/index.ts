@@ -48,7 +48,7 @@ function usage(): void {
     ["hide",       "<id|slug>",                      "remove from pi-agent catalog"],
     ["rm",         "<id|slug>",                      "remove from registry (must be stopped)"],
     ["sync",       "",                               "manually rewrite pi catalog"],
-    ["router",     "[--host H] [--port P]",          "run the athanor ingress server in the foreground"],
+    ["router",     "[--host H] [--port P] [--verbose]",   "run the athanor ingress server in the foreground"],
     ["config",     "",                               "print config and its path"],
     ["doctor",     "[--check-updates]",              "check for required binaries and versions"],
     ["(no args)",  "",                               "launch the TUI"]
@@ -133,7 +133,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
         console.error(`${style.red("✗")} --port must be a number, got ${style.bold(portRaw)}`)
         process.exit(1)
       }
-      await cmdRouter({ host, port })
+      await cmdRouter({ host, port, verbose: rest.includes("--verbose") })
       return true
     }
     case "config":      cmdConfig(); return true

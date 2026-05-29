@@ -96,11 +96,11 @@ export async function cmdSearch(opts: SearchCmdOpts): Promise<void> {
   console.log(`  ${style.cyan(sym.arrow)} ${style.bold("athanor pull <repo> --file F.gguf")}   ${dim("# GGUF: pick one file")}`)
 }
 
-export async function cmdRouter(opts: { host?: string; port?: number }): Promise<void> {
+export async function cmdRouter(opts: { host?: string; port?: number; verbose?: boolean }): Promise<void> {
   const cfg = loadConfig()
   const host = opts.host ?? cfg.router.host
   const port = opts.port ?? cfg.router.port
-  const server = startRouter({ host, port, force: true, silent: true })
+  const server = startRouter({ host, port, force: true, silent: true, verbose: opts.verbose })
   if (!server) throw new Error("router already running in this process")
   ok(`athanor router listening on ${style.bold(`http://${host}:${port}`)}`)
   info(`exposed models: ${listModels().filter(m => m.publish).length} — ${dim("Ctrl-C to stop")}`)

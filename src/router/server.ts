@@ -273,19 +273,47 @@ async function proxy(
   }
 }
 
-async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+function extractModelFromBody(body: Buffer): string | undefined {
+  try {
+    const parsed = body.length === 0 ? {} : JSON.parse(body.toString("utf8"))
+    return typeof parsed.model === "string" && parsed.model ? parsed.model : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function handle(req: http.IncomingMessage, res: http.ServerResponse, verbose: boolean): Promise<void> {
+  const startMs = Date.now()
   const url = new URL(req.url ?? "/", "http://127.0.0.1")
-  if (req.method === "GET" && url.pathname === "/health") {
-    res.writeHead(200, { "content-type": "text/plain" }); res.end("ok")
-    return
+
+  if (verbose) {
+    routerLog(`[in] ${req.method} ${req.url ?? ""}`)
   }
-  if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) {
-    return sendJson(res, 200, synthesizeModelList())
+
+  try {
+    if (req.method === "GET" && url.pathname === "/health") {
+      res.writeHead(200, { "content-type": "text/plain" }); res.end("ok")
+      return
+    }
+    if (req.method === "GET" && (url.pathname === "/v1/models" || url.pathname === "/models")) {
+      return sendJson(res, 200, synthesizeModelList())
+    }
+    if (req.method === "POST" && url.pathname.startsWith("/v1/")) {
+      const body = await readBody(req)
+      const model = verbose ? extractModelFromBody(body) : undefined
+      if (verbose && model) {
+        routerLog(`[in] ${req.method} ${req.url ?? ""} model=${model}`)
+      }
+      return proxy(req, res, body)
+    }
+    sendJson(res, 404, { error: `not found: ${req.method} ${url.pathname}` })
+  } finally {
+    if (verbose) {
+      const elapsed = Date.now() - startMs
+      const status = (res as any).statusCode ?? "??"
+      routerLog(`[out] ${req.method} ${req.url ?? ""} ${status} ${elapsed}ms`)
+    }
   }
-  if (req.method === "POST" && url.pathname.startsWith("/v1/")) {
-    return proxy(req, res, await readBody(req))
-  }
-  sendJson(res, 404, { error: `not found: ${req.method} ${url.pathname}` })
 }
 
 export interface StartRouterOptions {
@@ -300,6 +328,8 @@ export interface StartRouterOptions {
   // Suppress the "listening on ..." log. The headless command prints
   // its own banner; the TUI-embedded start path opts into silence.
   silent?: boolean
+  // Override config.router.verbose for per-invocation control.
+  verbose?: boolean
 }
 
 export function startRouter(opts: StartRouterOptions = {}): Server | null {
@@ -308,8 +338,9 @@ export function startRouter(opts: StartRouterOptions = {}): Server | null {
   if (current) return current
   const host = opts.host ?? cfg.router.host
   const port = opts.port ?? cfg.router.port
+  const verbose = opts.verbose ?? cfg.router.verbose
   const server = http.createServer((req, res) => {
-    handle(req, res).catch(err => {
+    handle(req, res, verbose).catch(err => {
       try { sendJson(res, 500, { error: String(err) }) } catch { /* already sent */ }
     })
   })
