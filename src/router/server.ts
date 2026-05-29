@@ -279,13 +279,31 @@ async function proxy(
   }
 }
 
-function extractModelFromBody(body: Buffer): string | undefined {
+function summarizeRequestBody(body: Buffer): string {
   try {
     const parsed = body.length === 0 ? {} : JSON.parse(body.toString("utf8"))
-    return typeof parsed.model === "string" && parsed.model ? parsed.model : undefined
+    // Replace messages array with a summary to avoid logging huge prompts.
+    // Keep everything else (temperature, max_tokens, top_p, stream, etc.)
+    // so the user can see exactly what flags the client is sending.
+    if (Array.isArray(parsed.messages)) {
+      const roles = parsed.messages.map((m: { role?: string }) => m.role ?? "?")
+      parsed.messages = `[${parsed.messages.length} messages: ${roles.join(", ")}]`
+    }
+    return JSON.stringify(parsed)
   } catch {
-    return undefined
+    return body.toString("utf8").slice(0, 500)
   }
+}
+
+function summarizeHeaders(req: http.IncomingMessage): string {
+  const h: Record<string, string> = {}
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (!v) continue
+    // Skip noisy headers that don't help with debugging client behavior.
+    if (k === "host" || k === "connection" || k === "accept-encoding") continue
+    h[k] = Array.isArray(v) ? v.join(",") : v
+  }
+  return JSON.stringify(h)
 }
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse, verbose: boolean): Promise<void> {
@@ -309,8 +327,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse, verbo
   if (req.method === "POST" && url.pathname.startsWith("/v1/")) {
     const body = await readBody(req)
     if (verbose) {
-      const model = extractModelFromBody(body)
-      routerLog(`[req] ${req.method} ${req.url ?? ""} model=${model ?? "(none)"}`)
+      routerLog(`[req] ${req.method} ${req.url ?? ""} headers=${summarizeHeaders(req)}`)
+      routerLog(`[req] ${req.method} ${req.url ?? ""} body=${summarizeRequestBody(body)}`)
     }
     await proxy(req, res, body, verbose, startMs)
     return
