@@ -145,7 +145,7 @@ describe("searchModels", () => {
     await expect(searchModels({ filter: "mlx" })).rejects.toThrow(/HF search 500/)
   })
 
-  it("filters out private, gated, and non-text-generation repos", async () => {
+  it("filters out private, gated, and disallowed-pipeline-tag repos but passes unknown tags", async () => {
      mockFetch(() => [
       { id: "public/mlx", tags: ["mlx"] },
       { id: "private/mlx", tags: ["mlx"], private: true },
@@ -153,10 +153,12 @@ describe("searchModels", () => {
       { id: "audio/asr", tags: ["mlx"], pipeline_tag: "automatic-speech-recognition" },
       { id: "embed/mlx", tags: ["mlx", "feature-extraction"] },
       { id: "vlm/mlx", tags: ["mlx"], pipeline_tag: "image-text-to-text" },
-      { id: "chat/mlx", tags: ["mlx"], pipeline_tag: "text-generation" }
+      { id: "chat/mlx", tags: ["mlx"], pipeline_tag: "text-generation" },
+      { id: "a2a/mlx", tags: ["mlx"], pipeline_tag: "any-to-any" },
+      { id: "future/mlx", tags: ["mlx"], pipeline_tag: "some-future-tag" }
     ])
     const r = await searchModels({ filter: "any" })
-    expect(r.map(x => x.id)).toEqual(["public/mlx", "vlm/mlx", "chat/mlx"])
+    expect(r.map(x => x.id)).toEqual(["public/mlx", "vlm/mlx", "chat/mlx", "a2a/mlx", "future/mlx"])
   })
 
   it("applies the limit after merging for filter='any'", async () => {

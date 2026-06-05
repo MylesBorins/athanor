@@ -1,5 +1,6 @@
 import type { RuntimeType } from "../types/index.js"
 import { fetchRepoInfo, fetchRepoTree, type HfSibling } from "../pull/api.js"
+import { hfHeaders } from "../pull/hf-token.js"
 
 // Hub model search. Reference:
 // https://huggingface.co/docs/hub/api#get-apimodels
@@ -155,16 +156,12 @@ function sizeFromGguf(gg: unknown): number | undefined {
   const n = (gg as { totalFileSize?: unknown }).totalFileSize
   return typeof n === "number" && n > 0 ? n : undefined
 }
-
-function isTextGenerationLike(pipelineTag: unknown): boolean {
-  return (
-    pipelineTag === "text-generation" ||
-    pipelineTag === "conversational" ||
-    pipelineTag === "image-text-to-text"
-  )
-}
-
-const DISALLOWED_TASK_TAGS = new Set([
+// Pipeline tags that are definitively not text-generation-compatible.
+// Models with these tags cannot be served by mlx_lm / llama-server so
+// we filter them out of search results. Everything else (including
+// unknown future tags) passes through — better to surface a model the
+// user can try than to silently hide it.
+const DISALLOWED_PIPELINE_TAGS = new Set([
   "automatic-speech-recognition",
   "text-to-speech",
   "audio-to-audio",
@@ -186,8 +183,8 @@ const DISALLOWED_TASK_TAGS = new Set([
 ])
 
 function isLikelyAthanorSearchCandidate(tags: string[], pipelineTag?: string): boolean {
-  if (pipelineTag && !isTextGenerationLike(pipelineTag)) return false
-  return !tags.some(tag => DISALLOWED_TASK_TAGS.has(tag))
+  if (pipelineTag && DISALLOWED_PIPELINE_TAGS.has(pipelineTag)) return false
+  return !tags.some(tag => DISALLOWED_PIPELINE_TAGS.has(tag))
 }
 
 function parseOne(raw: unknown, sourceFallback?: "exact-repo"): SearchResult | null {
@@ -265,7 +262,7 @@ function parseLinkNext(link: string | null): string | undefined {
 }
 
 async function fetchPage(url: string): Promise<{ results: SearchResult[]; next?: string }> {
-  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  const res = await fetch(url, { headers: hfHeaders() })
   if (res.status === 429) throw new HfSearchRateLimitError(url)
   if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)
   const results = parse(await res.json())
@@ -288,7 +285,7 @@ function looksLikeRepoId(query: string | undefined): boolean {
 
 async function queryExactRepo(repo: string): Promise<SearchResult[]> {
   const url = `${API}/${repo}`
-  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  const res = await fetch(url, { headers: hfHeaders() })
   if (res.status === 404) return []
   if (res.status === 429) throw new HfSearchRateLimitError(url)
   if (!res.ok) throw new Error(`HF search ${res.status} for ${url}`)

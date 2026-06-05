@@ -1,4 +1,5 @@
 import type { RuntimeType } from "../types/index.js"
+import { hfHeaders } from "./hf-token.js"
 
 export interface HfSibling {
   rfilename: string
@@ -30,7 +31,7 @@ export interface HfTreeEntry {
 export async function fetchRepoInfo(repo: string, revision?: string): Promise<HfRepoInfo> {
   const rev = revision ? `/revision/${encodeURIComponent(revision)}` : ""
   const url = `https://huggingface.co/api/models/${repo}${rev}`
-  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  const res = await fetch(url, { headers: hfHeaders() })
   if (!res.ok) throw new Error(`HF API ${res.status} for ${repo}`)
   const body = await res.json() as Record<string, unknown>
   const siblings = Array.isArray(body.siblings)
@@ -85,7 +86,7 @@ export async function fetchRepoTree(repo: string, revision = "main", path = ""):
   const trimmed = path.replace(/^\/+|\/+$/g, "")
   const suffix = trimmed ? `/${trimmed}` : "/"
   const url = `https://huggingface.co/api/models/${repo}/tree/${encodeURIComponent(revision)}${suffix}`
-  const res = await fetch(url, { headers: { Accept: "application/json" } })
+  const res = await fetch(url, { headers: hfHeaders() })
   if (!res.ok) throw new Error(`HF tree ${res.status} for ${repo}`)
   const body = await res.json() as unknown
   if (!Array.isArray(body)) return []
