@@ -96,11 +96,13 @@ function modelIdFor(entry: ModelEntry): string {
 
 function contextWindowFor(entry: ModelEntry): number | undefined {
   const merged = mergedConfigFor(entry)
-  if (entry.runtime === "mlx") {
-    const mlx = merged as MlxConfig
-    return mlx.contextWindow
-  }
-  return (merged as LlamaConfig).ctxSize
+  const raw = entry.runtime === "mlx"
+    ? (merged as MlxConfig).contextWindow
+    : (merged as LlamaConfig).ctxSize
+  // pi-agent rejects non-positive values. For llama.cpp, ctxSize=0 means
+  // "load from model" rather than a literal zero-token context window, so
+  // omit the field when athanor does not have a concrete positive value.
+  return Number.isFinite(raw) && raw > 0 ? raw : undefined
 }
 
 function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderConfig {

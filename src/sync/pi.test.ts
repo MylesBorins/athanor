@@ -120,9 +120,10 @@ describe("pi sync", () => {
     syncPi({ instances: [] })
     const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
     expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(32768)
-    // ctxSize:0 means "load from model"; that is what pi-agent will see
-    // for a llama entry with no recipe/preset applied.
-    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(0)
+    // ctxSize:0 means "load from model"; pi-agent rejects non-positive
+    // contextWindow values, so athanor omits the field until it has a
+    // concrete positive effective context to advertise.
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBeUndefined()
   })
 
   it("prefers explicit preset overrides over defaults when router mode is disabled", async () => {
