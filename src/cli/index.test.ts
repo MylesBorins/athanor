@@ -8,12 +8,8 @@ describe("runCli", () => {
     vi.doUnmock("./style.js")
   })
 
-  it("requires an explicit id or --all for stop", async () => {
+  it("passes through bare stop so the command can handle its legacy all-models behavior", async () => {
     const cmdStop = vi.fn()
-    const error = vi.spyOn(console, "error").mockImplementation(() => {})
-    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("process.exit")
-    }) as never)
 
     vi.doMock("./commands.js", () => ({
       cmdConfig: vi.fn(),
@@ -41,15 +37,9 @@ describe("runCli", () => {
       cmdStop,
       cmdSync: vi.fn()
     }))
-    vi.doMock("./style.js", () => ({
-      style: { red: (s: string) => s, bold: (s: string) => s, cyan: (s: string) => s, gray: (s: string) => s }
-    }))
 
     const { runCli } = await import("./index.js")
-    await expect(runCli(["stop"]))
-      .rejects.toThrow("process.exit")
-    expect(cmdStop).not.toHaveBeenCalled()
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("missing required argument: id|slug|--all"))
-    expect(exit).toHaveBeenCalledWith(1)
+    await expect(runCli(["stop"])).resolves.toBe(true)
+    expect(cmdStop).toHaveBeenCalledWith(undefined)
   })
 })

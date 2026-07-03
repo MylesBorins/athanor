@@ -83,15 +83,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
     case "ls":          cmdList(); return true
     case "status":      cmdStatus(); return true
     case "start":       await cmdStart(required(rest[0], "id|slug")); return true
-    case "stop": {
-      const arg = rest[0]
-      if (arg === "--all") {
-        await cmdStop(arg)
-        return true
-      }
-      await cmdStop(required(arg, "id|slug|--all"))
-      return true
-    }
+    case "stop":        await cmdStop(rest[0]); return true
     case "restart":     await cmdRestart(required(rest[0], "id|slug")); return true
     case "logs": {
       const id = required(rest[0], "id|slug")
