@@ -22,7 +22,6 @@ export class LlamaAdapter implements RuntimeAdapter {
         "--port", String(entry.port),
         "--host", "127.0.0.1",
         "--n-gpu-layers", String(merged.nGpuLayers),
-        "--threads", String(merged.threads),
         "--ctx-size", String(merged.ctxSize),
         "--batch-size", String(merged.batchSize),
         "--ubatch-size", String(merged.ubatchSize),

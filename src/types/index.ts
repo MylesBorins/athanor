@@ -24,9 +24,14 @@ export interface MlxConfig {
   // model context / KV cache size.
   promptCacheSize: number
   decodeConcurrency: number
-  // Model-level context window (KV cache ceiling). Maps to mlx_lm's
-  // --max-tokens (or equivalent) via adapter.
+  // Advertised context window (tokens). Used for pi-agent sync
+  // (invariant #6) only — mlx_lm.server has no context-window flag;
+  // the model's KV cache ceiling is determined by its weights.
   contextWindow: number
+  // Per-response output cap. Passed to mlx_lm.server as --max-tokens.
+  // mlx_lm.server's own default is 512; athanor raises this to a more
+  // useful value by default.
+  maxTokens: number
   // GPU prompt cache memory cap (bytes). Passed to mlx_lm.server as
   // --prompt-cache-bytes.
   promptCacheBytes: number
@@ -41,7 +46,6 @@ export interface MlxConfig {
 
 export interface LlamaConfig {
   nGpuLayers: number
-  threads: number
   ctxSize: number
   batchSize: number
   ubatchSize: number

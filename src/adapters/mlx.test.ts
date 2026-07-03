@@ -8,6 +8,7 @@ const mlx: MlxConfig = {
   promptCacheSize: 1024,
   decodeConcurrency: 1,
   contextWindow: 4096,
+  maxTokens: 512,
   promptCacheBytes: 0,
   temp: 0,
   topP: 1,
@@ -32,7 +33,7 @@ describe("MlxAdapter", () => {
       "--model", "mlx-community/Qwen3-32B-4bit",
       "--port", "8090",
       "--host", "127.0.0.1",
-      "--max-tokens", "4096",
+      "--max-tokens", "512",
       "--prefill-step-size", "256",
       "--prompt-cache-size", "1024",
       "--decode-concurrency", "1"

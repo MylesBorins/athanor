@@ -250,10 +250,11 @@ describe("app model service", () => {
     expect(updated.preset).toEqual({
       runtime: "mlx",
       mlx: {
-        prefillStepSize: 512,
+        prefillStepSize: 2048,
         promptCacheSize: 32768,
         decodeConcurrency: 1,
         contextWindow: 32768,
+        maxTokens: 4096,
         promptCacheBytes: 16 * 1024 ** 3
       }
     })
@@ -316,10 +317,11 @@ describe("app model service", () => {
     expect(updated.preset).toEqual({
       runtime: "mlx",
       mlx: {
-        prefillStepSize: 512,
+        prefillStepSize: 2048,
         promptCacheSize: 32768,
         decodeConcurrency: 1,
         contextWindow: 32768,
+        maxTokens: 4096,
         promptCacheBytes: 16 * 1024 ** 3
       }
     })

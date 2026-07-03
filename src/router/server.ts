@@ -165,6 +165,31 @@ class SSETokenCounter extends Transform {
 }
 
 
+// Pull out the OpenAI chat-completion parameters the client actually sent,
+// so the model-resolution log line shows the effective generation config.
+function extractFlags(parsed: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    "temperature", "top_p", "top_k", "max_tokens", "max_completion_tokens",
+    "stream", "stream_options", "seed", "echo", "n",
+    "frequency_penalty", "presence_penalty", "repetition_penalty",
+    "logit_bias", "logprobs", "top_logprobs", "response_format",
+    "stop", "tools", "tool_choice", "parallel_tool_calls",
+    "function_call", "functions",
+  ]
+  const flags: Record<string, unknown> = {}
+  for (const k of keys) {
+    if (k in parsed) flags[k] = parsed[k]
+  }
+  // Keep any other non-empty fields that aren't the message payload.
+  const skip = new Set([...keys, "messages", "model", "user"])
+  for (const k of Object.keys(parsed)) {
+    if (!skip.has(k) && parsed[k] !== undefined && parsed[k] !== "" && parsed[k] !== null) {
+      flags[k] = parsed[k]
+    }
+  }
+  return flags
+}
+
 async function proxy(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -193,7 +218,7 @@ async function proxy(
   clearLiveRouterStats(entry.id)
 
 
-  routerLog(`[router] ${req.method} ${req.url ?? ""} model resolved ${JSON.stringify({ model: parsed.model, runtimeId: entry.id, slug: entry.slug })}`)
+  routerLog(`[router] ${req.method} ${req.url ?? ""} model resolved ${JSON.stringify({ model: parsed.model, runtimeId: entry.id, slug: entry.slug, flags: extractFlags(parsed) })}`)
 
   let inst
   try {

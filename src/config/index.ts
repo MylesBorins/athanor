@@ -80,10 +80,15 @@ export const DEFAULT_CONFIG: Config = {
     llama: "~/.models"
   },
   mlx: {
-    prefillStepSize: 512,
+    // Matches mlx_lm.server's own default so the flag is suppressed
+    // when no recipe/preset overrides it.
+    prefillStepSize: 2048,
     promptCacheSize: 32768,
     decodeConcurrency: 1,
     contextWindow: 32768,
+    // Per-response output cap. mlx_lm.server's own default is 512;
+    // 4096 is a more useful baseline for chat/coding workflows.
+    maxTokens: 4096,
     // Human-friendly UI input is supported, but config schema is bytes.
     // Defaults to 0 to let mlx_lm.server choose its own cap.
     promptCacheBytes: 0,
@@ -96,10 +101,13 @@ export const DEFAULT_CONFIG: Config = {
   },
   llama: {
     nGpuLayers: 999,
-    threads: 8,
-    ctxSize: 32768,
-    batchSize: 512,
-    ubatchSize: 256,
+    // 0 = load from model (llama-server default). Recipes set explicit
+    // context bands when intentional sizing is needed.
+    ctxSize: 0,
+    // Match llama-server's own defaults (batch-size: 2048, ubatch-size: 512)
+    // so athanor does not silently degrade prompt-processing throughput.
+    batchSize: 2048,
+    ubatchSize: 512,
     parallel: 1
   },
   supervisor: {
@@ -172,6 +180,10 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.mlx.contextWindow; using default")
     next.mlx.contextWindow = DEFAULT_CONFIG.mlx.contextWindow
   }
+  if (!positiveNumber(next.mlx.maxTokens)) {
+    console.error("Invalid config.mlx.maxTokens; using default")
+    next.mlx.maxTokens = DEFAULT_CONFIG.mlx.maxTokens
+  }
   if (typeof next.mlx.promptCacheBytes !== "number" || !Number.isFinite(next.mlx.promptCacheBytes) || next.mlx.promptCacheBytes < 0) {
     console.error("Invalid config.mlx.promptCacheBytes; using default")
     next.mlx.promptCacheBytes = DEFAULT_CONFIG.mlx.promptCacheBytes
@@ -205,11 +217,7 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.llama.nGpuLayers; using default")
     next.llama.nGpuLayers = DEFAULT_CONFIG.llama.nGpuLayers
   }
-  if (!positiveNumber(next.llama.threads)) {
-    console.error("Invalid config.llama.threads; using default")
-    next.llama.threads = DEFAULT_CONFIG.llama.threads
-  }
-  if (!positiveNumber(next.llama.ctxSize)) {
+  if (!nonNegativeNumber(next.llama.ctxSize)) {
     console.error("Invalid config.llama.ctxSize; using default")
     next.llama.ctxSize = DEFAULT_CONFIG.llama.ctxSize
   }
@@ -225,6 +233,10 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.llama.parallel; using default")
     next.llama.parallel = DEFAULT_CONFIG.llama.parallel
   }
+  // threads was removed in favour of llama-server auto-detection.
+  // Purge it from any on-disk config so it does not bleed through
+  // deepMerge into the effective config or the `athanor show` display.
+  delete (next.llama as unknown as Record<string, unknown>).threads
 
   const policies = new Set(["single-active", "multi-active-lru", "manual"])
   if (!policies.has(next.supervisor.policy)) {

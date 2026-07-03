@@ -20,8 +20,8 @@ function llamaEntry(overrides: Partial<ModelEntry> = {}): ModelEntry {
 
 describe("parseKvTokens", () => {
   it("parses tokens of the form key=value", () => {
-    expect(parseKvTokens(["ctx-size=32768", "threads=8"]))
-      .toEqual([["ctx-size", "32768"], ["threads", "8"]])
+    expect(parseKvTokens(["ctx-size=32768", "n-gpu-layers=48"]))
+      .toEqual([["ctx-size", "32768"], ["n-gpu-layers", "48"]])
   })
   it("tolerates values containing additional equal signs", () => {
     expect(parseKvTokens(["x=a=b=c"])).toEqual([["x", "a=b=c"]])
@@ -47,11 +47,11 @@ describe("setPresetFields", () => {
 
   it("merges on top of an existing preset rather than replacing it", () => {
     const entry = llamaEntry({
-      preset: { runtime: "llama.cpp", llama: { ctxSize: 8192, threads: 4 } }
+      preset: { runtime: "llama.cpp", llama: { ctxSize: 8192, parallel: 4 } }
     })
-    const p = setPresetFields(entry, [["threads", "12"]])
+    const p = setPresetFields(entry, [["parallel", "2"]])
     if (p.runtime !== "llama.cpp") throw new Error()
-    expect(p.llama).toEqual({ ctxSize: 8192, threads: 12 })
+    expect(p.llama).toEqual({ ctxSize: 8192, parallel: 2 })
   })
 
   it("switches runtime preset when entry runtime changes", () => {
@@ -80,9 +80,9 @@ describe("setPresetFields", () => {
 describe("unsetPresetFields", () => {
   it("removes named keys and keeps others", () => {
     const entry = llamaEntry({
-      preset: { runtime: "llama.cpp", llama: { ctxSize: 8192, threads: 4 } }
+      preset: { runtime: "llama.cpp", llama: { ctxSize: 8192, parallel: 4 } }
     })
-    const p = unsetPresetFields(entry, ["threads"])!
+    const p = unsetPresetFields(entry, ["parallel"])!
     if (p.runtime !== "llama.cpp") throw new Error()
     expect(p.llama).toEqual({ ctxSize: 8192 })
   })

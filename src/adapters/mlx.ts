@@ -53,11 +53,9 @@ export class MlxAdapter implements RuntimeAdapter {
       return { cmd: "mlx_vlm.server", args: common, env: MLX_OFFLINE_ENV }
     }
 
-    if (merged.promptCacheSize > merged.contextWindow) {
-      console.warn(
-        `promptCacheSize (${merged.promptCacheSize}) exceeds contextWindow (${merged.contextWindow}); may reduce cache efficiency`
-      )
-    }
+    // contextWindow is advertised to pi-agent (invariant #6) but
+    // mlx_lm.server has no context-window flag — the model's KV cache
+    // ceiling is baked into its weights. Do not pass contextWindow here.
 
     // Only emit sampling flags when non-default to keep the command
     // clean. Defaults here must match mlx-lm's CLI defaults:
@@ -75,7 +73,7 @@ export class MlxAdapter implements RuntimeAdapter {
       cmd: mlxBinary(entry),
       args: [
         ...common,
-        "--max-tokens", String(merged.contextWindow),
+        "--max-tokens", String(merged.maxTokens),
         "--prefill-step-size", String(merged.prefillStepSize),
         "--prompt-cache-size", String(merged.promptCacheSize),
         "--decode-concurrency", String(merged.decodeConcurrency),

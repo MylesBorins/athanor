@@ -49,13 +49,14 @@ describe("Config", () => {
 
     it("exposes default mlx and llama knobs", () => {
       const c = loadConfig()
-      expect(c.mlx.prefillStepSize).toBe(512)
+      expect(c.mlx.prefillStepSize).toBe(2048)
       expect(c.mlx.promptCacheSize).toBe(32768)
+      expect(c.mlx.contextWindow).toBe(32768)
+      expect(c.mlx.maxTokens).toBe(4096)
       expect(c.llama.nGpuLayers).toBe(999)
-      expect(c.llama.threads).toBe(8)
-      expect(c.llama.ctxSize).toBe(32768)
-      expect(c.llama.batchSize).toBe(512)
-      expect(c.llama.ubatchSize).toBe(256)
+      expect(c.llama.ctxSize).toBe(0)
+      expect(c.llama.batchSize).toBe(2048)
+      expect(c.llama.ubatchSize).toBe(512)
     })
   })
 
@@ -107,7 +108,6 @@ describe("Config", () => {
       expect(loaded.mlx.promptCacheSize).toBe(DEFAULT_CONFIG.mlx.promptCacheSize)
       expect(loaded.mlx.decodeConcurrency).toBe(DEFAULT_CONFIG.mlx.decodeConcurrency)
       expect(loaded.llama.ctxSize).toBe(DEFAULT_CONFIG.llama.ctxSize)
-      expect(loaded.llama.threads).toBe(DEFAULT_CONFIG.llama.threads)
       expect(loaded.llama.nGpuLayers).toBe(DEFAULT_CONFIG.llama.nGpuLayers)
       expect(loaded.supervisor.maxConcurrent).toBe(DEFAULT_CONFIG.supervisor.maxConcurrent)
       expect(loaded.supervisor.startupTimeoutMs).toBe(DEFAULT_CONFIG.supervisor.startupTimeoutMs)

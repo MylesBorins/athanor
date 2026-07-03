@@ -5,7 +5,6 @@ import { llamaEntry } from "./__fixtures.js"
 
 const llama: LlamaConfig = {
   nGpuLayers: 999,
-  threads: 10,
   ctxSize: 12288,
   batchSize: 128,
   ubatchSize: 64,
@@ -30,7 +29,6 @@ describe("LlamaAdapter", () => {
       "--port", "8091",
       "--host", "127.0.0.1",
       "--n-gpu-layers", "999",
-      "--threads", "10",
       "--ctx-size", "12288",
       "--batch-size", "128",
       "--ubatch-size", "64",
