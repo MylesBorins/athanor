@@ -62,4 +62,44 @@ describe("pull registry materialization", () => {
     expect(entry.mlxFlavor).toBe("lm")
     expect(entry.mlxCapabilities).toEqual(["vlm"])
   })
+
+  it("fails instead of materializing the HF cache root when the MLX snapshot path cannot be resolved", async () => {
+    vi.doMock("./api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({ id: "mlx-community/Test-4bit" })),
+      inferRuntimeFromRepo: vi.fn(() => "mlx" as const),
+      listGgufFiles: vi.fn()
+    }))
+    vi.doMock("./download.js", () => ({
+      runHfDownload: vi.fn(async () => {}),
+      resolveMlxSnapshot: vi.fn(() => null)
+    }))
+    vi.doMock("../discovery/scanner.js", () => ({
+      detectMlxCapabilities: vi.fn(() => [])
+    }))
+
+    const mod = await import("./hf.js")
+    await expect(mod.pull({ repo: "mlx-community/Test-4bit" }))
+      .rejects.toThrow("could not resolve its local HF snapshot path")
+    expect(listModels()).toEqual([])
+  })
+
+  it("uses the concrete downloaded MLX snapshot path instead of falling back to refs/main", async () => {
+    vi.doMock("./api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({ id: "mlx-community/Test-4bit" })),
+      inferRuntimeFromRepo: vi.fn(() => "mlx" as const),
+      listGgufFiles: vi.fn()
+    }))
+    vi.doMock("./download.js", () => ({
+      runHfDownload: vi.fn(async () => "/cache/mlx/revision-snap"),
+      resolveMlxSnapshot: vi.fn(() => "/cache/mlx/main-snap")
+    }))
+    vi.doMock("../discovery/scanner.js", () => ({
+      detectMlxCapabilities: vi.fn(() => [])
+    }))
+
+    const mod = await import("./hf.js")
+    const pulled = await mod.pull({ repo: "mlx-community/Test-4bit", revision: "refs/pr/7" })
+
+    expect(pulled.entry.path).toBe("/cache/mlx/revision-snap")
+  })
 })

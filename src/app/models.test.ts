@@ -100,6 +100,29 @@ describe("app model service", () => {
     expect(syncPi).toHaveBeenCalledWith({ instances: [] })
   })
 
+  it("deleteModelFromDisk leaves the registry entry intact when files cannot be removed", async () => {
+    const syncPi = vi.fn()
+    const removeModel = vi.fn(() => true)
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), runtime: "llama.cpp" as const, path: "/missing/a.gguf", source: { type: "local" as const } }),
+      removeModel,
+      setModelFlavor: vi.fn(),
+      setModelPreset: vi.fn(),
+      setModelPublish: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] } }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+    vi.doMock("../discovery/ingest.js", () => ({ ingestDiscovered: vi.fn() }))
+    vi.doMock("../pull/hf.js", () => ({ pull: vi.fn() }))
+
+    const mod = await import("./models.js")
+    expect(() => mod.deleteModelFromDisk("a"))
+      .toThrow("could not remove files from disk for a; registry entry left intact")
+    expect(removeModel).not.toHaveBeenCalled()
+    expect(syncPi).not.toHaveBeenCalled()
+  })
+
   it("setPublished updates registry and syncs pi", async () => {
     const syncPi = vi.fn()
     const setModelPublish = vi.fn(() => ({ ...entry(), publish: false }))

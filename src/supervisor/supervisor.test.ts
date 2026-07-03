@@ -1,15 +1,17 @@
 import * as fs from "fs"
+import * as http from "http"
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import type { ModelEntry } from "../types/index.js"
 import { PATHS } from "../config/index.js"
+import { saveRegistry } from "../registry/index.js"
 
-function fauxServer(port: number): string {
+function fauxServer(port: number, id: string): string {
   return `
 const http = require("http")
 const server = http.createServer((req, res) => {
   if (req.url === "/health" || req.url === "/v1/models") {
     res.writeHead(200, {"Content-Type": "application/json"})
-    return res.end(JSON.stringify({status: "ok", data: []}))
+    return res.end(JSON.stringify({status: "ok", data: [{id: ${JSON.stringify(id)}}]}))
   }
   res.writeHead(404); res.end()
 })
@@ -38,7 +40,7 @@ async function loadSupervisor() {
       ...real,
       buildCommandFor: (e: ModelEntry) => ({
         cmd: process.execPath,
-        args: ["-e", fauxServer(e.port)]
+        args: ["-e", fauxServer(e.port, e.piAlias ?? e.slug)]
       })
     }
   })
@@ -103,7 +105,22 @@ describe("Supervisor (integration)", () => {
     }
   }, 15_000)
 
+  it("coalesces concurrent starts for the same model", async () => {
+    const sup = await loadSupervisor()
+    const [first, second] = await Promise.all([
+      sup.start(entry(18086)),
+      sup.start(entry(18086))
+    ])
+    try {
+      expect(first.pid).toBe(second.pid)
+      expect(sup.list()).toHaveLength(1)
+    } finally {
+      await sup.stop("faux/model")
+    }
+  }, 15_000)
+
   it("persists state and reattaches to a live process", async () => {
+    saveRegistry({ version: 1, models: [entry(18085)] })
     const first = await loadSupervisor()
     const inst = await first.start(entry(18085))
     try {
@@ -112,9 +129,42 @@ describe("Supervisor (integration)", () => {
 
       vi.resetModules()
       const second = await loadSupervisor()
-      expect(second.get("faux/model")?.pid).toBe(inst.pid)
+      const deadline = Date.now() + 5000
+      while (!second.get("faux/model") && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      expect(second.get("faux/model")).toMatchObject({
+        id: "faux/model",
+        port: 18085,
+        status: "running"
+      })
     } finally {
       try { process.kill(inst.pid) } catch { /* already gone */ }
+    }
+  }, 15_000)
+
+  it("refuses to claim it stopped a recovered instance whose PID is unknown", async () => {
+    saveRegistry({ version: 1, models: [entry(18087)] })
+    const server = http.createServer((req, res) => {
+      if (req.url === "/health" || req.url === "/v1/models") {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ status: "ok", data: [{ id: "faux" }] }))
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>(resolve => server.listen(18087, "127.0.0.1", resolve))
+    try {
+      const sup = await loadSupervisor()
+      await sup.ready()
+      expect(sup.get("faux/model")).toMatchObject({ pid: -1, port: 18087 })
+      await expect(sup.stop("faux/model"))
+        .rejects.toThrow("cannot manage faux-model: model is serving on :18087 but athanor does not know its PID")
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close(err => err ? reject(err) : resolve())
+      })
     }
   }, 15_000)
 })

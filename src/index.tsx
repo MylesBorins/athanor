@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   // in App.tsx, so no toast here.
 
   startControlApi()
-  reconcileIngressForCurrentState()
+  await reconcileIngressForCurrentState()
 
   if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)
   else process.stdout.write(CLEAR_SCREEN)

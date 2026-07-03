@@ -80,7 +80,8 @@ function isMlxSnapshot(snapshotDir: string): boolean {
     const hasConfig = files.includes("config.json")
     const hasSafetensors = files.some(f => f.endsWith(".safetensors"))
     const hasGguf = files.some(f => f.endsWith(".gguf"))
-    return hasConfig && hasSafetensors && !hasGguf
+    const hasMlxMarker = files.includes("quantization_config.json") || /\bmlx\b/i.test(snapshotDir)
+    return hasConfig && hasSafetensors && !hasGguf && hasMlxMarker
   } catch {
     return false
   }
@@ -254,31 +255,15 @@ function scanGgufModels(baseDir: string): Model[] {
         } else if (entry.name.endsWith(".gguf")) {
           const stats = fs.statSync(fullPath)
           const name = path.basename(entry.name, ".gguf")
-          const file = entry.name
-          const parentDir = path.basename(path.dirname(fullPath))
-          const parsed = parseOrgRepoDir(parentDir)
-          if (parsed) {
-            const hfRepo = `${parsed.org}/${parsed.repo}`
-            models.push({
-              id: `${hfRepo}:${file}`,
-              name,
-              path: fullPath,
-              runtime: "llama.cpp",
-              source: { type: "hf", repo: hfRepo, file },
-              sizeBytes: stats.size,
-              ...detectGgufMetadata(fullPath, name)
-            })
-          } else {
-            models.push({
-              id: fullPath,
-              name,
-              path: fullPath,
-              runtime: "llama.cpp",
-              source: { type: "local" },
-              sizeBytes: stats.size,
-              ...detectGgufMetadata(fullPath, name)
-            })
-          }
+          models.push({
+            id: fullPath,
+            name,
+            path: fullPath,
+            runtime: "llama.cpp",
+            source: { type: "local" },
+            sizeBytes: stats.size,
+            ...detectGgufMetadata(fullPath, name)
+          })
         }
       }
     } catch (err) {

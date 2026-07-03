@@ -41,11 +41,12 @@ export function parseProcStats(stdout: string): Map<number, ProcStats> {
 }
 
 export function sampleProcessStats(pids: number[]): Map<number, ProcStats> {
-  if (pids.length === 0) return new Map()
+  const validPids = pids.filter(pid => Number.isInteger(pid) && pid > 0)
+  if (validPids.length === 0) return new Map()
   try {
     const stdout = execFileSync(
       "ps",
-      ["-p", pids.join(","), "-o", "pid=,%cpu=,rss="],
+      ["-p", validPids.join(","), "-o", "pid=,%cpu=,rss="],
       { encoding: "utf8", timeout: 1500 }
     )
     return parseProcStats(stdout)
@@ -219,4 +220,3 @@ export function getLiveRouterStats(id: string): CompletionStats | null {
   }
   return stats
 }
-

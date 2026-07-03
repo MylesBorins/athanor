@@ -53,7 +53,7 @@ export async function startModel(idOrSlug: string, opts?: { confirm?: boolean })
     return { entry, preflight, warned: true }
   }
   const instance = await supervisor.start(entry)
-  ensureIngress()
+  await ensureIngress()
   syncPi({ activeDefault: instance, instances: supervisor.list() })
   return { entry, instance, preflight }
 }
@@ -84,7 +84,7 @@ export async function restartModel(idOrSlug: string, opts?: { confirm?: boolean 
     return { entry, preflight, warned: true }
   }
   const instance = await supervisor.restart(entry)
-  ensureIngress()
+  await ensureIngress()
   syncPi({ activeDefault: instance, instances: supervisor.list() })
   return { entry, instance, preflight }
 }
@@ -162,12 +162,12 @@ export function deleteModelFromDisk(idOrSlug: string): ModelEntry {
     ? removeLocalModelPath(entry)
     : removeHfSnapshotFromEntry(entry)
 
+  if (!removedPath) {
+    throw new Error(`could not remove files from disk for ${entry.slug}; registry entry left intact`)
+  }
+
   if (!removeModel(entry.id)) throw new Error(`unknown model: ${entry.id}`)
   syncPi({ instances: supervisor.list() })
-
-  if (!removedPath) {
-    throw new Error(`removed registry entry for ${entry.slug}, but could not remove files from disk`)
-  }
   return entry
 }
 
@@ -179,7 +179,7 @@ export function removeModelEntry(idOrSlug: string): void {
 // Escape hatch for callers that need a direct re-emit without another
 // state mutation (for example after config changes that affect pi sync
 // shape). Prefer the higher-level operations above for normal flows.
-export function syncPiNow(activeDefault?: ActiveInstance): void {
-  reconcileIngressForCurrentState()
+export async function syncPiNow(activeDefault?: ActiveInstance): Promise<void> {
+  await reconcileIngressForCurrentState()
   syncPi({ activeDefault, instances: supervisor.list() })
 }

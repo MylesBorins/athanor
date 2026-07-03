@@ -54,7 +54,7 @@ function resolveSidecarScript(): string {
   )
 }
 
-export function runHfDownload(opts: DownloadOptions): Promise<void> {
+export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
   return new Promise((resolve, reject) => {
     if (opts.signal?.aborted) { reject(new PullAbortedError()); return }
     fs.mkdirSync(opts.localDir, { recursive: true })
@@ -88,6 +88,7 @@ export function runHfDownload(opts: DownloadOptions): Promise<void> {
     // so it isn't silently dropped.
     let stdoutBuf = ""
     let lastError: string | null = null
+    let resolvedPath: string | null = null
     proc.stdout?.on("data", (b: Buffer) => {
       stdoutBuf += b.toString()
       for (;;) {
@@ -99,6 +100,7 @@ export function runHfDownload(opts: DownloadOptions): Promise<void> {
         try {
           const ev = JSON.parse(line) as ProgressEvent
           if (ev.type === "error") lastError = ev.message
+          if (ev.type === "done") resolvedPath = ev.path
           opts.onEvent?.(ev)
         } catch {
           opts.onLine?.(line)
@@ -131,20 +133,25 @@ export function runHfDownload(opts: DownloadOptions): Promise<void> {
       if (killTimer) clearTimeout(killTimer)
       opts.signal?.removeEventListener("abort", onAbort)
       if (aborted) reject(new PullAbortedError())
-      else if (code === 0) resolve()
+      else if (code === 0) resolve(resolvedPath)
       else reject(new Error(lastError ?? `hf_pull exited with code ${code}`))
     })
   })
 }
 
-export function resolveMlxSnapshot(hubDir: string, repo: string): string | null {
+export function resolveMlxSnapshot(hubDir: string, repo: string, revision?: string): string | null {
   const modelDir = path.join(hubDir, `models--${repo.replace("/", "--")}`)
-  const refsMain = path.join(modelDir, "refs", "main")
+  const refs = [revision, "main"].filter((v): v is string => typeof v === "string" && v.length > 0)
   try {
-    if (fs.existsSync(refsMain)) {
-      const hash = fs.readFileSync(refsMain, "utf8").trim()
-      const candidate = path.join(modelDir, "snapshots", hash)
-      if (fs.existsSync(candidate)) return candidate
+    for (const ref of refs) {
+      const refPath = path.join(modelDir, "refs", ref)
+      if (fs.existsSync(refPath)) {
+        const hash = fs.readFileSync(refPath, "utf8").trim()
+        const candidate = path.join(modelDir, "snapshots", hash)
+        if (fs.existsSync(candidate)) return candidate
+      }
+      const directSnapshot = path.join(modelDir, "snapshots", ref)
+      if (fs.existsSync(directSnapshot)) return directSnapshot
     }
   } catch { /* fall through */ }
   return null

@@ -28,16 +28,20 @@ function atomicWrite(filepath: string, data: string): void {
 }
 
 function readRegistryFromDisk(): Registry {
+  if (!fs.existsSync(PATHS.registry)) return emptyRegistry()
+  let raw: unknown
   try {
-    if (!fs.existsSync(PATHS.registry)) return emptyRegistry()
-    const raw = JSON.parse(fs.readFileSync(PATHS.registry, "utf8"))
-    if (!raw || typeof raw !== "object") return emptyRegistry()
-    if (!Array.isArray(raw.models)) return emptyRegistry()
-    return { version: 1, models: raw.models as ModelEntry[] }
+    raw = JSON.parse(fs.readFileSync(PATHS.registry, "utf8"))
   } catch (err) {
-    console.error(`Failed to load registry: ${err}`)
-    return emptyRegistry()
+    throw new Error(`Failed to load registry: ${err}`)
   }
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Failed to load registry: expected a JSON object")
+  }
+  if (!Array.isArray((raw as { models?: unknown }).models)) {
+    throw new Error("Failed to load registry: expected models to be an array")
+  }
+  return { version: 1, models: (raw as { models: ModelEntry[] }).models }
 }
 
 function parseOrgRepoDir(dirName: string): { org: string; repo: string } | null {
@@ -49,14 +53,25 @@ function parseOrgRepoDir(dirName: string): { org: string; repo: string } | null 
   return { org, repo }
 }
 
+function inferHfGgufSourceFromPath(modelPath: string): { repo: string; file: string } | null {
+  const parts = normalizeModelPath(modelPath).split(path.sep).filter(Boolean)
+  const snapshotsIdx = parts.lastIndexOf("snapshots")
+  if (snapshotsIdx < 2 || snapshotsIdx + 2 !== parts.length - 1) return null
+  const modelDir = parts[snapshotsIdx - 1]
+  if (!modelDir?.startsWith("models--")) return null
+  const parsed = parseOrgRepoDir(modelDir.slice("models--".length))
+  if (!parsed) return null
+  const file = parts[parts.length - 1]!
+  if (!file.endsWith(".gguf")) return null
+  return { repo: `${parsed.org}/${parsed.repo}`, file }
+}
+
 function upgradeLocalSourceFromPath(entry: ModelEntry): boolean {
   if (entry.source.type !== "local" || entry.runtime !== "llama.cpp") return false
-  const parentDir = path.basename(path.dirname(entry.path))
-  const parsed = parseOrgRepoDir(parentDir)
-  if (!parsed) return false
-  const file = path.basename(entry.path)
-  entry.source = { type: "hf", repo: `${parsed.org}/${parsed.repo}`, file }
-  entry.id = `${parsed.org}/${parsed.repo}:${file}`
+  const inferred = inferHfGgufSourceFromPath(entry.path)
+  if (!inferred) return false
+  entry.source = { type: "hf", repo: inferred.repo, file: inferred.file }
+  entry.id = `${inferred.repo}:${inferred.file}`
   return true
 }
 

@@ -66,6 +66,31 @@ describe("discovery scanner metadata helpers", () => {
     expect(meta.metadataSource).toBe("gguf_header")
   })
 
+  it("does not classify generic safetensors snapshots as MLX without an MLX marker", () => {
+    const snapshotDir = path.join(tmp, "models--author--plain-transformers", "snapshots", "abc123")
+    fs.mkdirSync(snapshotDir, { recursive: true })
+    fs.writeFileSync(path.join(snapshotDir, "config.json"), JSON.stringify({ model_type: "llama" }))
+    fs.writeFileSync(path.join(snapshotDir, "model.safetensors"), "weights")
+
+    const prevConfig = fs.existsSync(PATHS.config)
+      ? fs.readFileSync(PATHS.config, "utf8")
+      : null
+    fs.writeFileSync(PATHS.config, JSON.stringify({
+      modelDirs: { mlx: tmp, llama: path.join(tmp, "llama-empty") }
+    }))
+
+    try {
+      const models = scanModels().filter(m => m.path === snapshotDir)
+      expect(models).toEqual([])
+    } finally {
+      if (prevConfig === null) {
+        try { fs.unlinkSync(PATHS.config) } catch { /* absent */ }
+      } else {
+        fs.writeFileSync(PATHS.config, prevConfig)
+      }
+    }
+  })
+
   it("uses file-size-only metadata when GGUF quantization is unknown", () => {
     const meta = detectGgufMetadata("/models/custom-model.gguf", "custom-model")
     expect(meta.architectureFamily).toBeUndefined()
@@ -81,7 +106,7 @@ describe("discovery scanner metadata helpers", () => {
     expect(parseOrgRepoDir("flat-name")).toBeNull()
   })
 
-  it("scanGgufModels assigns hf source for gguf files under org--repo folders", () => {
+  it("scanGgufModels keeps ordinary org--repo folders as local GGUF paths", () => {
     const repoDir = path.join(tmp, "unsloth--Qwen3.6-27B-GGUF")
     fs.mkdirSync(repoDir, { recursive: true })
     const ggufPath = path.join(repoDir, "Qwen3.6-27B-Q4_K_M.gguf")
@@ -97,11 +122,8 @@ describe("discovery scanner metadata helpers", () => {
     try {
       const models = scanModels().filter(m => m.path === ggufPath)
       expect(models).toHaveLength(1)
-      expect(models[0]!.source).toEqual({
-        type: "hf",
-        repo: "unsloth/Qwen3.6-27B-GGUF",
-        file: "Qwen3.6-27B-Q4_K_M.gguf"
-      })
+      expect(models[0]!.source).toEqual({ type: "local" })
+      expect(models[0]!.id).toBe(ggufPath)
     } finally {
       if (prevConfig === null) {
         try { fs.unlinkSync(PATHS.config) } catch { /* absent */ }

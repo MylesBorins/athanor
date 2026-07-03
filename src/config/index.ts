@@ -72,6 +72,13 @@ export interface Config {
   router: RouterConfig
 }
 
+function mergedSection<T extends object>(
+  value: unknown,
+  fallback: T
+): T {
+  return isRecord(value) ? { ...fallback, ...value as Partial<T> } : { ...fallback }
+}
+
 export const DEFAULT_CONFIG: Config = {
   portRange: { min: 8081, max: 8099 },
   enablePiSync: true,
@@ -310,31 +317,43 @@ function deepMerge<T>(base: T, override: Partial<T>): T {
 }
 
 export function loadConfig(): Config {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    try { saveConfig(DEFAULT_CONFIG) } catch { /* non-writable home */ }
+    return DEFAULT_CONFIG
+  }
   try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const data = fs.readFileSync(CONFIG_PATH, "utf8")
-      const parsed = JSON.parse(data) as unknown
-      const loaded = isRecord(parsed) ? parsed as Partial<Config> : {}
-      const merged = deepMerge(DEFAULT_CONFIG, loaded)
-
-            // Support human-friendly promptCacheBytes like "8gb" / "4096mb".
-      // Internal representation is always bytes.
-      if (merged.mlx && "promptCacheBytes" in merged.mlx) {
-        try {
-          const parsedBytes = parsePromptCacheBytes((merged as any).mlx.promptCacheBytes)
-          if (parsedBytes !== undefined) merged.mlx.promptCacheBytes = parsedBytes
-        } catch (e) {
-          console.error(`Invalid config.mlx.promptCacheBytes; using default: ${e}`)
-          merged.mlx.promptCacheBytes = DEFAULT_CONFIG.mlx.promptCacheBytes
-        }
-      }
-
-      return sanitizeConfig(merged)
+    const data = fs.readFileSync(CONFIG_PATH, "utf8")
+    const parsed = JSON.parse(data) as unknown
+    const loaded = isRecord(parsed) ? parsed as Partial<Config> : {}
+    const merged = deepMerge(DEFAULT_CONFIG, loaded)
+    const normalized: Config = {
+      ...DEFAULT_CONFIG,
+      ...merged,
+      portRange: mergedSection(merged.portRange, DEFAULT_CONFIG.portRange),
+      modelDirs: mergedSection(merged.modelDirs, DEFAULT_CONFIG.modelDirs),
+      mlx: mergedSection(merged.mlx, DEFAULT_CONFIG.mlx),
+      llama: mergedSection(merged.llama, DEFAULT_CONFIG.llama),
+      supervisor: mergedSection(merged.supervisor, DEFAULT_CONFIG.supervisor),
+      controlApi: mergedSection(merged.controlApi, DEFAULT_CONFIG.controlApi),
+      router: mergedSection(merged.router, DEFAULT_CONFIG.router)
     }
+
+    // Support human-friendly promptCacheBytes like "8gb" / "4096mb".
+    // Internal representation is always bytes.
+    if ("promptCacheBytes" in normalized.mlx) {
+      try {
+        const parsedBytes = parsePromptCacheBytes((normalized as any).mlx.promptCacheBytes)
+        if (parsedBytes !== undefined) normalized.mlx.promptCacheBytes = parsedBytes
+      } catch (e) {
+        console.error(`Invalid config.mlx.promptCacheBytes; using default: ${e}`)
+        normalized.mlx.promptCacheBytes = DEFAULT_CONFIG.mlx.promptCacheBytes
+      }
+    }
+
+    return sanitizeConfig(normalized)
   } catch (err) {
     console.error(`Failed to load config: ${err}`)
   }
-  try { saveConfig(DEFAULT_CONFIG) } catch { /* non-writable home */ }
   return DEFAULT_CONFIG
 }
 

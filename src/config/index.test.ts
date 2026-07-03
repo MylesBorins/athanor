@@ -89,6 +89,37 @@ describe("Config", () => {
       expect(loaded.supervisor.policy).toBe("single-active")
     })
 
+    it("does not overwrite a malformed config file with defaults", () => {
+      const original = "{not-json"
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
+      fs.writeFileSync(PATHS.config, original, "utf8")
+
+      const loaded = loadConfig()
+
+      expect(loaded).toEqual(DEFAULT_CONFIG)
+      expect(fs.readFileSync(PATHS.config, "utf8")).toBe(original)
+      expect(spy).toHaveBeenCalled()
+      spy.mockRestore()
+    })
+
+    it("falls back per-section when nested config objects are malformed", () => {
+      fs.writeFileSync(
+        PATHS.config,
+        JSON.stringify({
+          mlx: "oops",
+          router: { port: 9090 },
+          enablePiSync: false
+        }),
+        "utf8"
+      )
+
+      const loaded = loadConfig()
+
+      expect(loaded.enablePiSync).toBe(false)
+      expect(loaded.router.port).toBe(9090)
+      expect(loaded.mlx).toEqual(DEFAULT_CONFIG.mlx)
+    })
+
     it("sanitizes invalid numeric config values back to defaults", () => {
       const spy = vi.spyOn(console, "error").mockImplementation(() => {})
       fs.writeFileSync(

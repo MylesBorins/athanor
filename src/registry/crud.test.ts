@@ -51,14 +51,15 @@ describe("registry CRUD", () => {
       expect(reg.models[0]!.slug).toBe("y")
     })
 
-    it("returns empty when the file is malformed", () => {
+    it("throws when the file is malformed", () => {
       fs.writeFileSync(PATHS.registry, "not json")
-      expect(loadRegistry()).toEqual({ version: 1, models: [] })
+      expect(() => loadRegistry()).toThrow("Failed to load registry")
+      expect(fs.readFileSync(PATHS.registry, "utf8")).toBe("not json")
     })
 
-    it("returns empty when models is not an array", () => {
+    it("throws when models is not an array", () => {
       fs.writeFileSync(PATHS.registry, JSON.stringify({ models: "oops" }))
-      expect(loadRegistry()).toEqual({ version: 1, models: [] })
+      expect(() => loadRegistry()).toThrow("expected models to be an array")
     })
   })
 

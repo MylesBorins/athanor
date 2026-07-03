@@ -1,6 +1,5 @@
 import { spawn } from "child_process"
 import { loadConfig } from "../config/index.js"
-import { supervisor } from "../supervisor/index.js"
 import { listModels } from "../registry/index.js"
 import { recoverLiveInstances } from "../supervisor/reconcile.js"
 import {
@@ -15,14 +14,36 @@ function shouldManageIngress(): boolean {
   return loadConfig().router.enabled
 }
 
-function currentRouterProcess(): PersistedRouter | undefined {
+async function routerHealthy(host: string, port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://${host}:${port}/health`)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function currentRouterProcess(): Promise<PersistedRouter | undefined> {
   const persisted = getPersistedRouter()
   if (!persisted) return undefined
   if (!pidAlive(persisted.pid)) {
     clearPersistedRouter()
     return undefined
   }
+  if (!(await routerHealthy(persisted.host, persisted.port))) {
+    clearPersistedRouter()
+    return undefined
+  }
   return persisted
+}
+
+async function waitForRouterHealthy(host: string, port: number, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await routerHealthy(host, port)) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`router did not become healthy on http://${host}:${port} within ${timeoutMs}ms`)
 }
 
 function currentEntrypoint(): { cmd: string; args: string[] } {
@@ -34,12 +55,13 @@ function currentEntrypoint(): { cmd: string; args: string[] } {
   }
 }
 
-export function ensureIngress(): PersistedRouter | undefined {
+export async function ensureIngress(): Promise<PersistedRouter | undefined> {
   if (!shouldManageIngress()) return undefined
 
-  const existing = currentRouterProcess()
+  const existing = await currentRouterProcess()
   if (existing) return existing
 
+  const cfg = loadConfig().router
   const { cmd, args } = currentEntrypoint()
   const child = spawn(cmd, args, {
     detached: true,
@@ -51,20 +73,21 @@ export function ensureIngress(): PersistedRouter | undefined {
 
   const router = {
     pid: child.pid,
-    host: loadConfig().router.host,
-    port: loadConfig().router.port,
+    host: cfg.host,
+    port: cfg.port,
     startedAt: Date.now()
   }
+  await waitForRouterHealthy(router.host, router.port)
   savePersistedRouter(router)
   return router
 }
 
 export async function stopIngressIfIdle(stopInProcess: () => Promise<void>): Promise<void> {
   if (!shouldManageIngress()) return
-  const recovered = await recoverLiveInstances(listModels(), supervisor.list())
+  const recovered = await recoverLiveInstances(listModels(), [])
   if (recovered.length > 0) return
 
-  const persisted = currentRouterProcess()
+  const persisted = await currentRouterProcess()
   if (!persisted) {
     await stopInProcess()
     return
@@ -74,14 +97,18 @@ export async function stopIngressIfIdle(stopInProcess: () => Promise<void>): Pro
   clearPersistedRouter()
 }
 
-export function reconcileIngressForCurrentState(): void {
+export async function reconcileIngressForCurrentState(): Promise<void> {
+  const persisted = getPersistedRouter()
   if (!shouldManageIngress()) {
+    if (persisted && pidAlive(persisted.pid) && await routerHealthy(persisted.host, persisted.port)) {
+      try { process.kill(persisted.pid, "SIGTERM") } catch { /* already gone */ }
+    }
     clearPersistedRouter()
     return
   }
   // Ingress is part of normal athanor operation: keep it available
   // while the app is active, and leave the detached companion running
   // across UI exits when models remain active.
-  ensureIngress()
-  if (getPersistedRouter() && !currentRouterProcess()) clearPersistedRouter()
+  await ensureIngress()
+  if (persisted && !(await currentRouterProcess())) clearPersistedRouter()
 }

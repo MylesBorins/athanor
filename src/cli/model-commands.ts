@@ -211,10 +211,10 @@ export function cmdRm(idOrSlug: string): void {
   ok(`deleted ${style.bold(entry.slug)} from disk`)
 }
 
-export function cmdSync(): void {
+export async function cmdSync(): Promise<void> {
   const instances = supervisor.list()
   const active = instances[0]
-  syncPiNow(active)
+  await syncPiNow(active)
   const n = listModels().filter(m => m.publish).length
   ok(`pi sync: ${style.bold(String(n))} model${n === 1 ? "" : "s"} exposed`)
 }

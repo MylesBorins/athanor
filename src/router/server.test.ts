@@ -96,6 +96,7 @@ describe("startRouter", () => {
     })
     vi.doMock("../supervisor/index.js", () => ({
       supervisor: {
+        ready: vi.fn(async () => {}),
         get: () => undefined,
         list: () => [],
         start,
@@ -177,6 +178,7 @@ describe("startRouter", () => {
     }))
     vi.doMock("../supervisor/index.js", () => ({
       supervisor: {
+        ready: vi.fn(async () => {}),
         get: () => ({ port: upstream.port }),
         list: () => [],
         start: vi.fn(),
@@ -211,4 +213,3 @@ describe("startRouter", () => {
     await upstream.close()
   })
 })
-

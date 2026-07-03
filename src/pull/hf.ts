@@ -63,7 +63,7 @@ export async function pull(opts: PullOptions): Promise<PullResult> {
     ? expandHome(dirs.mlx)
     : path.join(expandHome(dirs.llama), opts.repo.replace("/", "--"))
 
-  await runHfDownload({
+  const downloadedPath = await runHfDownload({
     repo: opts.repo,
     localDir,
     file,
@@ -75,15 +75,20 @@ export async function pull(opts: PullOptions): Promise<PullResult> {
 
   const resolvedPath = runtime === "llama.cpp"
     ? path.join(localDir, file!)
-    : resolveMlxSnapshot(localDir, opts.repo) ?? localDir
+    : downloadedPath ?? resolveMlxSnapshot(localDir, opts.repo, opts.revision)
+
+  if (runtime === "mlx" && !resolvedPath) {
+    throw new Error(`Downloaded ${opts.repo}, but could not resolve its local HF snapshot path`)
+  }
+  const materializedPath = resolvedPath!
 
   // resolvedPath for MLX points at snapshots/<hash>/ — that's where
   // config.json lives and what detectMlxCapabilities expects.
-  const mlxCapabilities = runtime === "mlx" ? detectMlxCapabilities(resolvedPath) : undefined
+  const mlxCapabilities = runtime === "mlx" ? detectMlxCapabilities(materializedPath) : undefined
 
   return {
     entry: materializeRegistryEntry(
-      pullToMaterializeInput(opts.repo, file, opts.revision, runtime, resolvedPath, mlxCapabilities)
+      pullToMaterializeInput(opts.repo, file, opts.revision, runtime, materializedPath, mlxCapabilities)
     ).entry
   }
 }

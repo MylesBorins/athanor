@@ -93,6 +93,11 @@ describe("pidAlive", () => {
     expect(pidAlive(process.pid)).toBe(true)
   })
 
+  it("returns false for non-positive sentinel pids", () => {
+    expect(pidAlive(0)).toBe(false)
+    expect(pidAlive(-1)).toBe(false)
+  })
+
   it("returns false for a pid that isn't running", () => {
     // Picking a very large pid that's almost certainly unused.
     // process.kill(pid, 0) will throw ESRCH and the helper catches it.

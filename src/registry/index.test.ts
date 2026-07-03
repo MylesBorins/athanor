@@ -61,7 +61,28 @@ describe("deduplicateRegistry", () => {
     expect(entry.quantization).toBe("Q4_K_M")
   })
 
-  it("upgrades local llama entries in org--repo pull folders to hf source on load", () => {
+  it("upgrades only true HF cache GGUF paths to hf source on load", () => {
+    writeRegistry([
+      {
+        id: "/Users/me/.cache/huggingface/hub/models--unsloth--Qwen3.6-27B-GGUF/snapshots/abc123/Qwen3.6-27B-Q4_K_M.gguf",
+        slug: "qwen3-6-27b-q4-k-m",
+        path: "/Users/me/.cache/huggingface/hub/models--unsloth--Qwen3.6-27B-GGUF/snapshots/abc123/Qwen3.6-27B-Q4_K_M.gguf",
+        runtime: "llama.cpp",
+        source: { type: "local" },
+        port: 8081,
+        publish: true,
+        addedAt: 1
+      }
+    ])
+
+    deduplicateRegistry()
+    const entry = listModels()[0]!
+    expect(entry.source.type).toBe("hf")
+    expect((entry.source as { type: "hf"; repo: string }).repo).toBe("unsloth/Qwen3.6-27B-GGUF")
+    expect(entry.id).toBe("unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf")
+  })
+
+  it("does not upgrade ordinary org--repo local folders to hf source", () => {
     writeRegistry([
       {
         id: "/models/unsloth--Qwen3.6-27B-GGUF/Qwen3.6-27B-Q4_K_M.gguf",
@@ -77,8 +98,7 @@ describe("deduplicateRegistry", () => {
 
     deduplicateRegistry()
     const entry = listModels()[0]!
-    expect(entry.source.type).toBe("hf")
-    expect((entry.source as { type: "hf"; repo: string }).repo).toBe("unsloth/Qwen3.6-27B-GGUF")
-    expect(entry.id).toBe("unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf")
+    expect(entry.source.type).toBe("local")
+    expect(entry.id).toBe("/models/unsloth--Qwen3.6-27B-GGUF/Qwen3.6-27B-Q4_K_M.gguf")
   })
 })

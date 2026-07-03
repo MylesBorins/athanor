@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 describe("ingress lifecycle", () => {
   beforeEach(() => {
     vi.resetModules()
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })))
   })
 
   afterEach(() => {
@@ -11,6 +12,7 @@ describe("ingress lifecycle", () => {
     vi.doUnmock("../supervisor/state.js")
     vi.doUnmock("child_process")
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it("starts a detached ingress companion when ingress management is enabled", async () => {
@@ -33,7 +35,7 @@ describe("ingress lifecycle", () => {
     }))
 
     const { ensureIngress } = await import("./lifecycle.js")
-    const router = ensureIngress()
+    const router = await ensureIngress()
     expect(router?.pid).toBe(4321)
     expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 8080 }))
   })
@@ -58,7 +60,7 @@ describe("ingress lifecycle", () => {
     }))
 
     const { ensureIngress } = await import("./lifecycle.js")
-    expect(ensureIngress()).toBeUndefined()
+    await expect(ensureIngress()).resolves.toBeUndefined()
     expect(savePersistedRouter).not.toHaveBeenCalled()
   })
 
@@ -80,8 +82,39 @@ describe("ingress lifecycle", () => {
     vi.doMock("child_process", async () => ({ spawn }))
 
     const { ensureIngress } = await import("./lifecycle.js")
-    expect(ensureIngress()).toEqual({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 })
+    await expect(ensureIngress()).resolves.toEqual({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 })
     expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("respawns when persisted router pid is live but the health endpoint is not", async () => {
+    const fetchMock = vi.fn()
+    fetchMock
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValue({ ok: true })
+    vi.stubGlobal("fetch", fetchMock)
+    const spawn = vi.fn(() => ({ pid: 4321, unref: vi.fn() }))
+    const clearPersistedRouter = vi.fn()
+    const savePersistedRouter = vi.fn()
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+    }))
+    vi.doMock("../supervisor/index.js", async () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => ({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      pidAlive: () => true,
+      clearPersistedRouter,
+      savePersistedRouter
+    }))
+    vi.doMock("child_process", async () => ({ spawn }))
+
+    const { ensureIngress } = await import("./lifecycle.js")
+    await expect(ensureIngress()).resolves.toEqual(expect.objectContaining({ pid: 4321, port: 8080 }))
+    expect(clearPersistedRouter).toHaveBeenCalled()
+    expect(spawn).toHaveBeenCalled()
+    expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 8080 }))
   })
 
   it("stops the ingress when the last model has stopped", async () => {
@@ -146,6 +179,37 @@ describe("ingress lifecycle", () => {
     expect(stopInProcess).not.toHaveBeenCalled()
   })
 
+  it("does not let stale in-memory supervisor entries suppress idle ingress shutdown", async () => {
+    const stopInProcess = vi.fn(async () => {})
+    const clearPersistedRouter = vi.fn()
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+    }))
+    vi.doMock("../registry/index.js", async () => ({
+      listModels: () => []
+    }))
+    vi.doMock("../supervisor/reconcile.js", async () => ({
+      recoverLiveInstances: async (_entries: unknown[], persisted: unknown[]) => {
+        expect(persisted).toEqual([])
+        return []
+      }
+    }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      pidAlive: () => true,
+      clearPersistedRouter,
+      savePersistedRouter: vi.fn()
+    }))
+
+    const { stopIngressIfIdle } = await import("./lifecycle.js")
+    await stopIngressIfIdle(stopInProcess)
+    expect(kill).toHaveBeenCalledWith(555, "SIGTERM")
+    expect(clearPersistedRouter).toHaveBeenCalled()
+    expect(stopInProcess).not.toHaveBeenCalled()
+  })
+
   it("clears stale ingress state during reconciliation", async () => {
     const clearPersistedRouter = vi.fn()
     vi.doMock("../config/index.js", async () => ({
@@ -166,7 +230,30 @@ describe("ingress lifecycle", () => {
     }))
 
     const { reconcileIngressForCurrentState } = await import("./lifecycle.js")
-    reconcileIngressForCurrentState()
+    await reconcileIngressForCurrentState()
+    expect(clearPersistedRouter).toHaveBeenCalled()
+  })
+
+  it("stops a healthy detached router when router management is disabled", async () => {
+    const clearPersistedRouter = vi.fn()
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: false, host: "127.0.0.1", port: 8080 } })
+    }))
+    vi.doMock("../supervisor/index.js", async () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      pidAlive: () => true,
+      clearPersistedRouter,
+      savePersistedRouter: vi.fn()
+    }))
+
+    const { reconcileIngressForCurrentState } = await import("./lifecycle.js")
+    await reconcileIngressForCurrentState()
+    expect(kill).toHaveBeenCalledWith(555, "SIGTERM")
     expect(clearPersistedRouter).toHaveBeenCalled()
   })
 })

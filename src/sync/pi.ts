@@ -52,6 +52,7 @@ interface PiProviderConfig {
   baseUrl?: string
   api?: string
   apiKey?: string
+  compat?: Record<string, boolean>
   headers?: Record<string, string>
   authHeader?: boolean
   models?: PiModelConfig[]
@@ -67,6 +68,20 @@ interface PiSettings {
   defaultProvider?: string
   defaultModel?: string
   [key: string]: unknown
+}
+
+function readJsonFile<T extends Record<string, unknown>>(filepath: string, label: string): T {
+  if (!fs.existsSync(filepath)) return {} as T
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(filepath, "utf8")) as unknown
+  } catch (err) {
+    throw new Error(`Failed to read ${label}: ${err}`)
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Failed to read ${label}: expected a JSON object`)
+  }
+  return parsed as T
 }
 
 function atomicWrite(filepath: string, data: string): void {
@@ -105,6 +120,18 @@ function contextWindowFor(entry: ModelEntry): number | undefined {
   return Number.isFinite(raw) && raw > 0 ? raw : undefined
 }
 
+function compatForRuntime(runtime: RuntimeType): Record<string, boolean> {
+  return runtime === "mlx"
+    ? { supportsDeveloperRole: false, supportsReasoningEffort: false }
+    : { supportsReasoningEffort: false }
+}
+
+function inputForEntry(entry: ModelEntry): Array<"text" | "image"> {
+  return entry.runtime === "mlx" && entry.mlxFlavor === "vlm"
+    ? ["text", "image"]
+    : ["text"]
+}
+
 function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderConfig {
   return {
     baseUrl: baseUrlFor(entry.port),
@@ -112,10 +139,11 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
     // Both mlx_lm.server and llama-server accept (and ignore) any token.
     // pi requires the field to be present.
     apiKey: "athanor",
+    compat: compatForRuntime(entry.runtime),
     models: [{
       id: modelIdFor(entry),
       name: piDisplayNameFor(entry),
-      input: ["text"],
+      input: inputForEntry(entry),
       contextWindow: contextWindowFor(entry)
     }],
     // Informational fields. pi ignores unknown keys; we round-trip
@@ -127,25 +155,11 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
 }
 
 function readModelsFile(): PiModelsFile {
-  if (!fs.existsSync(PI_MODELS_PATH)) return {}
-  try {
-    const parsed = JSON.parse(fs.readFileSync(PI_MODELS_PATH, "utf8"))
-    return (parsed && typeof parsed === "object") ? parsed : {}
-  } catch (err) {
-    console.error(`Failed to read pi models config: ${err}`)
-    return {}
-  }
+  return readJsonFile<PiModelsFile>(PI_MODELS_PATH, "pi models config")
 }
 
 function readSettingsFile(): PiSettings {
-  if (!fs.existsSync(PI_SETTINGS_PATH)) return {}
-  try {
-    const parsed = JSON.parse(fs.readFileSync(PI_SETTINGS_PATH, "utf8"))
-    return (parsed && typeof parsed === "object") ? parsed : {}
-  } catch (err) {
-    console.error(`Failed to read pi settings: ${err}`)
-    return {}
-  }
+  return readJsonFile<PiSettings>(PI_SETTINGS_PATH, "pi settings")
 }
 
 export interface SyncInputs {
@@ -162,10 +176,11 @@ function runtimeRouterProviderFor(
     baseUrl: routerBaseUrl,
     api: "openai-completions",
     apiKey: "athanor",
+    compat: compatForRuntime(runtime),
     models: entries.map(e => ({
       id: modelIdFor(e),
       name: piDisplayNameFor(e),
-      input: ["text"],
+      input: inputForEntry(e),
       contextWindow: contextWindowFor(e)
     })),
     athanorRouter: true,
@@ -187,9 +202,11 @@ export function syncPi(inputs: SyncInputs = {}): void {
   const entries = listModels()
   const instances = inputs.instances ?? []
   const instanceById = new Map(instances.map(i => [i.id, i]))
+  const existingModels = readModelsFile()
+  const existingSettings = readSettingsFile()
 
-  syncModels(entries, instanceById, config.router)
-  syncSettings(entries, inputs.activeDefault, config.router)
+  const emitted = syncModels(existingModels, entries, instanceById, config.router)
+  syncSettings(existingSettings, entries, inputs.activeDefault, emitted, config.router)
 }
 
 // Provider emission follows one of two mutually exclusive shapes:
@@ -197,11 +214,11 @@ export function syncPi(inputs: SyncInputs = {}): void {
 // router on  => up to two runtime aggregators (mlx, llama.cpp)
 // Never emit both shapes in the same sync.
 function syncModels(
+  existing: PiModelsFile,
   entries: ModelEntry[],
   instanceById: Map<string, ActiveInstance>,
   router: { enabled: boolean; host: string; port: number }
-): void {
-  const existing = readModelsFile()
+): Map<string, Set<string>> {
   const existingProviders = (existing.providers && typeof existing.providers === "object")
     ? existing.providers
     : {}
@@ -212,6 +229,8 @@ function syncModels(
   for (const [name, cfg] of Object.entries(existingProviders)) {
     if (!name.startsWith(ATHANOR_PROVIDER_PREFIX)) next[name] = cfg
   }
+
+  const emitted = new Map<string, Set<string>>()
 
   if (router.enabled) {
     // Router mode: one aggregator per runtime, no per-model entries.
@@ -225,38 +244,79 @@ function syncModels(
     const llamaEntries = exposed.filter(e => e.runtime === "llama.cpp")
     if (mlxEntries.length > 0) {
       next[ATHANOR_MLX_PROVIDER] = runtimeRouterProviderFor(mlxEntries, "mlx", baseUrl)
+      emitted.set(ATHANOR_MLX_PROVIDER, new Set(mlxEntries.map(modelIdFor)))
     }
     if (llamaEntries.length > 0) {
       next[ATHANOR_LLAMA_PROVIDER] = runtimeRouterProviderFor(llamaEntries, "llama.cpp", baseUrl)
+      emitted.set(ATHANOR_LLAMA_PROVIDER, new Set(llamaEntries.map(modelIdFor)))
     }
   } else {
     for (const entry of entries) {
       if (!entry.publish) continue
-      next[providerNameFor(entry)] = providerFor(entry, instanceById.get(entry.id))
+      const name = providerNameFor(entry)
+      next[name] = providerFor(entry, instanceById.get(entry.id))
+      emitted.set(name, new Set([modelIdFor(entry)]))
     }
   }
 
   const out: PiModelsFile = { ...existing, providers: next }
   ensureDir(PI_MODELS_PATH)
   atomicWrite(PI_MODELS_PATH, JSON.stringify(out, null, 2))
+  return emitted
 }
 
 // Settings writes are intentionally narrow: only defaultProvider and
 // defaultModel are touched, and only when a caller supplies an active
 // default instance. Absent an active default, settings are left alone.
 function syncSettings(
+  existing: PiSettings,
   entries: ModelEntry[],
   active: ActiveInstance | undefined,
+  emitted: Map<string, Set<string>>,
   router: { enabled: boolean }
 ): void {
-  if (!active) return
-  const entry = entries.find(e => e.id === active.id)
-  if (!entry) return
-  const settings = readSettingsFile()
-  settings.defaultProvider = router.enabled
-    ? providerNameForRuntime(entry.runtime)
-    : providerNameFor(entry)
-  settings.defaultModel = modelIdFor(entry)
+  const settings = { ...existing }
+  let changed = false
+
+  const clearAthanorDefault = (): void => {
+    if (!String(settings.defaultProvider ?? "").startsWith(ATHANOR_PROVIDER_PREFIX)) return
+    if (settings.defaultProvider !== undefined) {
+      delete settings.defaultProvider
+      changed = true
+    }
+    if (settings.defaultModel !== undefined) {
+      delete settings.defaultModel
+      changed = true
+    }
+  }
+
+  if (active) {
+    const entry = entries.find(e => e.id === active.id)
+    if (entry) {
+      const provider = router.enabled
+        ? providerNameForRuntime(entry.runtime)
+        : providerNameFor(entry)
+      const model = modelIdFor(entry)
+      if (emitted.get(provider)?.has(model)) {
+        if (settings.defaultProvider !== provider) {
+          settings.defaultProvider = provider
+          changed = true
+        }
+        if (settings.defaultModel !== model) {
+          settings.defaultModel = model
+          changed = true
+        }
+      } else {
+        clearAthanorDefault()
+      }
+    }
+  } else if (String(settings.defaultProvider ?? "").startsWith(ATHANOR_PROVIDER_PREFIX)) {
+    const provider = String(settings.defaultProvider)
+    const model = typeof settings.defaultModel === "string" ? settings.defaultModel : undefined
+    if (!model || !emitted.get(provider)?.has(model)) clearAthanorDefault()
+  }
+
+  if (!changed) return
   ensureDir(PI_SETTINGS_PATH)
   atomicWrite(PI_SETTINGS_PATH, JSON.stringify(settings, null, 2))
 }

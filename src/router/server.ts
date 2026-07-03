@@ -68,6 +68,7 @@ function synthesizeModelList(): unknown {
 
 async function ensureRequestTarget(entry: ReturnType<typeof resolveByRuntimeModelId>): Promise<ReturnType<typeof supervisor.get> | { port: number } | undefined> {
   if (!entry) return undefined
+  await supervisor.ready()
   const current = supervisor.get(entry.id)
   if (current) return current
 
@@ -256,14 +257,21 @@ async function proxy(
 
       // If the backend died after the readiness probe but before/while proxying,
       // try to start/switch again and retry once.
-      try {
-        // If the backend died, supervisor bookkeeping can lag behind.
-        // Force-clear the instance for this model so ensureRequestTarget()
-        // can't keep returning a stale (unreachable) port.
-        try { await supervisor.stop(entry.id) } catch { /* best effort */ }
+        try {
+          // If the backend died, supervisor bookkeeping can lag behind.
+          // Force-clear the instance for this model so ensureRequestTarget()
+          // can't keep returning a stale (unreachable) port.
+          try {
+            end(entry.id)
+            await supervisor.stop(entry.id, { drain: false })
+          } catch {
+            /* best effort */
+          } finally {
+            begin(entry.id)
+          }
 
-        const retryInst = await ensureRequestTarget(entry)
-        if (!retryInst) {
+          const retryInst = await ensureRequestTarget(entry)
+          if (!retryInst) {
           return sendJson(res, 503, { error: `failed to resolve active target for ${entry.slug} after upstream failure` })
         }
         const retryUrl = `http://127.0.0.1:${retryInst.port}${req.url ?? "/"}`

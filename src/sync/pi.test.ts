@@ -72,6 +72,7 @@ describe("pi sync", () => {
     expect(prov.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(prov.api).toBe("openai-completions")
     expect(prov.apiKey).toBe("athanor")
+    expect(prov.compat).toEqual({ supportsDeveloperRole: false, supportsReasoningEffort: false })
     expect(prov.models).toHaveLength(1)
     expect(prov.models[0].id).toBe("mlx-community/Qwen3-32B-4bit")
     expect(prov.models[0].name).toContain("[mlx]")
@@ -211,6 +212,8 @@ describe("pi sync", () => {
     syncPi({ activeDefault: inst, instances: [inst] })
     const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
     expect(written.providers["athanor-mlx-a"].athanorStatus).toBe("running")
+    expect(written.providers["athanor-mlx-a"].compat)
+      .toEqual({ supportsDeveloperRole: false, supportsReasoningEffort: false })
     const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
     expect(settings.defaultProvider).toBe("athanor-mlx-a")
     expect(settings.defaultModel).toBe("mlx-community/A")
@@ -230,6 +233,57 @@ describe("pi sync", () => {
     expect(settings.defaultProvider).toBe("anthropic")
     expect(settings.defaultModel).toBe("claude-sonnet-4-20250514")
     expect(settings.theme).toBe("dark")
+  })
+
+  it("clears stale athanor defaults when the referenced provider or model is no longer emitted", async () => {
+    fs.mkdirSync(path.dirname(PI_SETTINGS), { recursive: true })
+    fs.writeFileSync(PI_SETTINGS, JSON.stringify({
+      defaultProvider: "athanor-mlx-a",
+      defaultModel: "mlx-community/A",
+      theme: "dark"
+    }))
+    vi.doMock("../registry/index.js", () => ({ listModels: () => [] }))
+    const { syncPi } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
+    expect(settings.defaultProvider).toBeUndefined()
+    expect(settings.defaultModel).toBeUndefined()
+    expect(settings.theme).toBe("dark")
+  })
+
+  it("does not point defaults at a hidden active model", async () => {
+    await mockDirectPiSyncShape()
+    fs.mkdirSync(path.dirname(PI_SETTINGS), { recursive: true })
+    fs.writeFileSync(PI_SETTINGS, JSON.stringify({
+      defaultProvider: "openai",
+      defaultModel: "gpt-4.1"
+    }))
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8081,
+          publish: false, piAlias: "a", addedAt: 0 }
+      ]
+    }))
+    const { syncPi } = await import("./pi.js")
+    const inst = {
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 123, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+    }
+    syncPi({ activeDefault: inst, instances: [inst] })
+    const settings = JSON.parse(fs.readFileSync(PI_SETTINGS, "utf8"))
+    expect(settings.defaultProvider).toBe("openai")
+    expect(settings.defaultModel).toBe("gpt-4.1")
+  })
+
+  it("refuses to rewrite pi files when models.json is malformed", async () => {
+    fs.mkdirSync(path.dirname(PI_MODELS), { recursive: true })
+    fs.writeFileSync(PI_MODELS, "{not-json", "utf8")
+    vi.doMock("../registry/index.js", () => ({ listModels: () => [] }))
+    const { syncPi } = await import("./pi.js")
+    expect(() => syncPi({ instances: [] }))
+      .toThrow("Failed to read pi models config")
+    expect(fs.readFileSync(PI_MODELS, "utf8")).toBe("{not-json")
   })
 
   it("preserves unrelated keys when writing settings when router mode is disabled", async () => {
@@ -277,6 +331,7 @@ describe("pi sync", () => {
     expect(out.providers[providerName]).toBeDefined()
     expect(out.providers[providerName].models[0].name)
       .toBe("[mlx-vlm] mlx-community/Qwen2.5-VL-7B-Instruct-4bit (athanor)")
+    expect(out.providers[providerName].models[0].input).toEqual(["text", "image"])
   })
 
   it("short-circuits when enablePiSync is false", async () => {
@@ -331,14 +386,49 @@ describe("pi sync", () => {
     const mlx = written.providers[ATHANOR_MLX_PROVIDER]
     expect(mlx.baseUrl).toBe("http://127.0.0.1:8080/v1")
     expect(mlx.api).toBe("openai-completions")
+    expect(mlx.compat).toEqual({ supportsDeveloperRole: false, supportsReasoningEffort: false })
     expect(mlx.models.map((m: { id: string }) => m.id)).toEqual(["mlx-community/A"])
     expect(mlx.athanorRouter).toBe(true)
     expect(mlx.athanorRuntime).toBe("mlx")
 
     const llama = written.providers[ATHANOR_LLAMA_PROVIDER]
     expect(llama.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(llama.compat).toEqual({ supportsReasoningEffort: false })
     expect(llama.models.map((m: { id: string }) => m.id)).toEqual(["bee"])
     expect(llama.athanorRuntime).toBe("llama.cpp")
+  })
+
+  it("router mode advertises image input only for models actually served as mlx-vlm", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        { id: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
+          slug: "qwen2-5-vl-7b-instruct-4bit",
+          path: "/m/v", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/Qwen2.5-VL-7B-Instruct-4bit" },
+          port: 8081, publish: true, mlxFlavor: "vlm", addedAt: 0 },
+        { id: "mlx-community/A", slug: "a", path: "/cache/a", runtime: "mlx",
+          source: { type: "hf", repo: "mlx-community/A" }, port: 8082,
+          publish: true, addedAt: 0 }
+      ]
+    }))
+    const { syncPi, ATHANOR_MLX_PROVIDER } = await import("./pi.js")
+    syncPi({ instances: [] })
+    const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
+    const models = written.providers[ATHANOR_MLX_PROVIDER].models
+    expect(models.find((m: { id: string }) => m.id === "mlx-community/Qwen2.5-VL-7B-Instruct-4bit").input)
+      .toEqual(["text", "image"])
+    expect(models.find((m: { id: string }) => m.id === "mlx-community/A").input)
+      .toEqual(["text"])
   })
 
   it("omits a runtime's provider when no exposed entries use it", async () => {
