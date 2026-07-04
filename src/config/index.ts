@@ -80,7 +80,7 @@ function mergedSection<T extends object>(
 }
 
 export const DEFAULT_CONFIG: Config = {
-  portRange: { min: 8081, max: 8099 },
+  portRange: { min: 12436, max: 12455 },
   enablePiSync: true,
   modelDirs: {
     mlx: "~/.cache/huggingface/hub",
@@ -125,12 +125,12 @@ export const DEFAULT_CONFIG: Config = {
   },
   controlApi: {
     enabled: false,
-    port: 8079,
+    port: 12433,
     host: "127.0.0.1"
   },
   router: {
     enabled: true,
-    port: 8080,
+    port: 12435,
     host: "127.0.0.1",
     drainTimeoutMs: 30_000,
     verbose: false

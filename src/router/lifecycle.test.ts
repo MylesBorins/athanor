@@ -19,7 +19,7 @@ describe("ingress lifecycle", () => {
     const savePersistedRouter = vi.fn()
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
@@ -37,14 +37,14 @@ describe("ingress lifecycle", () => {
     const { ensureIngress } = await import("./lifecycle.js")
     const router = await ensureIngress()
     expect(router?.pid).toBe(4321)
-    expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 8080 }))
+    expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 12435 }))
   })
 
   it("does nothing when ingress management is disabled", async () => {
     const savePersistedRouter = vi.fn()
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: false, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: false, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
@@ -68,13 +68,13 @@ describe("ingress lifecycle", () => {
     const spawn = vi.fn()
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 777, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter: vi.fn(),
       savePersistedRouter: vi.fn()
@@ -82,7 +82,7 @@ describe("ingress lifecycle", () => {
     vi.doMock("child_process", async () => ({ spawn }))
 
     const { ensureIngress } = await import("./lifecycle.js")
-    await expect(ensureIngress()).resolves.toEqual({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 })
+    await expect(ensureIngress()).resolves.toEqual({ pid: 777, host: "127.0.0.1", port: 12435, startedAt: 1 })
     expect(spawn).not.toHaveBeenCalled()
   })
 
@@ -97,13 +97,13 @@ describe("ingress lifecycle", () => {
     const savePersistedRouter = vi.fn()
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 777, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 777, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter,
       savePersistedRouter
@@ -111,10 +111,10 @@ describe("ingress lifecycle", () => {
     vi.doMock("child_process", async () => ({ spawn }))
 
     const { ensureIngress } = await import("./lifecycle.js")
-    await expect(ensureIngress()).resolves.toEqual(expect.objectContaining({ pid: 4321, port: 8080 }))
+    await expect(ensureIngress()).resolves.toEqual(expect.objectContaining({ pid: 4321, port: 12435 }))
     expect(clearPersistedRouter).toHaveBeenCalled()
     expect(spawn).toHaveBeenCalled()
-    expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 8080 }))
+    expect(savePersistedRouter).toHaveBeenCalledWith(expect.objectContaining({ pid: 4321, port: 12435 }))
   })
 
   it("stops the ingress when the last model has stopped", async () => {
@@ -123,7 +123,7 @@ describe("ingress lifecycle", () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
@@ -135,7 +135,7 @@ describe("ingress lifecycle", () => {
       recoverLiveInstances: async () => []
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter,
       savePersistedRouter: vi.fn()
@@ -154,7 +154,7 @@ describe("ingress lifecycle", () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
@@ -166,7 +166,7 @@ describe("ingress lifecycle", () => {
       recoverLiveInstances: async () => [{ id: "a" }]
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter,
       savePersistedRouter: vi.fn()
@@ -185,7 +185,7 @@ describe("ingress lifecycle", () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../registry/index.js", async () => ({
       listModels: () => []
@@ -197,7 +197,7 @@ describe("ingress lifecycle", () => {
       }
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter,
       savePersistedRouter: vi.fn()
@@ -214,13 +214,13 @@ describe("ingress lifecycle", () => {
     const clearPersistedRouter = vi.fn()
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => false,
       clearPersistedRouter,
       savePersistedRouter: vi.fn()
@@ -239,13 +239,13 @@ describe("ingress lifecycle", () => {
     const kill = vi.spyOn(process, "kill").mockImplementation(() => true as never)
     vi.doMock("../config/index.js", async () => ({
       DEFAULT_CONFIG: {},
-      loadConfig: () => ({ router: { enabled: false, host: "127.0.0.1", port: 8080 } })
+      loadConfig: () => ({ router: { enabled: false, host: "127.0.0.1", port: 12435 } })
     }))
     vi.doMock("../supervisor/index.js", async () => ({
       supervisor: { list: () => [] }
     }))
     vi.doMock("../supervisor/state.js", async () => ({
-      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 8080, startedAt: 1 }),
+      getPersistedRouter: () => ({ pid: 555, host: "127.0.0.1", port: 12435, startedAt: 1 }),
       pidAlive: () => true,
       clearPersistedRouter,
       savePersistedRouter: vi.fn()

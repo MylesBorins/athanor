@@ -34,7 +34,7 @@ describe("registry materialization", () => {
     expect(result.created).toBe(true)
     expect(result.changed).toBe(true)
     expect(result.entry.slug).toBe("a")
-    expect(result.entry.port).toBe(8081)
+    expect(result.entry.port).toBe(12436)
     expect(result.entry.publish).toBe(true)
     expect(result.entry.piAlias).toBe("a")
   })

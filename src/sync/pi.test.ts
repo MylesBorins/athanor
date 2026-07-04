@@ -69,7 +69,7 @@ describe("pi sync", () => {
     const written = JSON.parse(fs.readFileSync(PI_MODELS, "utf8"))
     expect(Object.keys(written.providers)).toEqual([ATHANOR_MLX_PROVIDER])
     const prov = written.providers[ATHANOR_MLX_PROVIDER]
-    expect(prov.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(prov.baseUrl).toBe("http://127.0.0.1:12435/v1")
     expect(prov.api).toBe("openai-completions")
     expect(prov.apiKey).toBe("athanor")
     expect(prov.compat).toEqual({ supportsDeveloperRole: false, supportsReasoningEffort: false })
@@ -359,7 +359,7 @@ describe("pi sync", () => {
         ...real,
         loadConfig: () => ({
           ...real.DEFAULT_CONFIG,
-          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+          router: { enabled: true, host: "127.0.0.1", port: 12435 }
         })
       }
     })
@@ -384,7 +384,7 @@ describe("pi sync", () => {
       .toEqual([ATHANOR_LLAMA_PROVIDER, ATHANOR_MLX_PROVIDER])
 
     const mlx = written.providers[ATHANOR_MLX_PROVIDER]
-    expect(mlx.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(mlx.baseUrl).toBe("http://127.0.0.1:12435/v1")
     expect(mlx.api).toBe("openai-completions")
     expect(mlx.compat).toEqual({ supportsDeveloperRole: false, supportsReasoningEffort: false })
     expect(mlx.models.map((m: { id: string }) => m.id)).toEqual(["mlx-community/A"])
@@ -392,7 +392,7 @@ describe("pi sync", () => {
     expect(mlx.athanorRuntime).toBe("mlx")
 
     const llama = written.providers[ATHANOR_LLAMA_PROVIDER]
-    expect(llama.baseUrl).toBe("http://127.0.0.1:8080/v1")
+    expect(llama.baseUrl).toBe("http://127.0.0.1:12435/v1")
     expect(llama.compat).toEqual({ supportsReasoningEffort: false })
     expect(llama.models.map((m: { id: string }) => m.id)).toEqual(["bee"])
     expect(llama.athanorRuntime).toBe("llama.cpp")
@@ -405,7 +405,7 @@ describe("pi sync", () => {
         ...real,
         loadConfig: () => ({
           ...real.DEFAULT_CONFIG,
-          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+          router: { enabled: true, host: "127.0.0.1", port: 12435 }
         })
       }
     })
@@ -438,7 +438,7 @@ describe("pi sync", () => {
         ...real,
         loadConfig: () => ({
           ...real.DEFAULT_CONFIG,
-          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+          router: { enabled: true, host: "127.0.0.1", port: 12435 }
         })
       }
     })
@@ -462,7 +462,7 @@ describe("pi sync", () => {
         ...real,
         loadConfig: () => ({
           ...real.DEFAULT_CONFIG,
-          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+          router: { enabled: true, host: "127.0.0.1", port: 12435 }
         })
       }
     })
@@ -491,7 +491,7 @@ describe("pi sync", () => {
         ...real,
         loadConfig: () => ({
           ...real.DEFAULT_CONFIG,
-          router: { enabled: true, host: "127.0.0.1", port: 8080 }
+          router: { enabled: true, host: "127.0.0.1", port: 12435 }
         })
       }
     })
