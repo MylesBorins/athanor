@@ -45,7 +45,7 @@ describe("ingestDiscovered", () => {
     expect(rep.unchanged).toBe(0)
     const models = listModels()
     expect(models.map(m => m.slug).sort()).toEqual(["a", "b"])
-    expect(models.map(m => m.port).sort()).toEqual([12436, 12437])
+    expect(models.map(m => m.port).sort()).toEqual([40880, 40881])
   })
 
   it("second run reports all unchanged", () => {

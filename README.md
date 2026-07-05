@@ -250,7 +250,7 @@ athanor ls           # now usable directly
 
 Each model is bound to a port at first ingest and keeps it forever. This means pi-agent's catalog is configured **once per model**; switching which model is active does not change pi's URLs, only the `status` field athanor writes into each entry.
 
-Port range is configurable (`portRange` in `~/.athanor/config.json`, default 12436–12455).
+Port range is configurable (`portRange` in `~/.athanor/config.json`, default 40880–40979).
 
 On load, athanor collapses duplicate registry rows that share the same normalized on-disk path (keeping the HF-sourced entry when present) and upgrades local GGUF paths under `org--repo/` directories to HF source metadata when possible.
 
@@ -292,7 +292,7 @@ Caveats worth knowing:
 
 Athanor publishes into pi-agent's [custom providers](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/models.md) system. On every state change it rewrites `~/.pi/agent/models.json`.
 
-**Default shape (ingress on):** pi sees up to two aggregator providers — `athanor-mlx` and `athanor-llama` — both pointing at the ingress port (`127.0.0.1:12435/v1` by default). Each lists only exposed models of that runtime. See [Ingress](#ingress) for lifecycle and request routing.
+**Default shape (ingress on):** pi sees up to two aggregator providers — `athanor-mlx` and `athanor-llama` — both pointing at the ingress port (`127.0.0.1:40879/v1` by default). Each lists only exposed models of that runtime. See [Ingress](#ingress) for lifecycle and request routing.
 
 **Direct shape (`router.enabled: false`):** each exposed model becomes **its own pi provider** named `athanor-<runtime>-<slug>` (e.g. `athanor-mlx-qwen3-32b`), with `baseUrl` pointing at that model's stable port. One provider per model is required because a pi provider has exactly one `baseUrl` and each athanor model runs on its own port.
 
@@ -325,7 +325,7 @@ Example direct provider (MLX, HF-sourced):
 {
   "providers": {
     "athanor-mlx-qwen3-32b": {
-      "baseUrl": "http://127.0.0.1:12436/v1",
+      "baseUrl": "http://127.0.0.1:40880/v1",
       "api": "openai-completions",
       "apiKey": "athanor",
       "compat": {
@@ -431,7 +431,7 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
 
 ```json
 {
-  "portRange": { "min": 12436, "max": 12455 },
+  "portRange": { "min": 40880, "max": 40979 },
   "enablePiSync": true,
   "modelDirs": {
     "mlx": "~/.cache/huggingface/hub",
@@ -458,12 +458,12 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
   },
   "controlApi": {
     "enabled": false,
-    "port": 12433,
+    "port": 40878,
     "host": "127.0.0.1"
   },
   "router": {
     "enabled": true,
-    "port": 12435,
+    "port": 40879,
     "host": "127.0.0.1",
     "drainTimeoutMs": 30000,
     "verbose": false
@@ -579,7 +579,7 @@ Cancellation is safe: press `Ctrl-C` during `athanor pull` (or `Esc` in the TUI 
 
 ## Control API (optional)
 
-When `controlApi.enabled` is `true`, athanor exposes a small local HTTP server (default `127.0.0.1:12433`) that other tools can drive:
+When `controlApi.enabled` is `true`, athanor exposes a small local HTTP server (default `127.0.0.1:40878`) that other tools can drive:
 
 ```
 GET  /status                     running instances + registry summary
@@ -591,7 +591,7 @@ This is off by default. Enable it only on trusted machines.
 
 ## Ingress
 
-Athanor exposes an OpenAI-compatible ingress (default `127.0.0.1:12435`) that fronts every exposed model on a single port. Pi-agent sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at that ingress, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
+Athanor exposes an OpenAI-compatible ingress (default `127.0.0.1:40879`) that fronts every exposed model on a single port. Pi-agent sees up to **two** providers — `athanor-mlx` and `athanor-llama` — both pointing at that ingress, each listing only models of its runtime. The split exists because pi's per-provider compat flags differ between engines (mlx_lm/vlm don't accept the `developer` role; llama-server does), and it also makes it obvious in pi's `/model` picker which backend is serving a given request. Switching models inside pi becomes a normal "different `model` field in the request body" swap, and athanor starts the target on demand (respecting supervisor policy) before proxying the request.
 
 Ingress lifecycle follows active model serving state rather than the foreground TUI. When athanor is open it ensures ingress availability; when active models remain after the UI exits, the detached ingress companion stays up; when the last model stops, the detached ingress companion stops too. This lets you start a model, close the TUI, and keep pi-agent connectivity until you stop or switch models. Reopening the TUI later reattaches to the same detached runtime/ingress state and reflects ingress-driven model switches from persisted instance state.
 
@@ -606,7 +606,7 @@ POST /v1/embeddings        { "model": ... } same
 The ingress config lives under `router` in `~/.athanor/config.json` for backward compatibility:
 
 ```json
-{ "router": { "enabled": true, "port": 12435, "host": "127.0.0.1", "drainTimeoutMs": 30000, "verbose": false } }
+{ "router": { "enabled": true, "port": 40879, "host": "127.0.0.1", "drainTimeoutMs": 30000, "verbose": false } }
 ```
 
 By default, pi sync emits the ingress-backed aggregator providers (not per-model providers). If you've exposed only MLX models you'll see `athanor-mlx` alone; only GGUF, just `athanor-llama`. The `model` field in requests may be the runtime model id (HF repo for MLX; registry `author/repo:file.gguf` for hub GGUF; custom `piAlias` or slug for local llama), the athanor slug, or the canonical registry id; all resolve. Unknown models return `404`.
@@ -616,7 +616,7 @@ For users who don't want to keep the TUI open, `athanor router` runs the ingress
 ```bash
 athanor router                       # uses config.router.host / .port
 athanor router --port 9000           # override
-athanor router --host 0.0.0.0 --port 12435
+athanor router --host 0.0.0.0 --port 40879
 athanor router --verbose             # log every request to ~/.athanor/logs/router.log
 ```
 

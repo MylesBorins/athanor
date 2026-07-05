@@ -23,8 +23,8 @@ describe("Config", () => {
   describe("loadConfig defaults", () => {
     it("returns default port range", () => {
       const c = loadConfig()
-      expect(c.portRange.min).toBe(12436)
-      expect(c.portRange.max).toBe(12455)
+      expect(c.portRange.min).toBe(40880)
+      expect(c.portRange.max).toBe(40979)
     })
 
     it("enables pi sync by default", () => {
@@ -39,11 +39,11 @@ describe("Config", () => {
       expect(loadConfig().controlApi.enabled).toBe(false)
     })
 
-    it("defaults router to enabled, bound to 127.0.0.1:12435", () => {
+    it("defaults router to enabled, bound to 127.0.0.1:40879", () => {
       const r = loadConfig().router
       expect(r.enabled).toBe(true)
       expect(r.host).toBe("127.0.0.1")
-      expect(r.port).toBe(12435)
+      expect(r.port).toBe(40879)
       expect(r.drainTimeoutMs).toBe(30_000)
     })
 

@@ -47,14 +47,14 @@ describe("persisted router state", () => {
 
   it("round-trips router metadata alongside instances", () => {
     savePersistedInstances([inst()])
-    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 12435, startedAt: 123 })
+    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 40879, startedAt: 123 })
     expect(loadPersistedInstances()).toHaveLength(1)
-    expect(getPersistedRouter()).toEqual({ pid: 99, host: "127.0.0.1", port: 12435, startedAt: 123 })
+    expect(getPersistedRouter()).toEqual({ pid: 99, host: "127.0.0.1", port: 40879, startedAt: 123 })
   })
 
   it("clears persisted router state without removing instances", () => {
     savePersistedInstances([inst()])
-    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 12435, startedAt: 123 })
+    savePersistedRouter({ pid: 99, host: "127.0.0.1", port: 40879, startedAt: 123 })
     clearPersistedRouter()
     expect(getPersistedRouter()).toBeUndefined()
     expect(loadPersistedInstances()).toHaveLength(1)
