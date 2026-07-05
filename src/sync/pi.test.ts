@@ -121,10 +121,9 @@ describe("pi sync", () => {
     syncPi({ instances: [] })
     const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
     expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(32768)
-    // ctxSize:0 means "load from model"; pi-agent rejects non-positive
-    // contextWindow values, so athanor omits the field until it has a
-    // concrete positive effective context to advertise.
-    expect(p["athanor-llama-b"].models[0].contextWindow).toBeUndefined()
+    // Default ctxSize is now 32768, so pi always gets a concrete contextWindow
+    // even for models with no explicit preset.
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(32768)
   })
 
   it("prefers explicit preset overrides over defaults when router mode is disabled", async () => {

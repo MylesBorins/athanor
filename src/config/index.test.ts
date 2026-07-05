@@ -54,7 +54,7 @@ describe("Config", () => {
       expect(c.mlx.contextWindow).toBe(32768)
       expect(c.mlx.maxTokens).toBe(4096)
       expect(c.llama.nGpuLayers).toBe(999)
-      expect(c.llama.ctxSize).toBe(0)
+      expect(c.llama.ctxSize).toBe(32768)
       expect(c.llama.batchSize).toBe(2048)
       expect(c.llama.ubatchSize).toBe(512)
     })

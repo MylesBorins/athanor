@@ -108,9 +108,10 @@ export const DEFAULT_CONFIG: Config = {
   },
   llama: {
     nGpuLayers: 999,
-    // 0 = load from model (llama-server default). Recipes set explicit
-    // context bands when intentional sizing is needed.
-    ctxSize: 0,
+    // 32768 is a safe default for Apple Silicon — ctxSize:0 loads the model's
+    // native context window which can exhaust unified memory before inference
+    // starts. Recipes and per-model presets can override this.
+    ctxSize: 32768,
     // Match llama-server's own defaults (batch-size: 2048, ubatch-size: 512)
     // so athanor does not silently degrade prompt-processing throughput.
     batchSize: 2048,
