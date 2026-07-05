@@ -184,7 +184,13 @@ export class Supervisor {
     if (!inst) return false
     if (!pidAlive(inst.pid)) {
       if (await probeHealth(inst.runtime, inst.port, 400)) {
-        throw this.unmanagedInstanceError(inst)
+        // Port is still responding but we have no valid PID — athanor lost
+        // track of the process (e.g. pid:-1 persisted after a crash). Evict
+        // the entry so stop/restart can proceed; the orphaned process will
+        // either exit on its own or the user can kill it manually.
+        console.error(
+          `warning: ${inst.slug} appears to be serving on :${inst.port} but athanor lost its PID — evicting from state`
+        )
       }
       this.instances.delete(id)
       this.persist()

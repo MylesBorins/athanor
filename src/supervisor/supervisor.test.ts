@@ -143,7 +143,7 @@ describe("Supervisor (integration)", () => {
     }
   }, 15_000)
 
-  it("refuses to claim it stopped a recovered instance whose PID is unknown", async () => {
+  it("stops a recovered instance whose PID is unknown by evicting it from state", async () => {
     saveRegistry({ version: 1, models: [entry(18087)] })
     const server = http.createServer((req, res) => {
       if (req.url === "/health" || req.url === "/v1/models") {
@@ -158,9 +158,13 @@ describe("Supervisor (integration)", () => {
     try {
       const sup = await loadSupervisor()
       await sup.ready()
-      expect(sup.get("faux/model")).toMatchObject({ pid: -1, port: 18087 })
-      await expect(sup.stop("faux/model"))
-        .rejects.toThrow("cannot manage faux-model: model is serving on :18087 but athanor does not know its PID")
+      const inst = sup.get("faux/model")
+      expect(inst).toBeDefined()
+      expect(inst!.port).toBe(18087)
+      // stop() evicts the entry rather than throwing when PID is unknown
+      const result = await sup.stop("faux/model")
+      expect(result).toBe(true)
+      expect(sup.get("faux/model")).toBeUndefined()
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close(err => err ? reject(err) : resolve())

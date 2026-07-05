@@ -30,7 +30,7 @@ describe("ingress lifecycle", () => {
       clearPersistedRouter: vi.fn(),
       savePersistedRouter
     }))
-    vi.doMock("child_process", async () => ({
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object,
       spawn: vi.fn(() => ({ pid: 4321, unref: vi.fn() }))
     }))
 
@@ -55,7 +55,7 @@ describe("ingress lifecycle", () => {
       clearPersistedRouter: vi.fn(),
       savePersistedRouter
     }))
-    vi.doMock("child_process", async () => ({
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object,
       spawn: vi.fn(() => ({ pid: 4321, unref: vi.fn() }))
     }))
 
@@ -79,7 +79,7 @@ describe("ingress lifecycle", () => {
       clearPersistedRouter: vi.fn(),
       savePersistedRouter: vi.fn()
     }))
-    vi.doMock("child_process", async () => ({ spawn }))
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object, spawn }))
 
     const { ensureIngress } = await import("./lifecycle.js")
     await expect(ensureIngress()).resolves.toEqual({ pid: 777, host: "127.0.0.1", port: 40879, startedAt: 1 })
@@ -108,7 +108,7 @@ describe("ingress lifecycle", () => {
       clearPersistedRouter,
       savePersistedRouter
     }))
-    vi.doMock("child_process", async () => ({ spawn }))
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object, spawn }))
 
     const { ensureIngress } = await import("./lifecycle.js")
     await expect(ensureIngress()).resolves.toEqual(expect.objectContaining({ pid: 4321, port: 40879 }))
@@ -225,7 +225,7 @@ describe("ingress lifecycle", () => {
       clearPersistedRouter,
       savePersistedRouter: vi.fn()
     }))
-    vi.doMock("child_process", async () => ({
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object,
       spawn: vi.fn(() => ({ pid: 4321, unref: vi.fn() }))
     }))
 

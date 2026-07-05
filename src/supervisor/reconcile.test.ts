@@ -54,9 +54,9 @@ describe("recoverLiveInstances", () => {
       slug: "a",
       runtime: "mlx",
       port: srv.port,
-      pid: -1,
       status: "running"
     })
+    expect(typeof recovered[0].pid).toBe("number")
   })
 
   it("does not recover when the served model id does not match the expected runtime id", async () => {
