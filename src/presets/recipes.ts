@@ -56,6 +56,12 @@ const BUILTINS: Recipe[] = [
     mlx: { prefillStepSize: 2048, promptCacheSize: 32768, decodeConcurrency: 1, contextWindow: 32768, maxTokens: 4096, promptCacheBytes: 16 * 1024 ** 3 },
     llama: { ctxSize: 32768, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
     source: "builtin"
+  },
+  {
+    name: "mtp",
+    description: "Multi-Token Prediction speculative decoding (requires an MTP-capable GGUF model).",
+    llama: { specType: "draft-mtp", specDraftNgl: 999 },
+    source: "builtin"
   }
 ]
 

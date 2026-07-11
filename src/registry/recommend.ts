@@ -206,13 +206,18 @@ export function buildRecommendation(entry: ModelEntry, machine: MachineProfile):
   // 4. Determine final preset hint
   const preset = recommendPresetHint(entry, fitBand, context.value)
 
+  let explanation = buildExplanation(entry, fitBand, estimatedFootprintGiB, machine)
+  if (entry.runtime === "llama.cpp" && (entry.id.toLowerCase().includes("mtp") || entry.slug.toLowerCase().includes("mtp") || entry.path.toLowerCase().includes("mtp"))) {
+    explanation += "; model appears to support Multi-Token Prediction (MTP) — we recommend setting spec-type=draft-mtp and spec-draft-ngl=999"
+  }
+
   return {
     fitBand,
     estimatedFootprintGiB,
     recommendedContext: context.value,
     recommendedContextNote: context.note,
     confidence: confidenceFor(entry.metadataSource),
-    explanation: buildExplanation(entry, fitBand, estimatedFootprintGiB, machine),
+    explanation,
     ...preset
   }
 }

@@ -26,6 +26,7 @@ describe("listRecipes", () => {
     expect(names).toContain("quality")
     expect(names).toContain("long-context")
     expect(names).toContain("coding")
+    expect(names).toContain("mtp")
   })
 
   it("marks the source of built-in recipes", () => {

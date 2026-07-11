@@ -55,6 +55,44 @@ describe("LlamaAdapter", () => {
     expect(args[i + 1]).toBe("unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf")
   })
 
+  it("builds the llama-server command with speculative decoding / MTP draft flags when set", () => {
+    const entry = llamaEntry({
+      path: "/models/model.gguf",
+      port: 8091,
+      piAlias: "test-gguf"
+    })
+    const specLlama: LlamaConfig = {
+      ...llama,
+      specType: "draft-mtp",
+      specDraftNMax: 4,
+      specDraftNMin: 1,
+      specDraftPSplit: 0.15,
+      specDraftPMin: 0.8,
+      specDraftModel: "/models/draft.gguf",
+      specDraftNgl: 16
+    }
+    const { cmd, args } = adapter.buildCommand(entry, specLlama)
+    expect(cmd).toBe("llama-server")
+    expect(args).toEqual([
+      "-m", "/models/model.gguf",
+      "--alias", "test-gguf",
+      "--port", "8091",
+      "--host", "127.0.0.1",
+      "--n-gpu-layers", "999",
+      "--ctx-size", "12288",
+      "--batch-size", "128",
+      "--ubatch-size", "64",
+      "--parallel", "1",
+      "--spec-type", "draft-mtp",
+      "--spec-draft-n-max", "4",
+      "--spec-draft-n-min", "1",
+      "--spec-draft-p-split", "0.15",
+      "--spec-draft-p-min", "0.8",
+      "--spec-draft-model", "/models/draft.gguf",
+      "--spec-draft-ngl", "16"
+    ])
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

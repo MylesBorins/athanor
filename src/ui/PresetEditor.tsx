@@ -8,7 +8,8 @@ import { setFlavor, setPreset } from "../app/models.js"
 import {
   listKeys,
   setPresetFields,
-  unsetPresetFields
+  unsetPresetFields,
+  KeySpec
 } from "../presets/edit.js"
 import { listRecipes, recipeToPreset } from "../presets/recipes.js"
 
@@ -27,10 +28,10 @@ function errMsg(err: unknown): string {
   return String(err)
 }
 
-function presetValueFor(entry: ModelEntry, jsonName: string): number | undefined {
+function presetValueFor(entry: ModelEntry, jsonName: string): string | number | undefined {
   if (!entry.preset || entry.preset.runtime !== entry.runtime) return undefined
   const bag = entry.preset.runtime === "mlx" ? entry.preset.mlx : entry.preset.llama
-  return (bag as Record<string, number | undefined>)[jsonName]
+  return (bag as Record<string, string | number | undefined>)[jsonName]
 }
 
 export const PresetEditor: React.FC<PresetEditorProps> = ({
@@ -47,7 +48,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   const keys = useMemo(() => entry ? listKeys(entry.runtime) : [], [entry])
   const recipes = useMemo(() => listRecipes(), [])
   const effective = useMemo(
-    () => entry ? (mergedConfigFor(entry) as unknown as Record<string, number>) : {},
+    () => entry ? (mergedConfigFor(entry) as unknown as Record<string, string | number>) : {},
     [entry]
   )
 
@@ -83,8 +84,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         setEdit(e => e ? { ...e, buffer: e.buffer.slice(0, -1) } : e)
         return
       }
-      if (input && /^[0-9.-]$/.test(input)) {
-        setEdit(e => e ? { ...e, buffer: e.buffer + input } : e)
+      const spec = keys.find(k => k.jsonName === edit.jsonName)
+      const isStringField = spec?.type === "string"
+      if (input) {
+        const allowed = isStringField ? /^[a-zA-Z0-9_\-\.\/:]$/ : /^[0-9.-]$/
+        if (allowed.test(input)) {
+          setEdit(e => e ? { ...e, buffer: e.buffer + input } : e)
+        }
       }
       return
     }

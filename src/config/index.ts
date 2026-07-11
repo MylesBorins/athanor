@@ -241,6 +241,35 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.llama.parallel; using default")
     next.llama.parallel = DEFAULT_CONFIG.llama.parallel
   }
+  if (next.llama.specType !== undefined && typeof next.llama.specType !== "string") {
+    console.error("Invalid config.llama.specType; removing")
+    delete next.llama.specType
+  }
+  if (next.llama.specDraftNMax !== undefined && !positiveNumber(next.llama.specDraftNMax)) {
+    console.error("Invalid config.llama.specDraftNMax; removing")
+    delete next.llama.specDraftNMax
+  }
+  if (next.llama.specDraftNMin !== undefined && !positiveNumber(next.llama.specDraftNMin)) {
+    console.error("Invalid config.llama.specDraftNMin; removing")
+    delete next.llama.specDraftNMin
+  }
+  if (next.llama.specDraftPSplit !== undefined && !nonNegativeNumber(next.llama.specDraftPSplit)) {
+    console.error("Invalid config.llama.specDraftPSplit; removing")
+    delete next.llama.specDraftPSplit
+  }
+  if (next.llama.specDraftPMin !== undefined && !nonNegativeNumber(next.llama.specDraftPMin)) {
+    console.error("Invalid config.llama.specDraftPMin; removing")
+    delete next.llama.specDraftPMin
+  }
+  if (next.llama.specDraftModel !== undefined && typeof next.llama.specDraftModel !== "string") {
+    console.error("Invalid config.llama.specDraftModel; removing")
+    delete next.llama.specDraftModel
+  }
+  if (next.llama.specDraftNgl !== undefined && !nonNegativeNumber(next.llama.specDraftNgl)) {
+    console.error("Invalid config.llama.specDraftNgl; removing")
+    delete next.llama.specDraftNgl
+  }
+
   // threads was removed in favour of llama-server auto-detection.
   // Purge it from any on-disk config so it does not bleed through
   // deepMerge into the effective config or the `athanor show` display.

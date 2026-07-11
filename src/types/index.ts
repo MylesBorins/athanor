@@ -44,12 +44,32 @@ export interface MlxConfig {
   promptConcurrency: number
 }
 
+export type LlamaSpecType =
+  | "none"
+  | "draft"
+  | "draft-simple"
+  | "draft-eagle3"
+  | "draft-mtp"
+  | "draft-dflash"
+  | "ngram-simple"
+  | "ngram-map-k"
+  | "ngram-map-k4v"
+  | "ngram-mod"
+  | "ngram-cache"
+
 export interface LlamaConfig {
   nGpuLayers: number
   ctxSize: number
   batchSize: number
   ubatchSize: number
   parallel: number
+  specType?: LlamaSpecType | (string & {})
+  specDraftNMax?: number
+  specDraftNMin?: number
+  specDraftPSplit?: number
+  specDraftPMin?: number
+  specDraftModel?: string
+  specDraftNgl?: number
 }
 
 export type RuntimePreset =

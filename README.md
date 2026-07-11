@@ -520,6 +520,32 @@ Restart the model for the preset to take effect.
 
 pi-agent receives the model's effective served context window from athanor's merged runtime configuration (global defaults plus any per-model preset), so pi metadata matches the actual launch settings rather than only explicit override fields.
 
+### Speculative Decoding & MTP (llama.cpp only)
+
+Recent builds of `llama.cpp` support speculative decoding and Multi-Token Prediction (MTP) draft decoding. This can speed up token generation by 1.5–2× on Apple Silicon.
+
+Configure these parameters on a GGUF model via a preset:
+
+```bash
+# Example 1: Multi-Token Prediction (MTP) for models with built-in draft heads
+# (MTP draft heads are baked into the model weights, so spec-draft-model is NOT required)
+athanor preset deepseek-coder set spec-type=draft-mtp spec-draft-ngl=32
+
+# Example 2: Traditional speculative decoding using a separate small draft model
+athanor preset llama-3 set spec-type=draft spec-draft-model=~/.models/llama-3-draft.gguf spec-draft-ngl=32
+```
+
+Available keys:
+- `spec-type` / `specType` — Speculative decoding type (`draft-mtp`, `draft`, `draft-simple`, `ngram-simple`, etc.)
+- `spec-draft-model` / `specDraftModel` — Path/repo/file of the separate draft model (not required for `draft-mtp`)
+- `spec-draft-ngl` / `specDraftNgl` / `ngl-draft` — Number of draft model GPU layers to offload to Metal (highly recommended on Apple Silicon so draft evaluation runs on GPU)
+- `spec-draft-n-max` / `specDraftNMax` — Max tokens to draft per step (default: 3)
+- `spec-draft-n-min` / `specDraftNMin` — Min tokens to draft per step
+- `spec-draft-p-min` / `specDraftPMin` — Min draft confidence threshold (default: 0.00)
+- `spec-draft-p-split` / `specDraftPSplit` — Split probability (default: 0.10)
+
+Athanor performs cross-field validation on these settings during `athanor show <slug>` and alerts you of potential issues (e.g., if you configure draft options without a `spec-type`, or if you specify a draft model for `draft-mtp` where it is ignored).
+
 ### Environment variables
 
 - `ATHANOR_HOME` — overrides `~/.athanor`. Useful for running multiple profiles side by side or for tests.

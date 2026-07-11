@@ -6,15 +6,12 @@ import type {
   RuntimeType
 } from "../types/index.js"
 
-// Preset key schema. Each key has a runtime, a canonical JSON name,
-// one or more accepted CLI aliases (kebab-case), and a numeric value
-// (all current fields are numeric; expand if/when non-numeric fields
-// are added).
-interface KeySpec {
+export interface KeySpec {
   runtime: RuntimeType
   jsonName: keyof MlxConfig | keyof LlamaConfig
   aliases: string[]
-  parse: (raw: string) => number
+  type: "string" | "number"
+  parse: (raw: string) => string | number
   help: string
 }
 
@@ -30,56 +27,81 @@ function float(raw: string): number {
   return n
 }
 
+function str(raw: string): string {
+  return raw
+}
+
 const KEYS: KeySpec[] = [
-  { runtime: "mlx", jsonName: "prefillStepSize",
+  { runtime: "mlx", jsonName: "prefillStepSize", type: "number",
     aliases: ["prefillStepSize", "prefill-step-size"],
     parse: num, help: "mlx: prefill step size" },
-  { runtime: "mlx", jsonName: "promptCacheSize",
+  { runtime: "mlx", jsonName: "promptCacheSize", type: "number",
     aliases: ["promptCacheSize", "prompt-cache-size"],
     parse: num, help: "mlx: prompt cache size (tokens)" },
-  { runtime: "mlx", jsonName: "contextWindow",
+  { runtime: "mlx", jsonName: "contextWindow", type: "number",
     aliases: ["contextWindow", "context-window"],
     parse: num, help: "mlx: advertised context window for pi-agent (tokens); not passed to mlx_lm.server" },
-  { runtime: "mlx", jsonName: "maxTokens",
+  { runtime: "mlx", jsonName: "maxTokens", type: "number",
     aliases: ["maxTokens", "max-tokens"],
     parse: num, help: "mlx: per-response output token cap passed as --max-tokens (mlx_lm.server default: 512)" },
-  { runtime: "mlx", jsonName: "decodeConcurrency",
+  { runtime: "mlx", jsonName: "decodeConcurrency", type: "number",
     aliases: ["decodeConcurrency", "decode-concurrency"],
     parse: num, help: "mlx: parallel decode slots" },
-  { runtime: "mlx", jsonName: "promptCacheBytes",
+  { runtime: "mlx", jsonName: "promptCacheBytes", type: "number",
     aliases: ["promptCacheBytes", "prompt-cache-bytes"],
     parse: num, help: "mlx: prompt cache memory cap (bytes). Prefer config parsing for gb/mb units" },
-  { runtime: "mlx", jsonName: "temp",
+  { runtime: "mlx", jsonName: "temp", type: "number",
     aliases: ["temp", "temperature"],
     parse: float, help: "mlx: sampling temperature (0 = greedy, default 0)" },
-  { runtime: "mlx", jsonName: "topP",
+  { runtime: "mlx", jsonName: "topP", type: "number",
     aliases: ["topP", "top-p"],
     parse: float, help: "mlx: nucleus sampling threshold (default 1; omitting 1.0 is harmless since it matches mlx-lm's default)" },
-  { runtime: "mlx", jsonName: "topK",
+  { runtime: "mlx", jsonName: "topK", type: "number",
     aliases: ["topK", "top-k"],
     parse: num, help: "mlx: top-k sampling (0 = disabled, default 0)" },
-  { runtime: "mlx", jsonName: "minP",
+  { runtime: "mlx", jsonName: "minP", type: "number",
     aliases: ["minP", "min-p"],
     parse: float, help: "mlx: minimum probability for top-p sampling (default 0)" },
-  { runtime: "mlx", jsonName: "promptConcurrency",
+  { runtime: "mlx", jsonName: "promptConcurrency", type: "number",
     aliases: ["promptConcurrency", "prompt-concurrency"],
     parse: num, help: "mlx: parallel prompt prefill slots (default 8)" },
 
-  { runtime: "llama.cpp", jsonName: "nGpuLayers",
+  { runtime: "llama.cpp", jsonName: "nGpuLayers", type: "number",
     aliases: ["nGpuLayers", "n-gpu-layers", "ngl"],
     parse: num, help: "llama: layers offloaded to GPU (999 = all)" },
-  { runtime: "llama.cpp", jsonName: "ctxSize",
+  { runtime: "llama.cpp", jsonName: "ctxSize", type: "number",
     aliases: ["ctxSize", "ctx-size", "n-ctx"],
     parse: num, help: "llama: context window (tokens)" },
-  { runtime: "llama.cpp", jsonName: "batchSize",
+  { runtime: "llama.cpp", jsonName: "batchSize", type: "number",
     aliases: ["batchSize", "batch-size"],
     parse: num, help: "llama: prompt batch size" },
-  { runtime: "llama.cpp", jsonName: "ubatchSize",
+  { runtime: "llama.cpp", jsonName: "ubatchSize", type: "number",
     aliases: ["ubatchSize", "ubatch-size"],
     parse: num, help: "llama: physical micro-batch size" },
-  { runtime: "llama.cpp", jsonName: "parallel",
+  { runtime: "llama.cpp", jsonName: "parallel", type: "number",
     aliases: ["parallel", "n-parallel"],
-    parse: num, help: "llama: parallel decoding slots" }
+    parse: num, help: "llama: parallel decoding slots" },
+  { runtime: "llama.cpp", jsonName: "specType", type: "string",
+    aliases: ["specType", "spec-type"],
+    parse: str, help: "llama: type of speculative decoding (e.g. draft-mtp, draft-simple, ngram-simple)" },
+  { runtime: "llama.cpp", jsonName: "specDraftNMax", type: "number",
+    aliases: ["specDraftNMax", "spec-draft-n-max"],
+    parse: num, help: "llama: maximum draft tokens to predict" },
+  { runtime: "llama.cpp", jsonName: "specDraftNMin", type: "number",
+    aliases: ["specDraftNMin", "spec-draft-n-min"],
+    parse: num, help: "llama: minimum draft tokens to predict" },
+  { runtime: "llama.cpp", jsonName: "specDraftPSplit", type: "number",
+    aliases: ["specDraftPSplit", "spec-draft-p-split"],
+    parse: float, help: "llama: speculative decoding split probability" },
+  { runtime: "llama.cpp", jsonName: "specDraftPMin", type: "number",
+    aliases: ["specDraftPMin", "spec-draft-p-min"],
+    parse: float, help: "llama: minimum speculative decoding probability" },
+  { runtime: "llama.cpp", jsonName: "specDraftModel", type: "string",
+    aliases: ["specDraftModel", "spec-draft-model"],
+    parse: str, help: "llama: path/repo/file of draft model for speculative decoding" },
+  { runtime: "llama.cpp", jsonName: "specDraftNgl", type: "number",
+    aliases: ["specDraftNgl", "spec-draft-ngl", "ngl-draft"],
+    parse: num, help: "llama: layers offloaded to GPU for draft model" }
 ]
 
 export function listKeys(runtime: RuntimeType): KeySpec[] {
@@ -119,7 +141,7 @@ export function setPresetFields(
     ? entry.preset
     : undefined
 
-  const patch: Record<string, number> = {}
+  const patch: Record<string, string | number> = {}
   for (const [k, v] of kvs) {
     const spec = findKey(runtime, k)
     patch[spec.jsonName] = spec.parse(v)
@@ -154,4 +176,35 @@ export function unsetPresetFields(
   for (const k of drop) delete next[k]
   if (Object.keys(next).length === 0) return undefined
   return { runtime: "llama.cpp", llama: next as Partial<LlamaConfig> }
+}
+
+export function validateLlamaSpeculativeConfig(merged: LlamaConfig): string[] {
+  const warnings: string[] = []
+  const { specType, specDraftModel } = merged
+
+  if (specType === undefined || specType === "none") {
+    const hasSpecParams =
+      merged.specDraftNMax !== undefined ||
+      merged.specDraftNMin !== undefined ||
+      merged.specDraftPSplit !== undefined ||
+      merged.specDraftPMin !== undefined ||
+      merged.specDraftModel !== undefined ||
+      merged.specDraftNgl !== undefined
+
+    if (hasSpecParams) {
+      warnings.push(`spec-draft parameters are configured but spec-type is not set (or is "none"). Speculative decoding will not be active.`)
+    }
+  } else {
+    if (specType === "draft" || specType === "draft-simple" || specType === "draft-eagle3" || specType === "draft-dflash") {
+      if (!specDraftModel) {
+        warnings.push(`spec-type "${specType}" requires a speculative draft model path set via spec-draft-model.`)
+      }
+    } else if (specType === "draft-mtp") {
+      if (specDraftModel) {
+        warnings.push(`spec-type "draft-mtp" (Multi-Token Prediction) does not require a separate spec-draft-model (draft heads are built-in). The specified model "${specDraftModel}" might be ignored.`)
+      }
+    }
+  }
+
+  return warnings
 }

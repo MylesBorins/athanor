@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseKvTokens, setPresetFields, unsetPresetFields, listKeys } from "./edit.js"
+import { parseKvTokens, setPresetFields, unsetPresetFields, listKeys, validateLlamaSpeculativeConfig } from "./edit.js"
 import type { ModelEntry } from "../types/index.js"
 
 function mlxEntry(overrides: Partial<ModelEntry> = {}): ModelEntry {
@@ -75,6 +75,19 @@ describe("setPresetFields", () => {
     expect(() => setPresetFields(mlxEntry(), [["ctx-size", "4"]]))
       .toThrow(/unknown mlx preset key/)
   })
+
+  it("accepts string-based and float speculative decoding settings", () => {
+    const p = setPresetFields(llamaEntry(), [
+      ["spec-type", "draft-mtp"],
+      ["spec-draft-model", "/models/draft.gguf"],
+      ["spec-draft-p-min", "0.85"]
+    ])
+    expect(p.runtime).toBe("llama.cpp")
+    if (p.runtime !== "llama.cpp") throw new Error()
+    expect(p.llama.specType).toBe("draft-mtp")
+    expect(p.llama.specDraftModel).toBe("/models/draft.gguf")
+    expect(p.llama.specDraftPMin).toBe(0.85)
+  })
 })
 
 describe("unsetPresetFields", () => {
@@ -107,5 +120,66 @@ describe("listKeys", () => {
     expect(mlx).not.toContain("ctxSize")
     expect(llama).toContain("ctxSize")
     expect(llama).not.toContain("decodeConcurrency")
+  })
+})
+
+describe("validateLlamaSpeculativeConfig", () => {
+  const baseLlama = {
+    nGpuLayers: 999,
+    ctxSize: 8192,
+    batchSize: 512,
+    ubatchSize: 128,
+    parallel: 1
+  }
+
+  it("returns empty warnings for a normal config without speculative settings", () => {
+    expect(validateLlamaSpeculativeConfig(baseLlama)).toEqual([])
+  })
+
+  it("warns if speculative properties are set but specType is none or undefined", () => {
+    const warnings1 = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specDraftNMax: 4
+    })
+    expect(warnings1).toContain("spec-draft parameters are configured but spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
+
+    const warnings2 = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specType: "none",
+      specDraftModel: "/some/draft.gguf"
+    })
+    expect(warnings2).toContain("spec-draft parameters are configured but spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
+  })
+
+  it("warns if specType is draft/simple/eagle/dflash but specDraftModel is missing", () => {
+    const warnings = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specType: "draft"
+    })
+    expect(warnings).toContain("spec-type \"draft\" requires a speculative draft model path set via spec-draft-model.")
+  })
+
+  it("warns if specType is draft-mtp but specDraftModel is provided", () => {
+    const warnings = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specType: "draft-mtp",
+      specDraftModel: "/some/draft.gguf"
+    })
+    expect(warnings).toContain("spec-type \"draft-mtp\" (Multi-Token Prediction) does not require a separate spec-draft-model (draft heads are built-in). The specified model \"/some/draft.gguf\" might be ignored.")
+  })
+
+  it("returns no warnings for correct spec draft configurations", () => {
+    const warningsDraft = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specType: "draft",
+      specDraftModel: "/some/draft.gguf"
+    })
+    expect(warningsDraft).toEqual([])
+
+    const warningsMtp = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      specType: "draft-mtp"
+    })
+    expect(warningsMtp).toEqual([])
   })
 })

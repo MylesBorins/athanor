@@ -13,6 +13,8 @@ import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
 import { detectMachineProfile } from "../machine/profile.js"
 import { buildRecommendation } from "../registry/recommend.js"
 import { getPersistedRouter, pidAlive } from "../supervisor/state.js"
+import { validateLlamaSpeculativeConfig } from "../presets/edit.js"
+import type { LlamaConfig } from "../types/index.js"
 
 async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) return defaultYes
@@ -280,6 +282,17 @@ export function cmdShow(idOrSlug: string): void {
     console.log(`  ${k.padEnd(20)} ${String(v)}${marker}`)
   }
   console.log()
+
+  if (entry.runtime === "llama.cpp") {
+    const warnings = validateLlamaSpeculativeConfig(merged as unknown as LlamaConfig)
+    if (warnings.length > 0) {
+      console.log(`  ${style.yellow("speculative validation warnings:")}`)
+      for (const w of warnings) {
+        console.log(`    ${style.yellow("⚠")} ${dim(w)}`)
+      }
+      console.log()
+    }
+  }
 
   head("command")
   console.log(`  ${style.bold(cmd)} ${args.join(" ")}`)
