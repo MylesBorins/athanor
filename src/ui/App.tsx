@@ -13,6 +13,7 @@ import { PresetEditor } from "./PresetEditor.js"
 import { Suggestions } from "./Suggestions.js"
 import { SearchBrowser } from "./SearchBrowser.js"
 import { ConfirmModal } from "./ConfirmModal.js"
+import { TelemetryModal } from "./TelemetryModal.js"
 import { SUGGESTIONS, type Suggestion } from "../pull/suggestions.js"
 import { useModelActions } from "./useModelActions.js"
 import { useMouseWheel } from "./useMouseWheel.js"
@@ -20,7 +21,7 @@ import { useAppData } from "./useAppData.js"
 import { useAppInput } from "./useAppInput.js"
 import { useDownloads } from "./useDownloads.js"
 
-type Mode = "list" | "filter" | "pull" | "downloads" | "preset" | "logs" | "search" | "confirm-delete"
+type Mode = "list" | "filter" | "pull" | "downloads" | "preset" | "logs" | "search" | "confirm-delete" | "telemetry"
 
 // How long a status message stays on screen before auto-dismissing.
 // Long enough to read a success/error line, short enough that it
@@ -330,6 +331,30 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       </Box>
     : null
 
+  const telemetryModalWidth = Math.max(50, Math.min(76, dims.cols - 8))
+  const telemetryModalHeight = 20
+  const telemetryTopPad = Math.max(0, Math.floor((dims.rows - telemetryModalHeight) / 2))
+  const telemetryLeftPad = Math.max(0, Math.floor((dims.cols - telemetryModalWidth) / 2))
+  const telemetryOverlay = mode === "telemetry" && selected
+    ? <Box
+        width={dims.cols}
+        height={dims.rows}
+        position="absolute"
+        flexDirection="column"
+      >
+        {Array.from({ length: telemetryTopPad }, (_, i) => (
+          <Text key={`telemetry-top-${i}`}> </Text>
+        ))}
+        <Box paddingLeft={telemetryLeftPad}>
+          <TelemetryModal
+            entry={selected}
+            width={telemetryModalWidth}
+            onClose={() => setMode("list")}
+          />
+        </Box>
+      </Box>
+    : null
+
   const bannerMode = dims.rows < 20 || dims.cols < 80
     ? "minimal"
     : dims.rows < 28 || dims.cols < 100
@@ -382,6 +407,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
         {downloadsOverlay}
         {presetOverlay}
         {confirmDeleteOverlay}
+        {telemetryOverlay}
       </Box>
     )
   }
@@ -403,7 +429,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const compactViewportRows = !isEmpty && !showLogPreview && dims.rows <= 24 ? visibleListRows : undefined
   const listHelp = isEmpty
     ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · D · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · D downloads · q quit")
-    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · / filter · tab logs · q quit")
+    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · t · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · t telemetry · / filter · tab logs · q quit")
 
   return (
     <Box width={dims.cols} flexDirection="column">
@@ -451,6 +477,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       {downloadsOverlay}
       {presetOverlay}
       {confirmDeleteOverlay}
+      {telemetryOverlay}
     </Box>
   )
 }

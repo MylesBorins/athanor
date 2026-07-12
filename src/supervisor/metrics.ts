@@ -21,6 +21,9 @@ export interface CompletionStats {
   elapsedMs: number
   tokPerSec: number
   at: number
+  state?: "prefilling" | "generating"
+  firstTokenMs?: number
+  startMs?: number
 }
 
 export function parseProcStats(stdout: string): Map<number, ProcStats> {
@@ -152,6 +155,7 @@ export function _resetMetricsState(): void {
 // phase ("eval time"), not the prefill ("prompt eval time"). The wording
 // of the rate field varies by version: "tokens per second", "tok/s", etc.
 const RE_LLAMA = /(?:^|\n)[ \t]*eval time[ \t]*=[ \t]*([\d.]+)[ \t]*ms[ \t]*\/[ \t]*(\d+)[ \t]*tokens[^\n]*?([\d.]+)[ \t]*(?:tokens per second|tokens?\/sec|tok\/sec|tok\/s)/gi
+const RE_LLAMA_NEW = /n_decoded\s*=\s*(\d+),\s*tg\s*=\s*([\d.]+)\s*(?:t\/s|tok\/s|tokens?\/sec|tok\/sec)/gi
 
 // mlx_lm and mlx_vlm print a single-line summary, but the prefix and token
 // wording vary by version. Accept the common "Generation:" line as well as
@@ -180,6 +184,18 @@ export function parseCompletionStats(chunk: string): CompletionStats | null {
     }
   }
 
+  const llamaNew = lastMatch(RE_LLAMA_NEW, chunk)
+  if (llamaNew) {
+    const tokens = Number(llamaNew[1])
+    const tokPerSec = Number(llamaNew[2])
+    const elapsedMs = tokPerSec > 0 ? (tokens / tokPerSec) * 1000 : 0
+    if (tokens > 0 && tokPerSec > 0) {
+      if (!pick || llamaNew.index > pick.index) {
+        pick = { index: llamaNew.index, stats: { tokens, elapsedMs, tokPerSec, at: now } }
+      }
+    }
+  }
+
   const mlx = lastMatch(RE_MLX, chunk)
   if (mlx) {
     const tokens = Number(mlx[1])
@@ -197,13 +213,34 @@ export function parseCompletionStats(chunk: string): CompletionStats | null {
 
 const liveRouterStats = new Map<string, CompletionStats>()
 
-export function updateLiveRouterStats(id: string, tokens: number, elapsedMs: number): void {
+export function startLiveRequest(id: string): void {
+  liveRouterStats.set(id, {
+    tokens: 0,
+    elapsedMs: 0,
+    tokPerSec: 0,
+    at: Date.now(),
+    state: "prefilling",
+    startMs: Date.now()
+  })
+}
+
+export function updateLiveRouterStats(
+  id: string,
+  tokens: number,
+  elapsedMs: number,
+  state: "prefilling" | "generating" = "generating",
+  firstTokenMs?: number
+): void {
+  const existing = liveRouterStats.get(id)
   const tokPerSec = elapsedMs > 0 ? (tokens / elapsedMs) * 1000 : 0
   liveRouterStats.set(id, {
     tokens,
     elapsedMs,
     tokPerSec,
-    at: Date.now()
+    at: Date.now(),
+    state,
+    firstTokenMs: firstTokenMs ?? existing?.firstTokenMs,
+    startMs: existing?.startMs ?? Date.now()
   })
 }
 

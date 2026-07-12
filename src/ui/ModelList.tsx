@@ -38,7 +38,13 @@ function runtimeSuffix(stats?: InstanceStats): string {
     parts.push(`${stats.proc.cpuPct.toFixed(0)}%`)
     parts.push(formatRss(stats.proc.rssBytes))
   }
-  if (stats.completion) parts.push(`${stats.completion.tokPerSec.toFixed(1)} tok/s`)
+  if (stats.completion) {
+    if (stats.completion.state === "prefilling") {
+      parts.push("prefilling...")
+    } else {
+      parts.push(`${stats.completion.tokPerSec.toFixed(1)} tok/s`)
+    }
+  }
   return parts.join(" · ")
 }
 

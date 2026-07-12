@@ -19,7 +19,8 @@ export const PATHS = {
   logsDir: path.join(CONFIG_BASE, "logs"),
   // User-defined recipes. Never written by the app — only read. Users
   // edit this file directly; scan / pull / sync leave it alone.
-  recipes: path.join(CONFIG_BASE, "recipes.json")
+  recipes: path.join(CONFIG_BASE, "recipes.json"),
+  telemetry: path.join(CONFIG_BASE, "telemetry.json")
 }
 
 export interface PortRange {

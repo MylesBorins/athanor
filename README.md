@@ -399,6 +399,7 @@ athanor doctor --check-updates   also compare installed versions with latest ava
 | `s`        | rescan and ingest new models (automatic on start and when the HF cache changes) |
 | `p`        | open the pull modal (`esc` cancels in progress)     |
 | `e`        | open the preset editor for the highlighted model    |
+| `t`        | open the telemetry modal for the highlighted model  |
 | `/`        | filter the list by substring of slug or id          |
 | `tab`      | hide the model selector and expand the log pane; press again to restore |
 | `q`        | quit (does **not** stop running models)             |

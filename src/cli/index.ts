@@ -22,7 +22,8 @@ import {
   cmdStart,
   cmdStatus,
   cmdStop,
-  cmdSync
+  cmdSync,
+  cmdTelemetry
 } from "./commands.js"
 import type { SearchFilter, SearchSort } from "../search/hf.js"
 import { style } from "./style.js"
@@ -51,6 +52,7 @@ function usage(): void {
     ["router",     "[--host H] [--port P] [--verbose]",   "run the athanor ingress server in the foreground"],
     ["config",     "",                               "print config and its path"],
     ["doctor",     "[--check-updates]",              "check for required binaries and versions"],
+    ["telemetry",  "[<slug>|compare|clear]",         "display performance metrics and historical telemetry"],
     ["(no args)",  "",                               "launch the TUI"]
   ]
   const cw = Math.max(...rows.map(r => r[0].length))
@@ -138,6 +140,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
     }
     case "config":      cmdConfig(); return true
     case "doctor":      await cmdDoctor({ checkUpdates: rest.includes("--check-updates") }); return true
+    case "telemetry":   await cmdTelemetry(rest); return true
     case "help":
     case "--help":
     case "-h":

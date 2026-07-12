@@ -190,6 +190,9 @@ describe("startRouter", () => {
 
     const { getLiveRouterStats } = await import("../supervisor/metrics.js")
     const { startRouter, stopRouter } = await import("./server.js")
+    const { clearTelemetryHistory, loadTelemetryHistory } = await import("../supervisor/telemetry.js")
+    clearTelemetryHistory()
+
     const server = startRouter()
     await new Promise<void>(resListen => server!.once("listening", resListen))
     const address = server!.address() as AddressInfo
@@ -208,6 +211,13 @@ describe("startRouter", () => {
     const stats = getLiveRouterStats("mlx-community/A")
     expect(stats).not.toBeNull()
     expect(stats!.tokens).toBe(2)
+
+    // Wait for the asynchronous telemetry record to be saved
+    await new Promise(r => setTimeout(r, 200))
+    const history = loadTelemetryHistory()
+    expect(history.length).toBe(1)
+    expect(history[0]?.modelId).toBe("mlx-community/A")
+    expect(history[0]?.generatedTokens).toBe(2)
 
     await stopRouter()
     await upstream.close()

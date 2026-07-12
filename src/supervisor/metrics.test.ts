@@ -83,6 +83,13 @@ describe("parseCompletionStats", () => {
     expect(s!.elapsedMs).toBeCloseTo(1000, 2)
   })
 
+  it("matches newer llama.cpp real-time timing format lines", () => {
+    const chunk = "0.31.553.653 I slot print_timing: id  0 | task 0 | n_decoded =    198, tg =  65.07 t/s, tg_3s =  65.07 t/s"
+    const s = parseCompletionStats(chunk)
+    expect(s).toMatchObject({ tokens: 198, tokPerSec: 65.07 })
+    expect(s!.elapsedMs).toBeCloseTo((198 / 65.07) * 1000, 2)
+  })
+
   it("picks the most recent completion when both formats appear", () => {
     const chunk = [
       "       eval time =   10000.00 ms /   100 tokens (  100.00 ms per token,    10.00 tokens per second)",

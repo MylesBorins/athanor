@@ -8,10 +8,13 @@ import * as path from "path"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
 import { supervisor } from "../supervisor/index.js"
-import { resolveByRuntimeModelId, runtimeModelId } from "../adapters/index.js"
+import type { TelemetryRecord } from "../types/index.js"
+import { resolveByRuntimeModelId, runtimeModelId, mergedConfigFor } from "../adapters/index.js"
 import { begin, end } from "../supervisor/inflight.js"
 import { recoverLiveInstances } from "../supervisor/reconcile.js"
-import { updateLiveRouterStats, clearLiveRouterStats } from "../supervisor/metrics.js"
+import { updateLiveRouterStats, clearLiveRouterStats, startLiveRequest, sampleProcessStats } from "../supervisor/metrics.js"
+import { saveTelemetryRecord, parseLogTelemetry } from "../supervisor/telemetry.js"
+import { tailLog } from "../supervisor/logs.js"
 
 // OpenAI-compatible proxy fronting every exposed athanor model on a
 // single port. See src/config/index.ts RouterConfig. The router
@@ -114,13 +117,49 @@ async function waitForUpstreamModelList(
 
 class SSETokenCounter extends Transform {
   private buffer = ""
-  private tokenCount = 0
+  public tokenCount = 0
   private startTime = 0
+  public timeToFirstTokenMs?: number
+  public promptTokens?: number
+  private requestStartMs: number
   private onTokenCountUpdate: (tokens: number, elapsedMs: number) => void
 
-  constructor(onTokenCountUpdate: (tokens: number, elapsedMs: number) => void) {
+  constructor(requestStartMs: number, onTokenCountUpdate: (tokens: number, elapsedMs: number) => void) {
     super()
+    this.requestStartMs = requestStartMs
     this.onTokenCountUpdate = onTokenCountUpdate
+  }
+
+  private processLine(line: string): void {
+    if (line.startsWith("data: ")) {
+      const dataStr = line.slice(6).trim()
+      if (dataStr && dataStr !== "[DONE]") {
+        if (this.startTime === 0) {
+          this.startTime = Date.now()
+          this.timeToFirstTokenMs = this.startTime - this.requestStartMs
+        }
+        this.tokenCount++
+
+        try {
+          const parsed = JSON.parse(dataStr)
+          if (parsed && typeof parsed === "object") {
+            if (parsed.usage && typeof parsed.usage === "object") {
+              if (typeof parsed.usage.prompt_tokens === "number") {
+                this.promptTokens = parsed.usage.prompt_tokens
+              }
+              if (typeof parsed.usage.completion_tokens === "number") {
+                this.tokenCount = parsed.usage.completion_tokens
+              }
+            }
+          }
+        } catch {
+          // ignore parsing error
+        }
+
+        const elapsed = Date.now() - this.startTime
+        this.onTokenCountUpdate(this.tokenCount, elapsed)
+      }
+    }
   }
 
   override _transform(chunk: any, encoding: string, callback: (error?: Error | null, data?: any) => void) {
@@ -131,18 +170,7 @@ class SSETokenCounter extends Transform {
     while ((boundary = this.buffer.indexOf("\n")) >= 0) {
       const line = this.buffer.slice(0, boundary).trim()
       this.buffer = this.buffer.slice(boundary + 1)
-      
-      if (line.startsWith("data: ")) {
-        const dataStr = line.slice(6).trim()
-        if (dataStr && dataStr !== "[DONE]") {
-          if (this.startTime === 0) {
-            this.startTime = Date.now()
-          }
-          this.tokenCount++
-          const elapsed = Date.now() - this.startTime
-          this.onTokenCountUpdate(this.tokenCount, elapsed)
-        }
-      }
+      this.processLine(line)
     }
     this.push(chunk)
     callback()
@@ -150,16 +178,8 @@ class SSETokenCounter extends Transform {
 
   override _flush(callback: (error?: Error | null, data?: any) => void) {
     const line = this.buffer.trim()
-    if (line.startsWith("data: ")) {
-      const dataStr = line.slice(6).trim()
-      if (dataStr && dataStr !== "[DONE]") {
-        if (this.startTime === 0) {
-          this.startTime = Date.now()
-        }
-        this.tokenCount++
-        const elapsed = Date.now() - this.startTime
-        this.onTokenCountUpdate(this.tokenCount, elapsed)
-      }
+    if (line) {
+      this.processLine(line)
     }
     callback()
   }
@@ -217,6 +237,7 @@ async function proxy(
   }
 
   clearLiveRouterStats(entry.id)
+  startLiveRequest(entry.id)
 
 
   routerLog(`[router] ${req.method} ${req.url ?? ""} model resolved ${JSON.stringify({ model: parsed.model, runtimeId: entry.id, slug: entry.slug, flags: extractFlags(parsed) })}`)
@@ -253,6 +274,9 @@ async function proxy(
   // before SIGTERM. begin() lives outside the try to pair cleanly with
   // the finally; fetch/pipeline errors still decrement.
   begin(entry.id)
+  const isStream = parsed && (parsed as any).stream === true
+  let tokenCounter: SSETokenCounter | null = null
+  let responseBody = ""
   try {
     const upstreamUrl = `http://127.0.0.1:${inst.port}${req.url ?? "/"}`
     let upstream: Response
@@ -297,15 +321,25 @@ async function proxy(
     })
     res.writeHead(upstream.status, outHeaders)
     if (!upstream.body) { res.end(); return }
-    const tokenCounter = new SSETokenCounter((tokens, elapsedMs) => {
-      updateLiveRouterStats(entry.id, tokens, elapsedMs)
+
+    tokenCounter = new SSETokenCounter(startMs, (tokens, elapsedMs) => {
+      updateLiveRouterStats(entry.id, tokens, elapsedMs, "generating")
     })
+    const interceptor = new Transform({
+      transform(chunk, encoding, callback) {
+        responseBody += chunk.toString("utf8")
+        this.push(chunk)
+        callback()
+      }
+    })
+    const activeCounter = isStream ? tokenCounter : interceptor
+
     try {
       // Web ReadableStream -> Node Readable -> chunked http response.
       // Preserves SSE framing because we never buffer to a string.
       await pipeline(
         Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]),
-        tokenCounter,
+        activeCounter,
         res
       )
     } catch {
@@ -319,6 +353,119 @@ async function proxy(
   } finally {
     req.off("close", onClientClose)
     end(entry.id)
+
+    // Schedule telemetry recording asynchronously
+    const duration = Date.now() - startMs
+    const modelEntry = entry
+    const requestBody = parsed
+    const instPid = inst && "pid" in inst ? inst.pid : undefined
+    const instLogFile = (inst as any)?.logFile
+
+    setTimeout(async () => {
+      try {
+        const logFile = instLogFile || path.join(os.homedir(), ".athanor", "logs", `${modelEntry.slug}-${instPid}.log`)
+        
+        let promptTokens = 0
+        let generatedTokens = 0
+        let promptThroughput: number | undefined
+        let generationThroughput = 0
+        let specAcceptRate: number | undefined
+        let compilationTimeMs: number | undefined
+
+        let routerPromptTokens: number | undefined
+        let routerGeneratedTokens: number | undefined
+        let timeToFirstTokenMs: number | undefined
+
+        if (isStream && tokenCounter) {
+          routerPromptTokens = tokenCounter.promptTokens
+          routerGeneratedTokens = tokenCounter.tokenCount
+          timeToFirstTokenMs = tokenCounter.timeToFirstTokenMs
+        } else {
+          try {
+            const resObj = JSON.parse(responseBody)
+            if (resObj && resObj.usage) {
+              if (typeof resObj.usage.prompt_tokens === "number") {
+                routerPromptTokens = resObj.usage.prompt_tokens
+              }
+              if (typeof resObj.usage.completion_tokens === "number") {
+                routerGeneratedTokens = resObj.usage.completion_tokens
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // Try to read log timings
+        let logStats: any = {}
+        if (instPid) {
+          let attempts = 0
+          while (attempts < 4) {
+            if (fs.existsSync(logFile)) {
+              const content = tailLog(logFile, 4096)
+              logStats = parseLogTelemetry(content)
+              if (logStats.generatedTokens !== undefined) {
+                break
+              }
+            }
+            await new Promise(resolve => setTimeout(resolve, 80))
+            attempts++
+          }
+        }
+
+        const messages = (requestBody as any).messages
+        const prompt = (requestBody as any).prompt
+        const estPromptTokens = messages || prompt ? Math.ceil(JSON.stringify(requestBody).length / 4) : 0
+
+        promptTokens = logStats.promptTokens ?? routerPromptTokens ?? estPromptTokens
+        generatedTokens = logStats.generatedTokens ?? routerGeneratedTokens ?? 0
+        promptThroughput = logStats.promptThroughput
+        generationThroughput = logStats.generationThroughput ?? (duration > 0 ? (generatedTokens / (duration / 1000)) : 0)
+        specAcceptRate = logStats.speculativeAcceptanceRate
+        compilationTimeMs = logStats.compilationTimeMs
+
+        // Calculate context utilization
+        const mergedConfig = mergedConfigFor(modelEntry)
+        const contextSize = (mergedConfig as any).ctxSize || (mergedConfig as any).contextWindow || 2048
+        const contextUtilization = contextSize > 0 ? (promptTokens + generatedTokens) / contextSize : 0
+        
+        // Sample memory usage
+        let peakMemoryBytes: number | undefined
+        if (instPid) {
+          const procStats = sampleProcessStats([instPid])
+          peakMemoryBytes = procStats?.get(instPid)?.rssBytes
+        }
+
+        const telemetryRecord: TelemetryRecord = {
+          id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36),
+          modelId: modelEntry.id,
+          slug: modelEntry.slug,
+          runtime: modelEntry.runtime,
+          quantization: modelEntry.quantization,
+          presetName: modelEntry.preset ? (modelEntry.preset as any).recipe || "custom" : undefined,
+          timestamp: Date.now(),
+          promptTokens,
+          generatedTokens,
+          promptThroughput,
+          generationThroughput,
+          timeToFirstTokenMs,
+          totalDurationMs: duration,
+          effectiveThroughput: duration > 0 ? ((promptTokens + generatedTokens) / (duration / 1000)) : 0,
+          contextSize,
+          contextUtilization,
+          peakMemoryBytes,
+          runtimeSpecific: {
+            llama: specAcceptRate !== undefined ? { speculativeAcceptanceRate: specAcceptRate } : undefined,
+            mlx: compilationTimeMs !== undefined ? { compilationTimeMs } : undefined
+          }
+        }
+
+        saveTelemetryRecord(telemetryRecord)
+      } catch (err) {
+        routerLog(`[router] failed to record telemetry: ${String(err)}`)
+        console.error("TELEMETRY ERROR:", err)
+      }
+    }, 150)
   }
 }
 

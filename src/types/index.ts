@@ -171,3 +171,32 @@ export interface DiscoveredModel {
   activeParams?: number
   metadataSource?: MetadataSource
 }
+
+export interface TelemetryRecord {
+  id: string
+  modelId: string
+  slug: string
+  runtime: RuntimeType
+  quantization?: string
+  presetName?: string
+  timestamp: number // Epoch ms
+  promptTokens: number
+  generatedTokens: number
+  promptThroughput?: number // tokens/sec
+  generationThroughput: number // tokens/sec
+  timeToFirstTokenMs?: number
+  totalDurationMs: number
+  effectiveThroughput: number // (prompt + gen) / duration(s)
+  contextSize?: number
+  contextUtilization?: number // (prompt + gen) / contextSize
+  peakMemoryBytes?: number
+  runtimeSpecific?: {
+    llama?: {
+      speculativeAcceptanceRate?: number
+    }
+    mlx?: {
+      compilationTimeMs?: number
+    }
+  }
+}
+
