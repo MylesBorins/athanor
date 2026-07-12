@@ -38,7 +38,18 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const { stdin, setRawMode, isRawModeSupported } = useStdin()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [message, setMessage] = useState(initialMessage ?? "")
-  const [mode, setMode] = useState<Mode>("list")
+  const [mode, setModeRaw] = useState<Mode>("list")
+  const [lastBaseMode, setLastBaseMode] = useState<"list" | "logs">("list")
+
+  const setMode = useCallback((newMode: React.SetStateAction<Mode>) => {
+    setModeRaw(prev => {
+      const next = typeof newMode === "function" ? newMode(prev) : newMode
+      if (next === "list" || next === "logs") {
+        setLastBaseMode(next)
+      }
+      return next
+    })
+  }, [])
   const [filter, setFilter] = useState("")
   const [logScroll, setLogScroll] = useState(0)
   const [suggIdx, setSuggIdx] = useState(0)
@@ -192,6 +203,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
 
   useAppInput({
     mode,
+    lastBaseMode,
     dims,
     models,
     filtered,
@@ -220,9 +232,9 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       initialFile={pullPrefill?.file}
       onDone={msg => {
         setMessage(msg); setModels(listModels())
-        setPullPrefill(undefined); setMode("list")
+        setPullPrefill(undefined); setMode(lastBaseMode)
       }}
-      onCancel={() => { setPullPrefill(undefined); setMode("list") }} />
+      onCancel={() => { setPullPrefill(undefined); setMode(lastBaseMode) }} />
   }
 
   if (mode === "search") {
@@ -237,7 +249,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
       onExit={msg => {
         if (msg) setMessage(msg)
         setModels(listModels())
-        setMode("list")
+        setMode(lastBaseMode)
       }}
     />
   }
@@ -262,7 +274,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
             width={downloadsModalWidth}
             onCancelTask={downloads.cancelDownload}
             onClearFinished={downloads.clearFinished}
-            onClose={() => setMode("list")}
+            onClose={() => setMode(lastBaseMode)}
           />
         </Box>
       </Box>
@@ -289,7 +301,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
             onClose={msg => {
               if (msg) setMessage(msg)
               setModels(listModels())
-              setMode("list")
+              setMode(lastBaseMode)
             }}
           />
         </Box>
@@ -323,9 +335,9 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
             cancelLabel="cancel"
             onConfirm={() => {
               deleteEntry()
-              setMode("list")
+              setMode(models.length <= 1 ? "list" : lastBaseMode)
             }}
-            onCancel={() => setMode("list")}
+            onCancel={() => setMode(lastBaseMode)}
           />
         </Box>
       </Box>
@@ -349,7 +361,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
           <TelemetryModal
             entry={selected}
             width={telemetryModalWidth}
-            onClose={() => setMode("list")}
+            onClose={() => setMode(lastBaseMode)}
           />
         </Box>
       </Box>
@@ -369,7 +381,12 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const showLogPreview = models.length > 0 && dims.rows >= 26
   const divider = "─".repeat(Math.max(8, dims.cols - 2))
 
-  if (mode === "logs") {
+  const isLogsBackground = mode === "logs" || (
+    (mode === "preset" || mode === "telemetry" || mode === "downloads" || mode === "confirm-delete") &&
+    lastBaseMode === "logs"
+  )
+
+  if (isLogsBackground) {
     // Tab hides only the model selector — banner and footer stay so
     // global context (system load, keybindings) remains visible. The
     // log pane takes over everything the ModelList used to occupy.

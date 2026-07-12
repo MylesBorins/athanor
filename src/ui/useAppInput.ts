@@ -11,6 +11,7 @@ type Mode = "list" | "filter" | "pull" | "downloads" | "preset" | "logs" | "sear
 
 export interface AppInputOpts {
   mode: Mode
+  lastBaseMode?: "list" | "logs"
   dims: Dims
   models: ModelEntry[]
   filtered: ModelEntry[]
@@ -36,6 +37,7 @@ export interface AppInputOpts {
 export function useAppInput(opts: AppInputOpts): void {
   const {
     mode,
+    lastBaseMode = "list",
     dims,
     models,
     filtered,
@@ -63,7 +65,7 @@ export function useAppInput(opts: AppInputOpts): void {
     if (Date.now() - lastMouseAtRef.current < 20) return
     if (input.indexOf("[<") >= 0 || input.indexOf("\x1b[<") >= 0) return
     if (mode === "filter") {
-      if (key.escape || key.return) { setMode("list"); return }
+      if (key.escape || key.return) { setMode(lastBaseMode); return }
       if (key.backspace || key.delete) { setFilter(f => f.slice(0, -1)); return }
       if (input && !key.ctrl && !key.meta) setFilter(f => f + input)
       return
