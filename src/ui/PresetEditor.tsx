@@ -34,6 +34,115 @@ function presetValueFor(entry: ModelEntry, jsonName: string): string | number | 
   return (bag as Record<string, string | number | undefined>)[jsonName]
 }
 
+export const STANDARD_CTX_SIZES = [
+  2048,
+  4096,
+  8192,
+  16384,
+  32768,
+  65536,
+  98304,
+  131072,
+  163840,
+  196608,
+  229376,
+  262144,
+  294912,
+  327680,
+  360448,
+  393216,
+  425984,
+  458752,
+  491520,
+  524288
+]
+
+export function getNextStandardCtx(currentStr: string, direction: "left" | "right"): number {
+  const current = parseInt(currentStr, 10)
+  if (isNaN(current)) {
+    return 4096
+  }
+  if (direction === "left") {
+    const filtered = STANDARD_CTX_SIZES.filter(s => s < current)
+    if (filtered.length > 0) return filtered[filtered.length - 1]!
+    return STANDARD_CTX_SIZES[0]!
+  } else {
+    const filtered = STANDARD_CTX_SIZES.filter(s => s > current)
+    if (filtered.length > 0) return filtered[0]!
+    return STANDARD_CTX_SIZES[STANDARD_CTX_SIZES.length - 1]!
+  }
+}
+
+export const STANDARD_SLOT_SIZES = [1, 2, 4, 8, 16, 32, 64]
+export function getNextSlotSize(currentStr: string, direction: "left" | "right"): number {
+  const current = parseInt(currentStr, 10)
+  if (isNaN(current)) return 1
+  if (direction === "left") {
+    const filtered = STANDARD_SLOT_SIZES.filter(s => s < current)
+    if (filtered.length > 0) return filtered[filtered.length - 1]!
+    return STANDARD_SLOT_SIZES[0]!
+  } else {
+    const filtered = STANDARD_SLOT_SIZES.filter(s => s > current)
+    if (filtered.length > 0) return filtered[0]!
+    return STANDARD_SLOT_SIZES[STANDARD_SLOT_SIZES.length - 1]!
+  }
+}
+
+export const STANDARD_GPU_LAYERS = [0, 16, 32, 48, 64, 80, 999]
+export function getNextGpuLayer(currentStr: string, direction: "left" | "right"): number {
+  const current = parseInt(currentStr, 10)
+  if (isNaN(current)) return 0
+  if (direction === "left") {
+    const filtered = STANDARD_GPU_LAYERS.filter(s => s < current)
+    if (filtered.length > 0) return filtered[filtered.length - 1]!
+    return STANDARD_GPU_LAYERS[0]!
+  } else {
+    const filtered = STANDARD_GPU_LAYERS.filter(s => s > current)
+    if (filtered.length > 0) return filtered[0]!
+    return STANDARD_GPU_LAYERS[STANDARD_GPU_LAYERS.length - 1]!
+  }
+}
+
+export const SPEC_TYPES = ["none", "draft", "draft-simple", "draft-mtp", "ngram-simple"]
+export function getNextSpecType(currentStr: string, direction: "left" | "right"): string {
+  const idx = SPEC_TYPES.indexOf(currentStr)
+  if (idx < 0) return SPEC_TYPES[0]!
+  if (direction === "left") {
+    return SPEC_TYPES[Math.max(0, idx - 1)]!
+  } else {
+    return SPEC_TYPES[Math.min(SPEC_TYPES.length - 1, idx + 1)]!
+  }
+}
+
+export function cycleFloat(
+  currentStr: string,
+  direction: "left" | "right",
+  step: number,
+  min: number,
+  max: number,
+  fallback: number
+): number {
+  const val = parseFloat(currentStr)
+  if (isNaN(val)) return fallback
+  const next = direction === "left" ? val - step : val + step
+  const clamped = Math.max(min, Math.min(max, next))
+  return Math.round(clamped * 100) / 100
+}
+
+export const CYCLABLE_KEYS = [
+  "contextWindow",
+  "ctxSize",
+  "promptCacheSize",
+  "temp",
+  "topP",
+  "parallel",
+  "decodeConcurrency",
+  "promptConcurrency",
+  "nGpuLayers",
+  "specDraftNgl",
+  "specType"
+]
+
 export const PresetEditor: React.FC<PresetEditorProps> = ({
   entryId,
   width = 88,
@@ -79,6 +188,29 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           setEdit(null)
         } catch (err) { setNotice(`error: ${errMsg(err)}`) }
         return
+      }
+      if (key.leftArrow || key.rightArrow) {
+        const dir = key.leftArrow ? "left" : "right"
+        let nextVal: string | number | undefined = undefined
+
+        if (["contextWindow", "ctxSize", "promptCacheSize"].includes(edit.jsonName)) {
+          nextVal = getNextStandardCtx(edit.buffer, dir)
+        } else if (edit.jsonName === "temp") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.1, 0.0, 2.0, 0.0)
+        } else if (edit.jsonName === "topP") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.05, 0.0, 1.0, 1.0)
+        } else if (["parallel", "decodeConcurrency", "promptConcurrency"].includes(edit.jsonName)) {
+          nextVal = getNextSlotSize(edit.buffer, dir)
+        } else if (["nGpuLayers", "specDraftNgl"].includes(edit.jsonName)) {
+          nextVal = getNextGpuLayer(edit.buffer, dir)
+        } else if (edit.jsonName === "specType") {
+          nextVal = getNextSpecType(edit.buffer, dir)
+        }
+
+        if (nextVal !== undefined) {
+          setEdit(e => e ? { ...e, buffer: String(nextVal) } : e)
+          return
+        }
       }
       if (key.backspace || key.delete) {
         setEdit(e => e ? { ...e, buffer: e.buffer.slice(0, -1) } : e)
@@ -194,7 +326,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       ))}
       <Text backgroundColor="black"> </Text>
       {edit
-        ? <Text wrap="truncate-end" backgroundColor="black">editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel)</Text></Text>
+        ? (
+          <Text wrap="truncate-end" backgroundColor="black">
+            editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
+          </Text>
+        )
         : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-9 recipe · esc close</Text>}
       {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
     </Box>
