@@ -10,7 +10,7 @@ import { startControlApi, stopControlApi } from "./control/server.js"
 import { startRouter, stopRouter } from "./router/server.js"
 import { ingestDiscovered } from "./discovery/ingest.js"
 import { deduplicateRegistry } from "./registry/index.js"
-import { reconcileIngressForCurrentState } from "./router/lifecycle.js"
+import { reconcileIngressForCurrentState, stopIngressIfIdle } from "./router/lifecycle.js"
 
 const ENTER_ALT_SCREEN = "\x1b[?1049h"
 const LEAVE_ALT_SCREEN = "\x1b[?1049l"
@@ -64,6 +64,7 @@ async function main(): Promise<void> {
   // Empty-registry hint is handled inline by the Suggestions picker
   // in App.tsx, so no toast here.
 
+  process.env.ATHANOR_TUI_ACTIVE = "1"
   startControlApi()
   await reconcileIngressForCurrentState()
 
@@ -78,10 +79,13 @@ async function main(): Promise<void> {
   })
 
   const stopServers = async (): Promise<void> => {
+    delete process.env.ATHANOR_TUI_ACTIVE
     // The detached ingress companion owns router lifetime. The foreground
-    // TUI should not tear it down on exit; it may still be serving pi or
-    // covering active models started earlier.
-    await Promise.allSettled([stopControlApi()])
+    // TUI should not tear it down on exit unless no active models remain.
+    await Promise.allSettled([
+      stopControlApi(),
+      stopIngressIfIdle(stopRouter)
+    ])
   }
 
   const shutdown = async (reason: "SIGINT" | "SIGTERM"): Promise<void> => {

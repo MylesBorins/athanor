@@ -243,6 +243,12 @@ async function proxy(
     headers[name] = Array.isArray(v) ? v.join(",") : v
   }
 
+  const clientAbortCtrl = new AbortController()
+  const onClientClose = (): void => {
+    clientAbortCtrl.abort()
+  }
+  req.on("close", onClientClose)
+
   // Ref-count the upstream round-trip so supervisor.stop() can drain
   // before SIGTERM. begin() lives outside the try to pair cleanly with
   // the finally; fetch/pipeline errors still decrement.
@@ -251,32 +257,35 @@ async function proxy(
     const upstreamUrl = `http://127.0.0.1:${inst.port}${req.url ?? "/"}`
     let upstream: Response
     try {
-      upstream = await fetch(upstreamUrl, { method: req.method, headers, body })
+      upstream = await fetch(upstreamUrl, { method: req.method, headers, body, signal: clientAbortCtrl.signal })
     } catch (err) {
+      if (clientAbortCtrl.signal.aborted) {
+        throw err
+      }
       routerLog(`[router] upstream fetch failed ${JSON.stringify({ slug: entry.slug, port: inst.port, url: upstreamUrl, error: String(err) })}`)
 
       // If the backend died after the readiness probe but before/while proxying,
       // try to start/switch again and retry once.
+      try {
+        // If the backend died, supervisor bookkeeping can lag behind.
+        // Force-clear the instance for this model so ensureRequestTarget()
+        // can't keep returning a stale (unreachable) port.
         try {
-          // If the backend died, supervisor bookkeeping can lag behind.
-          // Force-clear the instance for this model so ensureRequestTarget()
-          // can't keep returning a stale (unreachable) port.
-          try {
-            end(entry.id)
-            await supervisor.stop(entry.id, { drain: false })
-          } catch {
-            /* best effort */
-          } finally {
-            begin(entry.id)
-          }
+          end(entry.id)
+          await supervisor.stop(entry.id, { drain: false })
+        } catch {
+          /* best effort */
+        } finally {
+          begin(entry.id)
+        }
 
-          const retryInst = await ensureRequestTarget(entry)
-          if (!retryInst) {
+        const retryInst = await ensureRequestTarget(entry)
+        if (!retryInst) {
           return sendJson(res, 503, { error: `failed to resolve active target for ${entry.slug} after upstream failure` })
         }
         const retryUrl = `http://127.0.0.1:${retryInst.port}${req.url ?? "/"}`
         routerLog(`[router] retrying upstream after failure ${JSON.stringify({ slug: entry.slug, port: retryInst.port, url: retryUrl })}`)
-        upstream = await fetch(retryUrl, { method: req.method, headers, body })
+        upstream = await fetch(retryUrl, { method: req.method, headers, body, signal: clientAbortCtrl.signal })
       } catch (retryErr) {
         return sendJson(res, 502, { error: `upstream fetch failed: ${String(retryErr)}` })
       }
@@ -308,6 +317,7 @@ async function proxy(
       routerLog(`[res] ${req.method} ${req.url ?? ""} ${upstream.status} ${elapsed}ms model=${parsed.model} slug=${entry.slug}`)
     }
   } finally {
+    req.off("close", onClientClose)
     end(entry.id)
   }
 }

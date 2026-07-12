@@ -19,6 +19,7 @@ export class Supervisor {
   private instances = new Map<string, ActiveInstance>()
   private readyPromise: Promise<void>
   private pendingStarts = new Map<string, Promise<ActiveInstance>>()
+  private startAbortControllers = new Map<string, AbortController>()
 
   constructor() {
     this.readyPromise = this.reattach()
@@ -73,35 +74,61 @@ export class Supervisor {
     return recovered
   }
 
+  private syncWithPersistedState(): void {
+    const persisted = loadPersistedInstances()
+    const persistedMap = new Map(persisted.map(inst => [inst.id, inst]))
+    
+    // Remove any memory instances that are no longer in persisted state
+    for (const id of this.instances.keys()) {
+      if (!persistedMap.has(id)) {
+        this.instances.delete(id)
+      }
+    }
+    
+    // Add or update instances from persisted state
+    for (const inst of persisted) {
+      this.instances.set(inst.id, inst)
+    }
+  }
+
   private persist(): void {
     savePersistedInstances([...this.instances.values()])
   }
 
   list(): ActiveInstance[] {
+    this.syncWithPersistedState()
     return [...this.instances.values()]
   }
 
   get(id: string): ActiveInstance | undefined {
+    this.syncWithPersistedState()
     return this.instances.get(id)
   }
 
   async start(entry: ModelEntry): Promise<ActiveInstance> {
     await this.ready()
+    this.syncWithPersistedState()
     const existing = await this.ensureStartable(entry)
     if (existing) return existing
     const pending = this.pendingStarts.get(entry.id)
     if (pending) return pending
 
-    const run = this.startInternal(entry)
+    const controller = new AbortController()
+    this.startAbortControllers.set(entry.id, controller)
+
+    const run = this.startInternal(entry, controller.signal)
     this.pendingStarts.set(entry.id, run)
     try {
       return await run
     } finally {
-      if (this.pendingStarts.get(entry.id) === run) this.pendingStarts.delete(entry.id)
+      if (this.pendingStarts.get(entry.id) === run) {
+        this.pendingStarts.delete(entry.id)
+        this.startAbortControllers.delete(entry.id)
+      }
     }
   }
 
-  private async startInternal(entry: ModelEntry): Promise<ActiveInstance> {
+  private async startInternal(entry: ModelEntry, abortSignal: AbortSignal): Promise<ActiveInstance> {
     const cfg = loadConfig()
     const { stopBeforeStart } = decide(
       cfg.supervisor.policy,
@@ -158,7 +185,8 @@ export class Supervisor {
       try {
         await waitForHealthy(entry.runtime, entry.port, {
           timeoutMs: cfg.supervisor.startupTimeoutMs,
-          intervalMs: cfg.supervisor.healthPollIntervalMs
+          intervalMs: cfg.supervisor.healthPollIntervalMs,
+          abort: abortSignal
         })
         instance.status = "running"
         instance.healthyAt = Date.now()
@@ -180,6 +208,11 @@ export class Supervisor {
 
   async stop(id: string, opts?: { drain?: boolean }): Promise<boolean> {
     await this.ready()
+    this.syncWithPersistedState()
+    const abortCtrl = this.startAbortControllers.get(id)
+    if (abortCtrl) {
+      abortCtrl.abort()
+    }
     const inst = this.instances.get(id)
     if (!inst) return false
     if (!pidAlive(inst.pid)) {
@@ -210,11 +243,11 @@ export class Supervisor {
     return true
   }
 
-  async stopAll(): Promise<boolean> {
+  async stopAll(opts?: { drain?: boolean }): Promise<boolean> {
     await this.ready()
     const ids = [...this.instances.keys()]
     if (ids.length === 0) return false
-    for (const id of ids) await this.stop(id)
+    for (const id of ids) await this.stop(id, opts)
     return true
   }
 

@@ -5,6 +5,7 @@ import { sortModelsByRunningThenSlug } from "../registry/sort.js"
 import { supervisor } from "../supervisor/index.js"
 import { loadPersistedInstances, pidAlive } from "../supervisor/state.js"
 import { startCacheWatcher } from "../discovery/watcher.js"
+import { reconcileIngressForCurrentState } from "../router/lifecycle.js"
 import {
   parseCompletionStats,
   sampleProcessStats,
@@ -59,6 +60,7 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
         }
         return next
       })
+      void reconcileIngressForCurrentState()
     }
     tick()
     const id = setInterval(tick, 1000)

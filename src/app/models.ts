@@ -58,19 +58,19 @@ export async function startModel(idOrSlug: string, opts?: { confirm?: boolean })
   return { entry, instance, preflight }
 }
 
-export async function stopModel(idOrSlug?: string): Promise<StopModelResult> {
+export async function stopModel(idOrSlug?: string, opts?: { drain?: boolean }): Promise<StopModelResult> {
   if (!idOrSlug || idOrSlug === "--all") {
     // Stopping all instances does not change publish state. Re-sync pi
     // with an empty running set, but leave provider emission driven by
     // the registry's persistent `publish` flags.
-    const stopped = await supervisor.stopAll()
+    const stopped = await supervisor.stopAll(opts)
     await stopIngressIfIdle(stopRouter)
     syncPi({ instances: [] })
     return { stoppedAll: true, stopped }
   }
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const stopped = await supervisor.stop(entry.id)
+  const stopped = await supervisor.stop(entry.id, opts)
   await stopIngressIfIdle(stopRouter)
   syncPi({ instances: supervisor.list() })
   return { stoppedAll: false, entry, stopped }

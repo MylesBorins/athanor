@@ -45,7 +45,8 @@ export async function cmdScan(): Promise<void> {
   }
 }
 
-export function cmdList(): void {
+export async function cmdList(): Promise<void> {
+  await supervisor.ready()
   const models = sortModelsByRecentUse(listModels(), supervisor.list())
   if (models.length === 0) {
     warn(`registry empty — run ${style.bold("athanor scan")} to pick up existing downloads, or pull a starter model:`)
@@ -66,7 +67,8 @@ export function cmdList(): void {
   for (const m of models) console.log("  " + formatEntryLine(m, active.get(m.id)))
 }
 
-export function cmdStatus(): void {
+export async function cmdStatus(): Promise<void> {
+  await supervisor.ready()
   const instances = supervisor.list()
   const router = getPersistedRouter()
   const routerAlive = router ? pidAlive(router.pid) : false
@@ -130,7 +132,7 @@ export async function cmdStart(idOrSlug: string): Promise<void> {
 }
 
 export async function cmdStop(idOrSlug?: string): Promise<void> {
-  const res = await stopModel(idOrSlug)
+  const res = await stopModel(idOrSlug, { drain: false })
   if (!res.stopped) {
     if (res.stoppedAll) {
       ok("no running instances to stop")
@@ -164,7 +166,8 @@ export async function cmdRestart(idOrSlug: string): Promise<void> {
   ok(`restarted ${style.bold(res.entry.slug)} ${dim(`pid=${res.instance.pid}`)}`)
 }
 
-export function cmdLogs(idOrSlug: string, n = 200): void {
+export async function cmdLogs(idOrSlug: string, n = 200): Promise<void> {
+  await supervisor.ready()
   const inst = supervisor.list().find(i => i.id === idOrSlug || i.slug === idOrSlug)
   if (!inst) {
     const entry = getModel(idOrSlug)

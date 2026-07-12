@@ -46,7 +46,7 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
     try {
       if (inst) {
         setMessage(`stopping ${selected.slug}…`)
-        await stopModel(selected.id)
+        await stopModel(selected.id, { drain: false })
         setMessage(`stopped ${selected.slug}`)
       } else {
         setMessage(`starting ${selected.slug}…`)
@@ -102,7 +102,7 @@ export function useModelActions(deps: ModelActionDeps): ModelActions {
 
   const killSelected = useCallback(async () => {
     if (!selected || !instMap.get(selected.id)) return
-    await stopModel(selected.id)
+    await stopModel(selected.id, { drain: false })
     setInstances(liveInstances())
   }, [selected, instMap, setInstances])
 

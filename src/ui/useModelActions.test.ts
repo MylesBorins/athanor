@@ -111,7 +111,7 @@ describe("useModelActions", () => {
     })
     await actions.toggleStartStop()
 
-    expect(stopModel).toHaveBeenCalledWith("mlx-community/A")
+    expect(stopModel).toHaveBeenCalledWith("mlx-community/A", { drain: false })
     expect(setMessage).toHaveBeenNthCalledWith(1, "stopping a…")
     expect(setMessage).toHaveBeenNthCalledWith(2, "stopped a")
     expect(setInstances).toHaveBeenCalledWith([])

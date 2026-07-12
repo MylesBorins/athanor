@@ -24,21 +24,29 @@ export async function recoverLiveInstances(
   const recovered = [...persisted]
   const trackedIds = new Set(persisted.map(inst => inst.id))
 
-  for (const entry of entries) {
-    if (trackedIds.has(entry.id)) continue
-    if (!(await probeHealth(entry.runtime, entry.port, 400))) continue
-    if (!(await probeRuntimeModelId(entry, 800))) continue
-    recovered.push({
+  const promises = entries.map(async (entry) => {
+    if (trackedIds.has(entry.id)) return null
+    if (!(await probeHealth(entry.runtime, entry.port, 400))) return null
+    if (!(await probeRuntimeModelId(entry, 800))) return null
+    const pid = await pidForPort(entry.port)
+    return {
       id: entry.id,
       slug: entry.slug,
       runtime: entry.runtime,
       port: entry.port,
-      pid: await pidForPort(entry.port),
+      pid,
       startedAt: Date.now(),
-      status: "running",
+      status: "running" as const,
       logFile: ""
-    })
-    trackedIds.add(entry.id)
+    }
+  })
+
+  const results = await Promise.all(promises)
+  for (const res of results) {
+    if (res && !trackedIds.has(res.id)) {
+      recovered.push(res)
+      trackedIds.add(res.id)
+    }
   }
 
   return recovered

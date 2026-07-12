@@ -84,6 +84,7 @@ export async function ensureIngress(): Promise<PersistedRouter | undefined> {
 
 export async function stopIngressIfIdle(stopInProcess: () => Promise<void>): Promise<void> {
   if (!shouldManageIngress()) return
+  if (process.env.ATHANOR_TUI_ACTIVE === "1") return
   const recovered = await recoverLiveInstances(listModels(), [])
   if (recovered.length > 0) return
 
