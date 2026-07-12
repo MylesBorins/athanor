@@ -133,29 +133,29 @@ describe("validateLlamaSpeculativeConfig", () => {
   }
 
   it("returns empty warnings for a normal config without speculative settings", () => {
-    expect(validateLlamaSpeculativeConfig(baseLlama)).toEqual([])
+    expect(validateLlamaSpeculativeConfig(baseLlama, llamaEntry())).toEqual([])
   })
 
   it("warns if speculative properties are set but specType is none or undefined", () => {
     const warnings1 = validateLlamaSpeculativeConfig({
       ...baseLlama,
       specDraftNMax: 4
-    })
-    expect(warnings1).toContain("spec-draft parameters are configured but spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
+    }, llamaEntry())
+    expect(warnings1).toContain("spec-draft parameters are configured but speculative-mode is not enabled and spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
 
     const warnings2 = validateLlamaSpeculativeConfig({
       ...baseLlama,
       specType: "none",
       specDraftModel: "/some/draft.gguf"
-    })
-    expect(warnings2).toContain("spec-draft parameters are configured but spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
+    }, llamaEntry())
+    expect(warnings2).toContain("spec-draft parameters are configured but speculative-mode is not enabled and spec-type is not set (or is \"none\"). Speculative decoding will not be active.")
   })
 
   it("warns if specType is draft/simple/eagle/dflash but specDraftModel is missing", () => {
     const warnings = validateLlamaSpeculativeConfig({
       ...baseLlama,
       specType: "draft"
-    })
+    }, llamaEntry())
     expect(warnings).toContain("spec-type \"draft\" requires a speculative draft model path set via spec-draft-model.")
   })
 
@@ -164,7 +164,7 @@ describe("validateLlamaSpeculativeConfig", () => {
       ...baseLlama,
       specType: "draft-mtp",
       specDraftModel: "/some/draft.gguf"
-    })
+    }, llamaEntry())
     expect(warnings).toContain("spec-type \"draft-mtp\" (Multi-Token Prediction) does not require a separate spec-draft-model (draft heads are built-in). The specified model \"/some/draft.gguf\" might be ignored.")
   })
 
@@ -173,13 +173,38 @@ describe("validateLlamaSpeculativeConfig", () => {
       ...baseLlama,
       specType: "draft",
       specDraftModel: "/some/draft.gguf"
-    })
+    }, llamaEntry())
     expect(warningsDraft).toEqual([])
 
     const warningsMtp = validateLlamaSpeculativeConfig({
       ...baseLlama,
       specType: "draft-mtp"
-    })
+    }, llamaEntry())
     expect(warningsMtp).toEqual([])
+  })
+
+  it("validates MTP capability-based modes", () => {
+    // Model has MTP capability but speculativeMode is disabled
+    const entryWithMtp = llamaEntry({ capabilities: ["mtp"] })
+    const warningsDisabled = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      speculativeMode: "disabled"
+    }, entryWithMtp)
+    expect(warningsDisabled).toContain("Model has Multi-Token Prediction (MTP) capability, but speculative-mode is set to 'disabled'. MTP will not be enabled.")
+
+    // Model lacks MTP capability but speculativeMode is enabled
+    const entryWithoutMtp = llamaEntry({ capabilities: [] })
+    const warningsEnabled = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      speculativeMode: "enabled"
+    }, entryWithoutMtp)
+    expect(warningsEnabled).toContain("speculative-mode is set to 'enabled' but the model has no detected Multi-Token Prediction (MTP) capability.")
+
+    // Model has MTP capability and speculativeMode is auto (no warnings)
+    const warningsAuto = validateLlamaSpeculativeConfig({
+      ...baseLlama,
+      speculativeMode: "auto"
+    }, entryWithMtp)
+    expect(warningsAuto).toEqual([])
   })
 })

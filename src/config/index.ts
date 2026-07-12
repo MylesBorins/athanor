@@ -117,7 +117,8 @@ export const DEFAULT_CONFIG: Config = {
     // so athanor does not silently degrade prompt-processing throughput.
     batchSize: 2048,
     ubatchSize: 512,
-    parallel: 1
+    parallel: 1,
+    speculativeMode: "auto"
   },
   supervisor: {
     policy: "single-active",
@@ -269,6 +270,15 @@ function sanitizeConfig(config: Config): Config {
   if (next.llama.specDraftNgl !== undefined && !nonNegativeNumber(next.llama.specDraftNgl)) {
     console.error("Invalid config.llama.specDraftNgl; removing")
     delete next.llama.specDraftNgl
+  }
+  if (
+    next.llama.speculativeMode !== undefined &&
+    next.llama.speculativeMode !== "auto" &&
+    next.llama.speculativeMode !== "enabled" &&
+    next.llama.speculativeMode !== "disabled"
+  ) {
+    console.error("Invalid config.llama.speculativeMode; using default")
+    next.llama.speculativeMode = DEFAULT_CONFIG.llama.speculativeMode
   }
 
   // threads was removed in favour of llama-server auto-detection.

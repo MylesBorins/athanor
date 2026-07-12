@@ -61,6 +61,8 @@ const RE_LLAMA_GEN = /eval time\s*=\s*([\d.]+)\s*ms\s*\/\s*(\d+)\s*tokens.*?([\d
 const RE_LLAMA_GEN_NEW = /n_decoded\s*=\s*(\d+),\s*tg\s*=\s*([\d.]+)\s*(?:t\/s|tok\/s|tokens?\/sec|tok\/sec)/i
 
 const RE_LLAMA_SPEC = /(?:spec acceptance|draft accept|speculative acceptance|accept rate)\s*(?:=|:)\s*([\d.]+)%/i
+const RE_LLAMA_SPEC_BRANCH = /speculative branch:\s*drafted\s*=\s*(\d+)\s*tokens,\s*accepted\s*=\s*(\d+)\s*tokens\s*\(\s*([\d.]+)%\s*\)/i
+const RE_LLAMA_MEAN_DRAFT = /(?:mean draft length|average draft length|draft length|mean draft)\s*(?:=|:)?\s*([\d.]+)/i
 
 const RE_MLX_GEN = /(?:Generation:|generated\s+)(?:[^\n]*?\b)?(\d+)[ \t]*tokens?[^\n]*?([\d.]+)[ \t]*(?:tokens[- _]per[- _]sec(?:ond)?|tokens?\/sec|tok\/sec|tok\/s)/i
 const RE_MLX_COMPILE = /(?:compile|compilation|compiler compile) time\s*(?:=|:)?\s*([\d.]+)\s*ms/i
@@ -71,6 +73,7 @@ interface ParsedLogStats {
   promptThroughput?: number
   generationThroughput?: number
   speculativeAcceptanceRate?: number
+  meanDraftLength?: number
   compilationTimeMs?: number
 }
 
@@ -119,6 +122,16 @@ export function parseLogTelemetry(logContent: string): ParsedLogStats {
   const llamaSpecMatch = lastMatch(RE_LLAMA_SPEC, logContent)
   if (llamaSpecMatch) {
     stats.speculativeAcceptanceRate = Number(llamaSpecMatch[1])
+  } else {
+    const specBranchMatch = lastMatch(RE_LLAMA_SPEC_BRANCH, logContent)
+    if (specBranchMatch) {
+      stats.speculativeAcceptanceRate = Number(specBranchMatch[3])
+    }
+  }
+
+  const meanDraftMatch = lastMatch(RE_LLAMA_MEAN_DRAFT, logContent)
+  if (meanDraftMatch) {
+    stats.meanDraftLength = Number(meanDraftMatch[1])
   }
 
   // MLX token generation timings

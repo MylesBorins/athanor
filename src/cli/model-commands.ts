@@ -241,12 +241,19 @@ export function cmdShow(idOrSlug: string): void {
   console.log(`  ${dim("port")}     ${entry.port}`)
   console.log(`  ${dim("exposed")}  ${entry.publish ? style.magenta("yes (pi)") : "no"}`)
   console.log(`  ${dim("source")}   ${entry.source.type === "hf" ? `hf:${entry.source.repo}` : "local"}`)
+  const caps = entry.capabilities ?? []
+  const capsLabel = caps.length > 0 ? caps.join(", ") : dim("(none detected)")
+  console.log(`  ${dim("caps")}     ${capsLabel}`)
   if (entry.runtime === "mlx") {
-    const caps = entry.mlxCapabilities ?? []
-    const capsLabel = caps.length > 0 ? caps.join(", ") : dim("(none detected)")
-    console.log(`  ${dim("caps")}     ${capsLabel}`)
     if (caps.includes("vlm") && entry.mlxFlavor !== "vlm") {
       console.log(`  ${dim("hint")}     ${style.yellow("vision-capable")} — enable with ${style.bold(`athanor flavor ${entry.slug} vlm`)}`)
+    }
+  } else if (entry.runtime === "llama.cpp") {
+    if (caps.includes("mtp")) {
+      const specMode = (merged as any).speculativeMode || "auto"
+      const active = (specMode === "enabled") || (specMode === "auto")
+      const stateStr = active ? style.green("enabled automatically") : style.red("disabled")
+      console.log(`  ${dim("hint")}     ${style.green("MTP-capable")} — speculative MTP draft decoding is ${stateStr} (mode=${specMode})`)
     }
   }
   const status = inst ? `${statusGlyph(inst.status)} ${inst.status}` : `${style.gray(sym.idle)} idle`
@@ -287,7 +294,7 @@ export function cmdShow(idOrSlug: string): void {
   console.log()
 
   if (entry.runtime === "llama.cpp") {
-    const warnings = validateLlamaSpeculativeConfig(merged as unknown as LlamaConfig)
+    const warnings = validateLlamaSpeculativeConfig(merged as unknown as LlamaConfig, entry)
     if (warnings.length > 0) {
       console.log(`  ${style.yellow("speculative validation warnings:")}`)
       for (const w of warnings) {

@@ -101,7 +101,16 @@ const KEYS: KeySpec[] = [
     parse: str, help: "llama: path/repo/file of draft model for speculative decoding" },
   { runtime: "llama.cpp", jsonName: "specDraftNgl", type: "number",
     aliases: ["specDraftNgl", "spec-draft-ngl", "ngl-draft"],
-    parse: num, help: "llama: layers offloaded to GPU for draft model" }
+    parse: num, help: "llama: layers offloaded to GPU for draft model" },
+  { runtime: "llama.cpp", jsonName: "speculativeMode", type: "string",
+    aliases: ["speculativeMode", "speculative-mode"],
+    parse: (raw: string) => {
+      const val = raw.toLowerCase().trim()
+      if (val !== "auto" && val !== "enabled" && val !== "disabled") {
+        throw new Error("expected auto, enabled, or disabled")
+      }
+      return val
+    }, help: "llama: speculative decoding mode (auto, enabled, disabled)" }
 ]
 
 export function listKeys(runtime: RuntimeType): KeySpec[] {
@@ -178,30 +187,47 @@ export function unsetPresetFields(
   return { runtime: "llama.cpp", llama: next as Partial<LlamaConfig> }
 }
 
-export function validateLlamaSpeculativeConfig(merged: LlamaConfig): string[] {
+export function validateLlamaSpeculativeConfig(merged: LlamaConfig, entry: ModelEntry): string[] {
   const warnings: string[] = []
-  const { specType, specDraftModel } = merged
+  const { specType, specDraftModel, speculativeMode } = merged
+  const isMtpCapable = entry.capabilities?.includes("mtp") || false
 
-  if (specType === undefined || specType === "none") {
-    const hasSpecParams =
-      merged.specDraftNMax !== undefined ||
-      merged.specDraftNMin !== undefined ||
-      merged.specDraftPSplit !== undefined ||
-      merged.specDraftPMin !== undefined ||
-      merged.specDraftModel !== undefined ||
-      merged.specDraftNgl !== undefined
+  if (speculativeMode === "enabled" && !isMtpCapable) {
+    warnings.push("speculative-mode is set to 'enabled' but the model has no detected Multi-Token Prediction (MTP) capability.")
+  }
 
-    if (hasSpecParams) {
-      warnings.push(`spec-draft parameters are configured but spec-type is not set (or is "none"). Speculative decoding will not be active.`)
+  const mtpActive = (speculativeMode === "enabled") || (speculativeMode === "auto" && isMtpCapable)
+
+  if (speculativeMode === "disabled" && isMtpCapable) {
+    warnings.push("Model has Multi-Token Prediction (MTP) capability, but speculative-mode is set to 'disabled'. MTP will not be enabled.")
+  }
+
+  if (mtpActive) {
+    if (specType && specType !== "draft-mtp" && specType !== "none") {
+      warnings.push(`speculative-mode has active MTP, but spec-type is overridden to "${specType}".`)
     }
   } else {
-    if (specType === "draft" || specType === "draft-simple" || specType === "draft-eagle3" || specType === "draft-dflash") {
-      if (!specDraftModel) {
-        warnings.push(`spec-type "${specType}" requires a speculative draft model path set via spec-draft-model.`)
+    if (specType === undefined || specType === "none") {
+      const hasSpecParams =
+        merged.specDraftNMax !== undefined ||
+        merged.specDraftNMin !== undefined ||
+        merged.specDraftPSplit !== undefined ||
+        merged.specDraftPMin !== undefined ||
+        merged.specDraftModel !== undefined ||
+        merged.specDraftNgl !== undefined
+
+      if (hasSpecParams) {
+        warnings.push(`spec-draft parameters are configured but speculative-mode is not enabled and spec-type is not set (or is "none"). Speculative decoding will not be active.`)
       }
-    } else if (specType === "draft-mtp") {
-      if (specDraftModel) {
-        warnings.push(`spec-type "draft-mtp" (Multi-Token Prediction) does not require a separate spec-draft-model (draft heads are built-in). The specified model "${specDraftModel}" might be ignored.`)
+    } else {
+      if (specType === "draft" || specType === "draft-simple" || specType === "draft-eagle3" || specType === "draft-dflash") {
+        if (!specDraftModel) {
+          warnings.push(`spec-type "${specType}" requires a speculative draft model path set via spec-draft-model.`)
+        }
+      } else if (specType === "draft-mtp") {
+        if (specDraftModel) {
+          warnings.push(`spec-type "draft-mtp" (Multi-Token Prediction) does not require a separate spec-draft-model (draft heads are built-in). The specified model "${specDraftModel}" might be ignored.`)
+        }
       }
     }
   }

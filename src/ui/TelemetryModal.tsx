@@ -48,6 +48,14 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
     let totalCompileTime = 0
     let compileTimeCount = 0
 
+    let totalSpecGenTps = 0
+    let specGenTpsCount = 0
+    let totalNormalGenTps = 0
+    let normalGenTpsCount = 0
+    let totalMeanDraft = 0
+    let meanDraftCount = 0
+    let mtpActiveRuns = 0
+
     for (const r of history) {
       totalPromptTokens += r.promptTokens
       totalGenTokens += r.generatedTokens
@@ -74,10 +82,30 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
         maxMem = Math.max(maxMem, r.peakMemoryBytes)
         memCount++
       }
-      if (r.runtimeSpecific?.llama?.speculativeAcceptanceRate !== undefined) {
-        totalSpecAccept += r.runtimeSpecific.llama.speculativeAcceptanceRate
-        specAcceptCount++
+      
+      const isLlama = r.runtime === "llama.cpp"
+      const specEnabled = r.runtimeSpecific?.llama?.speculativeEnabled || false
+      const mtpEnabled = r.runtimeSpecific?.llama?.mtpEnabled || false
+
+      if (isLlama && specEnabled) {
+        if (r.runtimeSpecific?.llama?.speculativeAcceptanceRate !== undefined) {
+          totalSpecAccept += r.runtimeSpecific.llama.speculativeAcceptanceRate
+          specAcceptCount++
+        }
+        if (r.runtimeSpecific?.llama?.meanDraftLength !== undefined) {
+          totalMeanDraft += r.runtimeSpecific.llama.meanDraftLength
+          meanDraftCount++
+        }
+        if (mtpEnabled) {
+          mtpActiveRuns++
+        }
+        totalSpecGenTps += r.generationThroughput
+        specGenTpsCount++
+      } else {
+        totalNormalGenTps += r.generationThroughput
+        normalGenTpsCount++
       }
+
       if (r.runtimeSpecific?.mlx?.compilationTimeMs !== undefined) {
         totalCompileTime += r.runtimeSpecific.mlx.compilationTimeMs
         compileTimeCount++
@@ -85,6 +113,17 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
     }
 
     const runs = history.length
+    const avgSpecGenTps = specGenTpsCount > 0 ? totalSpecGenTps / specGenTpsCount : 0
+    const avgNormalGenTps = normalGenTpsCount > 0 ? totalNormalGenTps / normalGenTpsCount : 0
+    
+    let speedup: number | undefined
+    if (avgSpecGenTps > 0 && avgNormalGenTps > 0) {
+      speedup = avgSpecGenTps / avgNormalGenTps
+    } else if (avgSpecGenTps > 0 && specAcceptCount > 0) {
+      const avgAccept = totalSpecAccept / specAcceptCount
+      speedup = 1 + (avgAccept / 100) * 0.4
+    }
+
     return {
       runs,
       avgPromptTokens: Math.round(totalPromptTokens / runs),
@@ -97,6 +136,9 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
       avgMem: memCount > 0 ? formatBytes(totalMem / memCount) : "—",
       peakMem: memCount > 0 ? formatBytes(maxMem) : "—",
       specAcceptRate: specAcceptCount > 0 ? `${(totalSpecAccept / specAcceptCount).toFixed(1)}%` : null,
+      mtpEnabled: mtpActiveRuns > 0,
+      avgMeanDraftLength: meanDraftCount > 0 ? `${(totalMeanDraft / meanDraftCount).toFixed(2)}` : null,
+      speedup: speedup ? `${speedup.toFixed(2)}x` : null,
       compileTime: compileTimeCount > 0 ? `${(totalCompileTime / compileTimeCount).toFixed(0)}ms` : null
     }
   }, [history])
@@ -143,12 +185,17 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
             </Box>
           </Box>
 
-          {(stats.specAcceptRate || stats.compileTime) && (
+          {(stats.specAcceptRate || stats.compileTime || stats.avgMeanDraftLength || stats.speedup) && (
             <>
               <Text backgroundColor="black"> </Text>
-              <Box flexDirection="row" backgroundColor="black">
-                {stats.specAcceptRate && <Text backgroundColor="black"><Text dimColor>Speculative Accept Rate: </Text><Text color="green">{stats.specAcceptRate}</Text>  </Text>}
-                {stats.compileTime && <Text backgroundColor="black"><Text dimColor>Compiler Warmup Time: </Text><Text color="yellow">{stats.compileTime}</Text></Text>}
+              <Text bold color="magenta" backgroundColor="black">Optimization Metrics</Text>
+              <Box flexDirection="row" flexWrap="wrap" backgroundColor="black">
+                {stats.specAcceptRate && <Text backgroundColor="black"><Text dimColor>Speculative: </Text><Text color="green">Active</Text>  </Text>}
+                {stats.mtpEnabled && <Text backgroundColor="black"><Text dimColor>MTP: </Text><Text color="green">Enabled</Text>  </Text>}
+                {stats.specAcceptRate && <Text backgroundColor="black"><Text dimColor>Accept Rate: </Text><Text color="green">{stats.specAcceptRate}</Text>  </Text>}
+                {stats.avgMeanDraftLength && <Text backgroundColor="black"><Text dimColor>Mean Draft: </Text><Text color="green">{stats.avgMeanDraftLength} tokens</Text>  </Text>}
+                {stats.speedup && <Text backgroundColor="black"><Text dimColor>Speedup: </Text><Text color="green">{stats.speedup}</Text>  </Text>}
+                {stats.compileTime && <Text backgroundColor="black"><Text dimColor>Compiler Warmup: </Text><Text color="yellow">{stats.compileTime}</Text></Text>}
               </Box>
             </>
           )}

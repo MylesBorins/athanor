@@ -70,6 +70,7 @@ export interface LlamaConfig {
   specDraftPMin?: number
   specDraftModel?: string
   specDraftNgl?: number
+  speculativeMode?: "auto" | "enabled" | "disabled"
 }
 
 export type RuntimePreset =
@@ -90,6 +91,8 @@ export interface ModelSourceLocal {
 export type ModelSource = ModelSourceHF | ModelSourceLocal
 
 export type MetadataSource = "gguf_header" | "mlx_config" | "file_size_only"
+
+export type ModelCapability = "vlm" | "mtp"
 
 export interface ModelEntry {
   id: string
@@ -112,6 +115,8 @@ export interface ModelEntry {
   // Detected facts about the model (refreshed by scan/pull). Today
   // only "vlm" — present when config.json has a vision tower.
   mlxCapabilities?: MlxCapability[]
+  // General capabilities detected across runtimes (e.g. "vlm", "mtp")
+  capabilities?: ModelCapability[]
   // Additional detected metadata used for recommendation guidance.
   // Refreshed by scan/pull when cheaply derivable from local files.
   architectureFamily?: string
@@ -163,6 +168,7 @@ export interface DiscoveredModel {
   source: ModelSource
   sizeBytes?: number
   mlxCapabilities?: MlxCapability[]
+  capabilities?: ModelCapability[]
   architectureFamily?: string
   trainedContextLength?: number
   quantization?: string
@@ -193,6 +199,9 @@ export interface TelemetryRecord {
   runtimeSpecific?: {
     llama?: {
       speculativeAcceptanceRate?: number
+      speculativeEnabled?: boolean
+      mtpEnabled?: boolean
+      meanDraftLength?: number
     }
     mlx?: {
       compilationTimeMs?: number

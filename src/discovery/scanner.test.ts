@@ -9,6 +9,7 @@ import {
   detectMlxCapabilities,
   detectMlxMetadata,
   detectGgufMetadata,
+  detectGgufMtp,
   parseOrgRepoDir,
   scanModels
 } from "./scanner.js"
@@ -96,6 +97,24 @@ describe("discovery scanner metadata helpers", () => {
     expect(meta.architectureFamily).toBeUndefined()
     expect(meta.quantization).toBeUndefined()
     expect(meta.metadataSource).toBe("file_size_only")
+  })
+
+  it("detects GGUF MTP capabilities from binary keywords", () => {
+    const mtpFile = path.join(tmp, "mtp.gguf")
+    const normalFile = path.join(tmp, "normal.gguf")
+
+    // Mock an MTP file containing nextn_predict_layers
+    const mtpBuffer = Buffer.alloc(100)
+    mtpBuffer.write("nextn_predict_layers")
+    fs.writeFileSync(mtpFile, mtpBuffer)
+
+    // Mock a normal file
+    const normalBuffer = Buffer.alloc(100)
+    normalBuffer.write("nothing special")
+    fs.writeFileSync(normalFile, normalBuffer)
+
+    expect(detectGgufMtp(mtpFile)).toBe(true)
+    expect(detectGgufMtp(normalFile)).toBe(false)
   })
 
   it("parseOrgRepoDir reads athanor pull directory names", () => {

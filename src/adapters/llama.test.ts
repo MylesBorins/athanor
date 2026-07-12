@@ -93,6 +93,40 @@ describe("LlamaAdapter", () => {
     ])
   })
 
+  it("automatically generates MTP flags when speculativeMode is auto and model is MTP-capable", () => {
+    const entry = llamaEntry({
+      path: "/models/model.gguf",
+      capabilities: ["mtp"]
+    })
+    const { args } = adapter.buildCommand(entry, { ...llama, speculativeMode: "auto" })
+    expect(args).toContain("--spec-type")
+    expect(args[args.indexOf("--spec-type") + 1]).toBe("draft-mtp")
+    expect(args).toContain("--spec-draft-ngl")
+    expect(args[args.indexOf("--spec-draft-ngl") + 1]).toBe("999")
+  })
+
+  it("automatically generates MTP flags when speculativeMode is enabled", () => {
+    const entry = llamaEntry({
+      path: "/models/model.gguf",
+      capabilities: []
+    })
+    const { args } = adapter.buildCommand(entry, { ...llama, speculativeMode: "enabled" })
+    expect(args).toContain("--spec-type")
+    expect(args[args.indexOf("--spec-type") + 1]).toBe("draft-mtp")
+    expect(args).toContain("--spec-draft-ngl")
+    expect(args[args.indexOf("--spec-draft-ngl") + 1]).toBe("999")
+  })
+
+  it("does not generate MTP flags when speculativeMode is disabled", () => {
+    const entry = llamaEntry({
+      path: "/models/model.gguf",
+      capabilities: ["mtp"]
+    })
+    const { args } = adapter.buildCommand(entry, { ...llama, speculativeMode: "disabled" })
+    expect(args).not.toContain("--spec-type")
+    expect(args).not.toContain("--spec-draft-ngl")
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

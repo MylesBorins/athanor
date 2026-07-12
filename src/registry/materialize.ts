@@ -1,5 +1,6 @@
 import * as path from "path"
-import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js"
+import type { DiscoveredModel, ModelEntry, RuntimeType, ModelCapability } from "../types/index.js"
+import { detectGgufMtp } from "../discovery/scanner.js"
 import {
   allocatePort,
   loadRegistry,
@@ -24,6 +25,7 @@ export interface RegistryMaterializeInput {
   source: ModelEntry["source"]
   sizeBytes?: number
   mlxCapabilities?: ModelEntry["mlxCapabilities"]
+  capabilities?: ModelEntry["capabilities"]
   architectureFamily?: ModelEntry["architectureFamily"]
   trainedContextLength?: ModelEntry["trainedContextLength"]
   quantization?: ModelEntry["quantization"]
@@ -42,6 +44,7 @@ export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMateri
     source: d.source,
     sizeBytes: d.sizeBytes,
     mlxCapabilities: d.runtime === "mlx" ? d.mlxCapabilities : undefined,
+    capabilities: d.capabilities,
     architectureFamily: d.architectureFamily,
     trainedContextLength: d.trainedContextLength,
     quantization: d.quantization,
@@ -80,7 +83,10 @@ export function pullToMaterializeInput(
     path: resolvedPath,
     runtime,
     source,
-    mlxCapabilities: runtime === "mlx" ? mlxCapabilities : undefined
+    mlxCapabilities: runtime === "mlx" ? mlxCapabilities : undefined,
+    capabilities: runtime === "mlx"
+      ? (mlxCapabilities && mlxCapabilities.includes("vlm") ? ["vlm"] : [])
+      : (detectGgufMtp(resolvedPath) ? ["mtp"] : [])
   }
 }
 
@@ -139,6 +145,9 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     ...(input.runtime === "mlx" && input.mlxCapabilities && input.mlxCapabilities.length > 0
       ? { mlxCapabilities: input.mlxCapabilities }
       : {}),
+    ...(input.capabilities && input.capabilities.length > 0
+      ? { capabilities: input.capabilities }
+      : {}),
     ...(input.architectureFamily ? { architectureFamily: input.architectureFamily } : {}),
     ...(input.trainedContextLength ? { trainedContextLength: input.trainedContextLength } : {}),
     ...(input.quantization ? { quantization: input.quantization } : {}),
@@ -176,6 +185,14 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
       else delete existing.mlxCapabilities
       changed = true
     }
+  }
+
+  const nextGeneralCaps = input.capabilities ?? []
+  const prevGeneralCaps = existing.capabilities ?? []
+  if (!capsEqual(prevGeneralCaps, nextGeneralCaps)) {
+    if (nextGeneralCaps.length > 0) existing.capabilities = nextGeneralCaps
+    else delete existing.capabilities
+    changed = true
   }
 
   changed = replaceDetectedField(existing, "architectureFamily", input.architectureFamily) || changed

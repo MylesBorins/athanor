@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import * as path from "path"
-import type { DiscoveredModel, MlxCapability, ModelSource, RuntimeType } from "../types/index.js"
+import type { DiscoveredModel, MlxCapability, ModelSource, RuntimeType, ModelCapability } from "../types/index.js"
 import { getModelDirs } from "../config/index.js"
 import { normalizeModelPath } from "../registry/index.js"
 
@@ -152,9 +152,39 @@ export function detectMlxMetadata(snapshotDir: string, fallbackName?: string): P
   }
 }
 
+export function detectGgufMtp(filePath: string): boolean {
+  let fd: number | null = null
+  try {
+    fd = fs.openSync(filePath, "r")
+    const smallBuffer = Buffer.alloc(64 * 1024)
+    const read1 = fs.readSync(fd, smallBuffer, 0, smallBuffer.length, 0)
+    const smallStr = smallBuffer.toString("binary", 0, read1)
+    if (smallStr.includes("nextn_predict_layers") || smallStr.includes("mtp_attn") || smallStr.includes("output_mtp")) {
+      return true
+    }
+
+    const largeBuffer = Buffer.alloc(8 * 1024 * 1024)
+    const read2 = fs.readSync(fd, largeBuffer, 0, largeBuffer.length, 0)
+    const largeStr = largeBuffer.toString("binary", 0, read2)
+    if (largeStr.includes("mtp_attn") || largeStr.includes("output_mtp") || largeStr.includes("mtp.weight")) {
+      return true
+    }
+  } catch {
+    // ignore
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd)
+      } catch {}
+    }
+  }
+  return false
+}
+
 export function detectGgufMetadata(filePath: string, fallbackName?: string): Pick<DiscoveredModel,
   "architectureFamily" |
   "quantization" |
+  "capabilities" |
   "metadataSource"
 > {
   const name = path.basename(filePath, ".gguf")
@@ -162,9 +192,14 @@ export function detectGgufMetadata(filePath: string, fallbackName?: string): Pic
   let quantization: string | undefined
   const known = ["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q4_0", "Q3_K_M", "Q2_K"]
   quantization = known.find(q => upper.includes(q))
+  const capabilities: ModelCapability[] = []
+  if (detectGgufMtp(filePath)) {
+    capabilities.push("mtp")
+  }
   return {
     architectureFamily: detectArchitectureFamily(undefined, fallbackName ?? name),
     quantization,
+    capabilities,
     metadataSource: quantization ? "gguf_header" : "file_size_only"
   }
 }
@@ -218,6 +253,11 @@ function scanMlxModels(baseDir: string): Model[] {
 
       const repo = `${parsed.org}/${parsed.repo}`
       const metadata = detectMlxMetadata(snapshotDir, parsed.repo)
+      const mlxCaps = detectMlxCapabilities(snapshotDir)
+      const capabilities: ModelCapability[] = []
+      if (mlxCaps.includes("vlm")) {
+        capabilities.push("vlm")
+      }
       models.push({
         id: repo,
         name: parsed.repo,
@@ -225,7 +265,8 @@ function scanMlxModels(baseDir: string): Model[] {
         runtime: "mlx",
         source: { type: "hf", repo },
         sizeBytes: snapshotSizeBytes(snapshotDir),
-        mlxCapabilities: detectMlxCapabilities(snapshotDir),
+        mlxCapabilities: mlxCaps,
+        capabilities,
         ...metadata
       })
     }

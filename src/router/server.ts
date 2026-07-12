@@ -8,7 +8,7 @@ import * as path from "path"
 import { loadConfig } from "../config/index.js"
 import { listModels } from "../registry/index.js"
 import { supervisor } from "../supervisor/index.js"
-import type { TelemetryRecord } from "../types/index.js"
+import type { TelemetryRecord, LlamaConfig } from "../types/index.js"
 import { resolveByRuntimeModelId, runtimeModelId, mergedConfigFor } from "../adapters/index.js"
 import { begin, end } from "../supervisor/inflight.js"
 import { recoverLiveInstances } from "../supervisor/reconcile.js"
@@ -426,6 +426,24 @@ async function proxy(
 
         // Calculate context utilization
         const mergedConfig = mergedConfigFor(modelEntry)
+        const isLlama = modelEntry.runtime === "llama.cpp"
+        let speculativeEnabled = false
+        let mtpEnabled = false
+        let meanDraftLength = logStats.meanDraftLength
+
+        if (isLlama) {
+          const lcfg = mergedConfig as LlamaConfig
+          const isMtpCapable = modelEntry.capabilities?.includes("mtp") || false
+          const specMode = lcfg.speculativeMode || "auto"
+          mtpEnabled = (specMode === "enabled") || (specMode === "auto" && isMtpCapable)
+          speculativeEnabled = mtpEnabled || (lcfg.specType !== undefined && lcfg.specType !== "none")
+
+          if (speculativeEnabled && meanDraftLength === undefined && specAcceptRate !== undefined) {
+            const maxDraft = lcfg.specDraftNMax || 4
+            meanDraftLength = Number(((specAcceptRate / 100) * maxDraft).toFixed(2))
+          }
+        }
+
         const contextSize = (mergedConfig as any).ctxSize || (mergedConfig as any).contextWindow || 2048
         const contextUtilization = contextSize > 0 ? (promptTokens + generatedTokens) / contextSize : 0
         
@@ -455,7 +473,12 @@ async function proxy(
           contextUtilization,
           peakMemoryBytes,
           runtimeSpecific: {
-            llama: specAcceptRate !== undefined ? { speculativeAcceptanceRate: specAcceptRate } : undefined,
+            llama: isLlama ? {
+              speculativeAcceptanceRate: specAcceptRate,
+              speculativeEnabled,
+              mtpEnabled,
+              meanDraftLength
+            } : undefined,
             mlx: compilationTimeMs !== undefined ? { compilationTimeMs } : undefined
           }
         }

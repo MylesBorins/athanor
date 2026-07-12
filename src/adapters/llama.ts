@@ -26,8 +26,22 @@ export class LlamaAdapter implements RuntimeAdapter {
       "--parallel", String(merged.parallel)
     ]
 
-    if (merged.specType !== undefined) {
-      args.push("--spec-type", merged.specType)
+    const isMtpCapable = entry.capabilities?.includes("mtp") || false
+    const specMode = merged.speculativeMode || "auto"
+    const mtpActive = (specMode === "enabled") || (specMode === "auto" && isMtpCapable)
+
+    let effectiveSpecType = merged.specType
+    let effectiveSpecDraftNgl = merged.specDraftNgl
+
+    if (mtpActive && !effectiveSpecType) {
+      effectiveSpecType = "draft-mtp"
+      if (effectiveSpecDraftNgl === undefined) {
+        effectiveSpecDraftNgl = 999
+      }
+    }
+
+    if (effectiveSpecType !== undefined) {
+      args.push("--spec-type", effectiveSpecType)
     }
     if (merged.specDraftNMax !== undefined) {
       args.push("--spec-draft-n-max", String(merged.specDraftNMax))
@@ -44,8 +58,8 @@ export class LlamaAdapter implements RuntimeAdapter {
     if (merged.specDraftModel !== undefined) {
       args.push("--spec-draft-model", merged.specDraftModel)
     }
-    if (merged.specDraftNgl !== undefined) {
-      args.push("--spec-draft-ngl", String(merged.specDraftNgl))
+    if (effectiveSpecDraftNgl !== undefined) {
+      args.push("--spec-draft-ngl", String(effectiveSpecDraftNgl))
     }
 
     return {
