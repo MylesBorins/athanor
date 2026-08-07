@@ -1,5 +1,5 @@
 import * as path from "path"
-import type { DiscoveredModel, ModelEntry, RuntimeType, ModelCapability } from "../types/index.js"
+import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js"
 import { detectGgufMtp } from "../discovery/scanner.js"
 import {
   allocatePort,

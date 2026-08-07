@@ -76,7 +76,7 @@ function readJsonFile<T extends Record<string, unknown>>(filepath: string, label
   try {
     parsed = JSON.parse(fs.readFileSync(filepath, "utf8")) as unknown
   } catch (err) {
-    throw new Error(`Failed to read ${label}: ${err}`)
+    throw new Error(`Failed to read ${label}: ${err}`, { cause: err })
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error(`Failed to read ${label}: expected a JSON object`)

@@ -37,7 +37,6 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
     let promptTpsCount = 0
     let totalGenTps = 0
     let totalDuration = 0
-    let totalCtxSize = 0
     let totalCtxUtil = 0
     let ctxUtilCount = 0
     let totalMem = 0
@@ -70,9 +69,6 @@ export const TelemetryModal: React.FC<TelemetryModalProps> = ({
         promptTpsCount++
       }
       totalGenTps += r.generationThroughput
-      if (r.contextSize) {
-        totalCtxSize += r.contextSize
-      }
       if (r.contextUtilization !== undefined) {
         totalCtxUtil += r.contextUtilization
         ctxUtilCount++

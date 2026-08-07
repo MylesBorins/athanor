@@ -1,6 +1,6 @@
 import * as os from "os"
 import * as path from "path"
-import type { ModelEntry, RuntimeType } from "../types/index.js"
+import type { ModelEntry } from "../types/index.js"
 import {
   materializeRegistryEntry,
   pullToMaterializeInput

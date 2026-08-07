@@ -33,7 +33,7 @@ function readRegistryFromDisk(): Registry {
   try {
     raw = JSON.parse(fs.readFileSync(PATHS.registry, "utf8"))
   } catch (err) {
-    throw new Error(`Failed to load registry: ${err}`)
+    throw new Error(`Failed to load registry: ${err}`, { cause: err })
   }
   if (!raw || typeof raw !== "object") {
     throw new Error("Failed to load registry: expected a JSON object")

@@ -383,7 +383,7 @@ export function loadConfig(): Config {
     // Internal representation is always bytes.
     if ("promptCacheBytes" in normalized.mlx) {
       try {
-        const parsedBytes = parsePromptCacheBytes((normalized as any).mlx.promptCacheBytes)
+        const parsedBytes = parsePromptCacheBytes((normalized as unknown as Record<string, unknown>).promptCacheBytes)
         if (parsedBytes !== undefined) normalized.mlx.promptCacheBytes = parsedBytes
       } catch (e) {
         console.error(`Invalid config.mlx.promptCacheBytes; using default: ${e}`)

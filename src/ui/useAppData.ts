@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import { listModels } from "../registry/index.js"
 import { sortModelsByRunningThenSlug } from "../registry/sort.js"
-import { supervisor } from "../supervisor/index.js"
 import { loadPersistedInstances, pidAlive } from "../supervisor/state.js"
 import { startCacheWatcher } from "../discovery/watcher.js"
 import { reconcileIngressForCurrentState } from "../router/lifecycle.js"
@@ -85,7 +84,7 @@ export function useAppData(opts: UseAppDataOpts): AppDataState {
       clearTimeout(readyTimer)
       watcher.stop()
     }
-  }, [setMessage])
+  }, [setMessage, suppressWatcherToast])
 
   const instMap = useMemo(() => new Map(instances.map(i => [i.id, i])), [instances])
 

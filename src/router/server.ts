@@ -162,8 +162,8 @@ class SSETokenCounter extends Transform {
     }
   }
 
-  override _transform(chunk: any, encoding: string, callback: (error?: Error | null, data?: any) => void) {
-    const text = chunk.toString("utf8")
+  override _transform(chunk: Buffer | string, _encoding: string, callback: (error?: Error | null, data?: unknown) => void) {
+    const text = chunk.toString()
     this.buffer += text
     
     let boundary: number
@@ -176,7 +176,7 @@ class SSETokenCounter extends Transform {
     callback()
   }
 
-  override _flush(callback: (error?: Error | null, data?: any) => void) {
+  override _flush(callback: (error?: Error | null, data?: unknown) => void) {
     const line = this.buffer.trim()
     if (line) {
       this.processLine(line)
@@ -274,7 +274,7 @@ async function proxy(
   // before SIGTERM. begin() lives outside the try to pair cleanly with
   // the finally; fetch/pipeline errors still decrement.
   begin(entry.id)
-  const isStream = parsed && (parsed as any).stream === true
+  const isStream = Boolean(parsed && (parsed as { stream?: boolean }).stream === true)
   let tokenCounter: SSETokenCounter | null = null
   let responseBody = ""
   try {
@@ -359,18 +359,11 @@ async function proxy(
     const modelEntry = entry
     const requestBody = parsed
     const instPid = inst && "pid" in inst ? inst.pid : undefined
-    const instLogFile = (inst as any)?.logFile
+    const instLogFile = (inst as { logFile?: string })?.logFile
 
     setTimeout(async () => {
       try {
         const logFile = instLogFile || path.join(os.homedir(), ".athanor", "logs", `${modelEntry.slug}-${instPid}.log`)
-        
-        let promptTokens = 0
-        let generatedTokens = 0
-        let promptThroughput: number | undefined
-        let generationThroughput = 0
-        let specAcceptRate: number | undefined
-        let compilationTimeMs: number | undefined
 
         let routerPromptTokens: number | undefined
         let routerGeneratedTokens: number | undefined
@@ -382,7 +375,7 @@ async function proxy(
           timeToFirstTokenMs = tokenCounter.timeToFirstTokenMs
         } else {
           try {
-            const resObj = JSON.parse(responseBody)
+            const resObj = JSON.parse(responseBody) as { usage?: { prompt_tokens?: number; completion_tokens?: number } }
             if (resObj && resObj.usage) {
               if (typeof resObj.usage.prompt_tokens === "number") {
                 routerPromptTokens = resObj.usage.prompt_tokens
@@ -397,13 +390,13 @@ async function proxy(
         }
 
         // Try to read log timings
-        let logStats: any = {}
+        let logStats: Record<string, unknown> = {}
         if (instPid) {
           let attempts = 0
           while (attempts < 4) {
             if (fs.existsSync(logFile)) {
               const content = tailLog(logFile, 4096)
-              logStats = parseLogTelemetry(content)
+              logStats = parseLogTelemetry(content) as unknown as Record<string, unknown>
               if (logStats.generatedTokens !== undefined) {
                 break
               }
@@ -413,23 +406,22 @@ async function proxy(
           }
         }
 
-        const messages = (requestBody as any).messages
-        const prompt = (requestBody as any).prompt
-        const estPromptTokens = messages || prompt ? Math.ceil(JSON.stringify(requestBody).length / 4) : 0
+        const reqObj = requestBody as { messages?: unknown; prompt?: unknown } | null
+        const estPromptTokens = reqObj && (reqObj.messages || reqObj.prompt) ? Math.ceil(JSON.stringify(requestBody).length / 4) : 0
 
-        promptTokens = logStats.promptTokens ?? routerPromptTokens ?? estPromptTokens
-        generatedTokens = logStats.generatedTokens ?? routerGeneratedTokens ?? 0
-        promptThroughput = logStats.promptThroughput
-        generationThroughput = logStats.generationThroughput ?? (duration > 0 ? (generatedTokens / (duration / 1000)) : 0)
-        specAcceptRate = logStats.speculativeAcceptanceRate
-        compilationTimeMs = logStats.compilationTimeMs
+        const promptTokens = (logStats.promptTokens as number | undefined) ?? routerPromptTokens ?? estPromptTokens
+        const generatedTokens = (logStats.generatedTokens as number | undefined) ?? routerGeneratedTokens ?? 0
+        const promptThroughput = logStats.promptThroughput as number | undefined
+        const generationThroughput = (logStats.generationThroughput as number | undefined) ?? (duration > 0 ? (generatedTokens / (duration / 1000)) : 0)
+        const specAcceptRate = logStats.speculativeAcceptanceRate as number | undefined
+        const compilationTimeMs = logStats.compilationTimeMs as number | undefined
 
         // Calculate context utilization
         const mergedConfig = mergedConfigFor(modelEntry)
         const isLlama = modelEntry.runtime === "llama.cpp"
         let speculativeEnabled = false
         let mtpEnabled = false
-        let meanDraftLength = logStats.meanDraftLength
+        let meanDraftLength = logStats.meanDraftLength as number | undefined
 
         if (isLlama) {
           const lcfg = mergedConfig as LlamaConfig
@@ -444,7 +436,8 @@ async function proxy(
           }
         }
 
-        const contextSize = (mergedConfig as any).ctxSize || (mergedConfig as any).contextWindow || 2048
+        const mcfg = mergedConfig as { ctxSize?: number; contextWindow?: number }
+        const contextSize = mcfg.ctxSize || mcfg.contextWindow || 2048
         const contextUtilization = contextSize > 0 ? (promptTokens + generatedTokens) / contextSize : 0
         
         // Sample memory usage
@@ -460,7 +453,7 @@ async function proxy(
           slug: modelEntry.slug,
           runtime: modelEntry.runtime,
           quantization: modelEntry.quantization,
-          presetName: modelEntry.preset ? (modelEntry.preset as any).recipe || "custom" : undefined,
+          presetName: modelEntry.preset ? (modelEntry.preset as { recipe?: string }).recipe || "custom" : undefined,
           timestamp: Date.now(),
           promptTokens,
           generatedTokens,

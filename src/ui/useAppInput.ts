@@ -56,7 +56,6 @@ export function useAppInput(opts: AppInputOpts): void {
     restart,
     killSelected,
     toggleExpose,
-    deleteEntry,
     rescan
   } = opts
 

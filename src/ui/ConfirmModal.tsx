@@ -25,8 +25,8 @@ interface ButtonSpan {
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   title,
   body,
-  confirmLabel = "delete",
-  cancelLabel = "cancel",
+  confirmLabel: _confirmLabel = "delete",
+  cancelLabel: _cancelLabel = "cancel",
   onConfirm,
   onCancel,
   width = 64
