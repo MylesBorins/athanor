@@ -1,18 +1,39 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { estimateMemoryBandwidth } from "./profile.js"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { detectMachineProfile, estimateMemoryBandwidth } from "./profile.js"
 
-describe("detectMachineProfile", () => {
+describe("detectMachineProfile (real environment)", () => {
+  it("returns valid memory and chip profile for the current platform", () => {
+    const profile = detectMachineProfile()
+    expect(profile.totalMemoryBytes).toBeGreaterThan(0)
+    expect(profile.totalMemoryGiB).toBeGreaterThan(0)
+    expect(profile.memoryBandwidthGBs).toBe(estimateMemoryBandwidth(profile.chip))
+    if (process.platform === "darwin") {
+      expect(typeof profile.chip === "string" || profile.chip === null).toBe(true)
+    } else {
+      expect(profile.chip).toBeNull()
+    }
+  })
+})
+
+describe("detectMachineProfile (mocked Darwin platform)", () => {
+  const originalPlatform = process.platform
+
   beforeEach(() => {
     vi.resetModules()
   })
 
-  it("populates profile fields accurately when sysctl brand_string succeeds", async () => {
+  afterEach(() => {
+    Object.defineProperty(process, "platform", { value: originalPlatform })
+  })
+
+  it("populates chip and memory fields on darwin when sysctl succeeds", async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" })
     vi.doMock("os", () => ({
       default: {},
       totalmem: () => 16 * 1024 ** 3
     }))
     vi.doMock("child_process", () => ({
-      execFileSync: () => "Apple M3 Pro\n"
+      execFileSync: () => "Apple Silicon Mock\n"
     }))
 
     const mod = await import("./profile.js")
@@ -20,17 +41,35 @@ describe("detectMachineProfile", () => {
 
     expect(profile.totalMemoryBytes).toBe(16 * 1024 ** 3)
     expect(profile.totalMemoryGiB).toBe(16)
-    expect(profile.chip).toBe("Apple M3 Pro")
-    expect(profile.memoryBandwidthGBs).toBe(150.0)
+    expect(profile.chip).toBe("Apple Silicon Mock")
   })
 
-  it("falls back to null chip string and undefined bandwidth when sysctl fails", async () => {
+  it("returns null chip string when on non-darwin platforms like Linux", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    vi.doMock("os", () => ({
+      default: {},
+      totalmem: () => 16 * 1024 ** 3
+    }))
+    vi.doMock("child_process", () => ({
+      execFileSync: () => "Intel Core i9\n"
+    }))
+
+    const mod = await import("./profile.js")
+    const profile = mod.detectMachineProfile()
+
+    expect(profile.totalMemoryGiB).toBe(16)
+    expect(profile.chip).toBeNull()
+    expect(profile.memoryBandwidthGBs).toBeUndefined()
+  })
+
+  it("falls back to null chip string when sysctl fails on darwin", async () => {
+    Object.defineProperty(process, "platform", { value: "darwin" })
     vi.doMock("os", () => ({
       default: {},
       totalmem: () => 8 * 1024 ** 3
     }))
     vi.doMock("child_process", () => ({
-      execFileSync: () => { throw new Error("no sysctl") }
+      execFileSync: () => { throw new Error("sysctl failed") }
     }))
 
     const mod = await import("./profile.js")
@@ -51,7 +90,7 @@ describe("estimateMemoryBandwidth", () => {
     expect(estimateMemoryBandwidth("Apple M4 Ultra")).toBe(819.2)
   })
 
-  it("returns undefined for null or unknown chips", () => {
+  it("returns undefined for null or non-Apple chips", () => {
     expect(estimateMemoryBandwidth(null)).toBeUndefined()
     expect(estimateMemoryBandwidth("Generic x86_64 CPU")).toBeUndefined()
   })
