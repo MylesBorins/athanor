@@ -118,7 +118,7 @@ export const ModelList: React.FC<ModelListProps> = ({
     }
     const half = Math.floor(maxRows / 2)
     let start = Math.max(0, selectedIndex - half)
-    let end = Math.min(models.length, start + maxRows)
+    const end = Math.min(models.length, start + maxRows)
     start = Math.max(0, end - maxRows)
     return models.slice(start, end).map((model, offset) => ({ model, index: start + offset }))
   })()

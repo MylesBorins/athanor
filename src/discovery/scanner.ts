@@ -189,9 +189,8 @@ export function detectGgufMetadata(filePath: string, fallbackName?: string): Pic
 > {
   const name = path.basename(filePath, ".gguf")
   const upper = name.toUpperCase()
-  let quantization: string | undefined
   const known = ["Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q4_0", "Q3_K_M", "Q2_K"]
-  quantization = known.find(q => upper.includes(q))
+  const quantization = known.find(q => upper.includes(q))
   const capabilities: ModelCapability[] = []
   if (detectGgufMtp(filePath)) {
     capabilities.push("mtp")

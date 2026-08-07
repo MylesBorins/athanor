@@ -8,8 +8,7 @@ import { setFlavor, setPreset } from "../app/models.js"
 import {
   listKeys,
   setPresetFields,
-  unsetPresetFields,
-  KeySpec
+  unsetPresetFields
 } from "../presets/edit.js"
 import { listRecipes, recipeToPreset } from "../presets/recipes.js"
 
@@ -219,7 +218,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       const spec = keys.find(k => k.jsonName === edit.jsonName)
       const isStringField = spec?.type === "string"
       if (input) {
-        const allowed = isStringField ? /^[a-zA-Z0-9_\-\.\/:]$/ : /^[0-9.-]$/
+        const allowed = isStringField ? /^[a-zA-Z0-9_\-./:]$/ : /^[0-9.-]$/
         if (allowed.test(input)) {
           setEdit(e => e ? { ...e, buffer: e.buffer + input } : e)
         }
@@ -285,9 +284,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
   const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
 
-  const innerWidth = Math.max(24, width - 4)
+  const _innerWidth = Math.max(24, width - 4)
   const keyColWidth = 22
-  const valueColWidth = Math.max(8, innerWidth - keyColWidth - 7)
 
   return (
     <Box width={width} flexDirection="column" borderStyle="round" borderColor="cyan" padding={1} backgroundColor="black">

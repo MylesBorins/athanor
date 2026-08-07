@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import * as fs from "fs"
-import { PATHS } from "../config/index.js"
 import {
   parseLogTelemetry,
   loadTelemetryHistory,

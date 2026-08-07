@@ -1,9 +1,7 @@
-import { getModel, listModels } from "../registry/index.js"
 import { loadTelemetryHistory, clearTelemetryHistory } from "../supervisor/telemetry.js"
-import { style, padEndVisual, sym } from "./style.js"
+import { style, padEndVisual } from "./style.js"
 import { head, dim, ok, info, warn } from "./shared.js"
 import { formatBytes } from "./format.js"
-import type { TelemetryRecord } from "../types/index.js"
 
 export async function cmdTelemetry(args: string[]): Promise<void> {
   const sub = args[0]

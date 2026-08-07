@@ -2,35 +2,6 @@ import { pullModel } from "../app/models.js"
 import { PullAbortedError } from "../pull/download.js"
 import { style, sym } from "./style.js"
 import { makeCliPullRenderer } from "./pull-renderer.js"
-import {
-  cmdExpose,
-  cmdFlavor,
-  cmdList,
-  cmdLogs,
-  cmdRestart,
-  cmdRm,
-  cmdScan,
-  cmdShow,
-  cmdStart,
-  cmdStatus,
-  cmdStop,
-  cmdSync
-} from "./model-commands.js"
-import {
-  cmdPresetApply,
-  cmdPresetClear,
-  cmdPresetSet,
-  cmdPresetShow,
-  cmdPresetUnset,
-  cmdRecipes
-} from "./preset-commands.js"
-import {
-  cmdConfig,
-  cmdDoctor,
-  cmdRouter,
-  cmdSearch,
-  type SearchCmdOpts
-} from "./system-commands.js"
 import { warn, dim, ok } from "./shared.js"
 
 export {

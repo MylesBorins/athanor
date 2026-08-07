@@ -1,7 +1,6 @@
 import * as fs from "fs"
-import * as path from "path"
 import { PATHS, ensureBaseDirs } from "../config/index.js"
-import type { TelemetryRecord, RuntimeType } from "../types/index.js"
+import type { TelemetryRecord } from "../types/index.js"
 
 export interface TelemetryFile {
   version: number

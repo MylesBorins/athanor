@@ -31,7 +31,7 @@ const KV_BYTES_PER_BPARAM_PER_KCTX = 3.5 * 1024 * 1024 // 3.5 MB
 const MOE_ATTENTION_PARAM_MULTIPLIER = 4.0
 const FRAMEWORK_OVERHEAD_BYTES = 500 * 1024 * 1024 // 500 MB
 
-function estimateParamCount(entry: ModelEntry, weightGiB: number): number {
+function estimateParamCount(entry: ModelEntry, _weightGiB: number): number {
   if (entry.paramCount) return entry.paramCount
 
   // Estimate parameter count based on quantization and file size.

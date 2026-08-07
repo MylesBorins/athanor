@@ -571,7 +571,7 @@ export const SearchBrowser: React.FC<SearchBrowserProps> = ({
     const handler = (data: Buffer): void => {
       const s = data.toString("utf8")
       // SGR mouse: ESC [ < Cb ; Cx ; Cy (M=press, m=release).
-      // eslint-disable-next-line no-control-regex
+       
       const re = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g
       let match: RegExpExecArray | null
       let sawMouse = false

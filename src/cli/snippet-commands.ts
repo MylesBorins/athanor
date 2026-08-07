@@ -30,12 +30,9 @@ export function cmdSnippet(idOrSlug: string): void {
   const routerHost = config.router.host
 
   const merged = mergedConfigFor(entry)
-  let contextWindow = 4096
-  if (entry.runtime === "mlx") {
-    contextWindow = (merged as MlxConfig).contextWindow ?? 32768
-  } else {
-    contextWindow = (merged as LlamaConfig).ctxSize ?? 32768
-  }
+  const contextWindow = entry.runtime === "mlx"
+    ? ((merged as MlxConfig).contextWindow ?? 32768)
+    : ((merged as LlamaConfig).ctxSize ?? 32768)
 
   const url = `http://127.0.0.1:${port}/v1`
   const routerUrl = `http://${routerHost}:${routerPort}/v1`

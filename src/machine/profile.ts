@@ -15,7 +15,7 @@ export interface MachineProfile {
   memoryBandwidthGBs?: number
 }
 
-function estimateMemoryBandwidth(chip: string | null): number | undefined {
+export function estimateMemoryBandwidth(chip: string | null): number | undefined {
   if (!chip) return undefined
   const c = chip.toUpperCase()
   if (c.includes("M4 ULTRA")) return 819.2

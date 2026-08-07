@@ -250,7 +250,7 @@ export function cmdShow(idOrSlug: string): void {
     }
   } else if (entry.runtime === "llama.cpp") {
     if (caps.includes("mtp")) {
-      const specMode = (merged as any).speculativeMode || "auto"
+      const specMode = (merged as { speculativeMode?: string }).speculativeMode || "auto"
       const active = (specMode === "enabled") || (specMode === "auto")
       const stateStr = active ? style.green("enabled automatically") : style.red("disabled")
       console.log(`  ${dim("hint")}     ${style.green("MTP-capable")} — speculative MTP draft decoding is ${stateStr} (mode=${specMode})`)
