@@ -48,10 +48,20 @@ function resolveSidecarScript(): string {
   // Same layout in dev (src/pull/*.ts executed via tsx) and prod
   // (dist/pull/*.js after tsc + postbuild copy). hf_pull.py lives
   // next to this module in both cases.
-  return path.join(
+  const target = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     "hf_pull.py"
   )
+  if (fs.existsSync(target)) return target
+
+  // Fallback if running compiled JS without postbuild file copy
+  const srcFallback = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../src/pull/hf_pull.py"
+  )
+  if (fs.existsSync(srcFallback)) return srcFallback
+
+  return target
 }
 
 export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
@@ -79,7 +89,13 @@ export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
       local_dir: opts.file ? opts.localDir : null
     })
 
-    const proc = spawn(python, [resolveSidecarScript(), payload], {
+    const sidecar = resolveSidecarScript()
+    if (!fs.existsSync(sidecar)) {
+      reject(new Error(`sidecar script hf_pull.py not found at ${sidecar}. Run npm run build.`))
+      return
+    }
+
+    const proc = spawn(python, [sidecar, payload], {
       stdio: ["ignore", "pipe", "pipe"]
     })
 
@@ -89,6 +105,8 @@ export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
     let stdoutBuf = ""
     let lastError: string | null = null
     let resolvedPath: string | null = null
+    const stderrLines: string[] = []
+
     proc.stdout?.on("data", (b: Buffer) => {
       stdoutBuf += b.toString()
       for (;;) {
@@ -108,7 +126,10 @@ export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
       }
     })
     proc.stderr?.on("data", (b: Buffer) => {
-      for (const l of splitHfChunks(b.toString())) opts.onLine?.(l)
+      for (const l of splitHfChunks(b.toString())) {
+        stderrLines.push(l)
+        opts.onLine?.(l)
+      }
     })
 
     let aborted = false
@@ -134,7 +155,10 @@ export function runHfDownload(opts: DownloadOptions): Promise<string | null> {
       opts.signal?.removeEventListener("abort", onAbort)
       if (aborted) reject(new PullAbortedError())
       else if (code === 0) resolve(resolvedPath)
-      else reject(new Error(lastError ?? `hf_pull exited with code ${code}`))
+      else {
+        const stderrFallback = stderrLines.length > 0 ? stderrLines[stderrLines.length - 1] : null
+        reject(new Error(lastError ?? stderrFallback ?? `hf_pull exited with code ${code}`))
+      }
     })
   })
 }
