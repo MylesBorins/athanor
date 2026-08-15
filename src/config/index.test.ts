@@ -127,7 +127,19 @@ describe("Config", () => {
         JSON.stringify({
           portRange: { min: 9005, max: 9000 },
           mlx: { promptCacheSize: -1, decodeConcurrency: 0 },
-          llama: { ctxSize: -10, threads: 0, nGpuLayers: -1 },
+          llama: {
+            ctxSize: -10,
+            threads: 0,
+            nGpuLayers: -1,
+            temp: -1,
+            topP: -0.5,
+            topK: -5,
+            minP: -0.1,
+            repeatPenalty: -1,
+            presencePenalty: -1,
+            frequencyPenalty: -1,
+            repeatLastN: -5
+          },
           supervisor: { maxConcurrent: 0, startupTimeoutMs: -1 },
           controlApi: { port: 70000 },
           router: { port: 0, drainTimeoutMs: -5 }
@@ -140,6 +152,14 @@ describe("Config", () => {
       expect(loaded.mlx.decodeConcurrency).toBe(DEFAULT_CONFIG.mlx.decodeConcurrency)
       expect(loaded.llama.ctxSize).toBe(DEFAULT_CONFIG.llama.ctxSize)
       expect(loaded.llama.nGpuLayers).toBe(DEFAULT_CONFIG.llama.nGpuLayers)
+      expect(loaded.llama.temp).toBeUndefined()
+      expect(loaded.llama.topP).toBeUndefined()
+      expect(loaded.llama.topK).toBeUndefined()
+      expect(loaded.llama.minP).toBeUndefined()
+      expect(loaded.llama.repeatPenalty).toBeUndefined()
+      expect(loaded.llama.presencePenalty).toBeUndefined()
+      expect(loaded.llama.frequencyPenalty).toBeUndefined()
+      expect(loaded.llama.repeatLastN).toBeUndefined()
       expect(loaded.supervisor.maxConcurrent).toBe(DEFAULT_CONFIG.supervisor.maxConcurrent)
       expect(loaded.supervisor.startupTimeoutMs).toBe(DEFAULT_CONFIG.supervisor.startupTimeoutMs)
       expect(loaded.controlApi.port).toBe(DEFAULT_CONFIG.controlApi.port)

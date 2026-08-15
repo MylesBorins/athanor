@@ -243,6 +243,41 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.llama.parallel; using default")
     next.llama.parallel = DEFAULT_CONFIG.llama.parallel
   }
+  if (next.llama.temp !== undefined && !nonNegativeNumber(next.llama.temp)) {
+    console.error("Invalid config.llama.temp; removing")
+    delete next.llama.temp
+  }
+  if (next.llama.topP !== undefined && !nonNegativeNumber(next.llama.topP)) {
+    console.error("Invalid config.llama.topP; removing")
+    delete next.llama.topP
+  }
+  if (next.llama.topK !== undefined && !nonNegativeNumber(next.llama.topK)) {
+    console.error("Invalid config.llama.topK; removing")
+    delete next.llama.topK
+  }
+  if (next.llama.minP !== undefined && !nonNegativeNumber(next.llama.minP)) {
+    console.error("Invalid config.llama.minP; removing")
+    delete next.llama.minP
+  }
+  if (next.llama.repeatPenalty !== undefined && !nonNegativeNumber(next.llama.repeatPenalty)) {
+    console.error("Invalid config.llama.repeatPenalty; removing")
+    delete next.llama.repeatPenalty
+  }
+  if (next.llama.presencePenalty !== undefined && !nonNegativeNumber(next.llama.presencePenalty)) {
+    console.error("Invalid config.llama.presencePenalty; removing")
+    delete next.llama.presencePenalty
+  }
+  if (next.llama.frequencyPenalty !== undefined && !nonNegativeNumber(next.llama.frequencyPenalty)) {
+    console.error("Invalid config.llama.frequencyPenalty; removing")
+    delete next.llama.frequencyPenalty
+  }
+  if (
+    next.llama.repeatLastN !== undefined &&
+    (typeof next.llama.repeatLastN !== "number" || !Number.isInteger(next.llama.repeatLastN) || next.llama.repeatLastN < -1)
+  ) {
+    console.error("Invalid config.llama.repeatLastN; removing")
+    delete next.llama.repeatLastN
+  }
   if (next.llama.specType !== undefined && typeof next.llama.specType !== "string") {
     console.error("Invalid config.llama.specType; removing")
     delete next.llama.specType

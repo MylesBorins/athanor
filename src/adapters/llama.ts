@@ -26,6 +26,31 @@ export class LlamaAdapter implements RuntimeAdapter {
       "--parallel", String(merged.parallel)
     ]
 
+    if (merged.temp !== undefined) {
+      args.push("--temp", String(merged.temp))
+    }
+    if (merged.topP !== undefined) {
+      args.push("--top-p", String(merged.topP))
+    }
+    if (merged.topK !== undefined) {
+      args.push("--top-k", String(merged.topK))
+    }
+    if (merged.minP !== undefined) {
+      args.push("--min-p", String(merged.minP))
+    }
+    if (merged.repeatPenalty !== undefined) {
+      args.push("--repeat-penalty", String(merged.repeatPenalty))
+    }
+    if (merged.presencePenalty !== undefined) {
+      args.push("--presence-penalty", String(merged.presencePenalty))
+    }
+    if (merged.frequencyPenalty !== undefined) {
+      args.push("--frequency-penalty", String(merged.frequencyPenalty))
+    }
+    if (merged.repeatLastN !== undefined) {
+      args.push("--repeat-last-n", String(merged.repeatLastN))
+    }
+
     const isMtpCapable = entry.capabilities?.includes("mtp") || false
     const specMode = merged.speculativeMode || "auto"
     const mtpActive = (specMode === "enabled") || (specMode === "auto" && isMtpCapable)

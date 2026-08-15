@@ -63,6 +63,14 @@ export interface LlamaConfig {
   batchSize: number
   ubatchSize: number
   parallel: number
+  temp?: number
+  topP?: number
+  topK?: number
+  minP?: number
+  repeatPenalty?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  repeatLastN?: number
   specType?: LlamaSpecType | (string & {})
   specDraftNMax?: number
   specDraftNMin?: number

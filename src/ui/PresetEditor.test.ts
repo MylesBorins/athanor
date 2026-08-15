@@ -4,7 +4,9 @@ import {
   getNextSlotSize,
   getNextGpuLayer,
   getNextSpecType,
-  cycleFloat
+  getNextRepeatLastN,
+  cycleFloat,
+  CYCLABLE_KEYS
 } from "./PresetEditor.js"
 
 describe("PresetEditor getNextStandardCtx", () => {
@@ -75,6 +77,17 @@ describe("PresetEditor getNextSpecType", () => {
   })
 })
 
+describe("PresetEditor getNextRepeatLastN", () => {
+  it("cycles repeat last n values correctly", () => {
+    expect(getNextRepeatLastN("64", "right")).toBe(128)
+    expect(getNextRepeatLastN("64", "left")).toBe(32)
+    expect(getNextRepeatLastN("0", "left")).toBe(-1)
+    expect(getNextRepeatLastN("-1", "left")).toBe(-1)
+    expect(getNextRepeatLastN("4096", "right")).toBe(4096)
+    expect(getNextRepeatLastN("invalid", "right")).toBe(64)
+  })
+})
+
 describe("PresetEditor cycleFloat", () => {
   it("cycles float values with step and bounds", () => {
     expect(cycleFloat("0.7", "right", 0.1, 0.0, 2.0, 0.0)).toBe(0.8)
@@ -84,5 +97,18 @@ describe("PresetEditor cycleFloat", () => {
     expect(cycleFloat("0.95", "right", 0.05, 0.0, 1.0, 1.0)).toBe(1.0)
     expect(cycleFloat("0.95", "left", 0.05, 0.0, 1.0, 1.0)).toBe(0.9)
     expect(cycleFloat("invalid", "right", 0.1, 0.0, 2.0, 1.0)).toBe(1.0)
+  })
+})
+
+describe("CYCLABLE_KEYS", () => {
+  it("includes all sampling and penalty keys", () => {
+    expect(CYCLABLE_KEYS).toContain("temp")
+    expect(CYCLABLE_KEYS).toContain("topP")
+    expect(CYCLABLE_KEYS).toContain("topK")
+    expect(CYCLABLE_KEYS).toContain("minP")
+    expect(CYCLABLE_KEYS).toContain("repeatPenalty")
+    expect(CYCLABLE_KEYS).toContain("presencePenalty")
+    expect(CYCLABLE_KEYS).toContain("frequencyPenalty")
+    expect(CYCLABLE_KEYS).toContain("repeatLastN")
   })
 })

@@ -88,6 +88,23 @@ describe("setPresetFields", () => {
     expect(p.llama.specDraftModel).toBe("/models/draft.gguf")
     expect(p.llama.specDraftPMin).toBe(0.85)
   })
+
+  it("accepts sampling and penalty settings for llama.cpp", () => {
+    const p = setPresetFields(llamaEntry(), [
+      ["temp", "0.7"],
+      ["repeat-penalty", "1.15"],
+      ["presence-penalty", "0.2"],
+      ["frequency-penalty", "0.3"],
+      ["repeat-last-n", "128"]
+    ])
+    expect(p.runtime).toBe("llama.cpp")
+    if (p.runtime !== "llama.cpp") throw new Error()
+    expect(p.llama.temp).toBe(0.7)
+    expect(p.llama.repeatPenalty).toBe(1.15)
+    expect(p.llama.presencePenalty).toBe(0.2)
+    expect(p.llama.frequencyPenalty).toBe(0.3)
+    expect(p.llama.repeatLastN).toBe(128)
+  })
 })
 
 describe("unsetPresetFields", () => {

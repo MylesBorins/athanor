@@ -127,6 +127,38 @@ describe("LlamaAdapter", () => {
     expect(args).not.toContain("--spec-draft-ngl")
   })
 
+  it("includes sampling flags when present in merged config", () => {
+    const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
+    const samplingLlama: LlamaConfig = {
+      ...llama,
+      temp: 0.7,
+      topP: 0.9,
+      topK: 50,
+      minP: 0.05,
+      repeatPenalty: 1.1,
+      presencePenalty: 0.2,
+      frequencyPenalty: 0.3,
+      repeatLastN: 128
+    }
+    const { args } = adapter.buildCommand(entry, samplingLlama)
+    expect(args).toContain("--temp")
+    expect(args[args.indexOf("--temp") + 1]).toBe("0.7")
+    expect(args).toContain("--top-p")
+    expect(args[args.indexOf("--top-p") + 1]).toBe("0.9")
+    expect(args).toContain("--top-k")
+    expect(args[args.indexOf("--top-k") + 1]).toBe("50")
+    expect(args).toContain("--min-p")
+    expect(args[args.indexOf("--min-p") + 1]).toBe("0.05")
+    expect(args).toContain("--repeat-penalty")
+    expect(args[args.indexOf("--repeat-penalty") + 1]).toBe("1.1")
+    expect(args).toContain("--presence-penalty")
+    expect(args[args.indexOf("--presence-penalty") + 1]).toBe("0.2")
+    expect(args).toContain("--frequency-penalty")
+    expect(args[args.indexOf("--frequency-penalty") + 1]).toBe("0.3")
+    expect(args).toContain("--repeat-last-n")
+    expect(args[args.indexOf("--repeat-last-n") + 1]).toBe("128")
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

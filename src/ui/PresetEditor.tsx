@@ -113,6 +113,21 @@ export function getNextSpecType(currentStr: string, direction: "left" | "right")
   }
 }
 
+export const STANDARD_REPEAT_LAST_N = [-1, 0, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+export function getNextRepeatLastN(currentStr: string, direction: "left" | "right"): number {
+  const current = parseInt(currentStr, 10)
+  if (isNaN(current)) return 64
+  if (direction === "left") {
+    const filtered = STANDARD_REPEAT_LAST_N.filter(s => s < current)
+    if (filtered.length > 0) return filtered[filtered.length - 1]!
+    return STANDARD_REPEAT_LAST_N[0]!
+  } else {
+    const filtered = STANDARD_REPEAT_LAST_N.filter(s => s > current)
+    if (filtered.length > 0) return filtered[0]!
+    return STANDARD_REPEAT_LAST_N[STANDARD_REPEAT_LAST_N.length - 1]!
+  }
+}
+
 export function cycleFloat(
   currentStr: string,
   direction: "left" | "right",
@@ -134,12 +149,18 @@ export const CYCLABLE_KEYS = [
   "promptCacheSize",
   "temp",
   "topP",
+  "topK",
+  "minP",
   "parallel",
   "decodeConcurrency",
   "promptConcurrency",
   "nGpuLayers",
   "specDraftNgl",
-  "specType"
+  "specType",
+  "repeatPenalty",
+  "presencePenalty",
+  "frequencyPenalty",
+  "repeatLastN"
 ]
 
 export const PresetEditor: React.FC<PresetEditorProps> = ({
@@ -198,12 +219,24 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           nextVal = cycleFloat(edit.buffer, dir, 0.1, 0.0, 2.0, 0.0)
         } else if (edit.jsonName === "topP") {
           nextVal = cycleFloat(edit.buffer, dir, 0.05, 0.0, 1.0, 1.0)
+        } else if (edit.jsonName === "topK") {
+          nextVal = cycleFloat(edit.buffer, dir, 5, 0, 200, 0)
+        } else if (edit.jsonName === "minP") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.01, 0.0, 1.0, 0.0)
         } else if (["parallel", "decodeConcurrency", "promptConcurrency"].includes(edit.jsonName)) {
           nextVal = getNextSlotSize(edit.buffer, dir)
         } else if (["nGpuLayers", "specDraftNgl"].includes(edit.jsonName)) {
           nextVal = getNextGpuLayer(edit.buffer, dir)
         } else if (edit.jsonName === "specType") {
           nextVal = getNextSpecType(edit.buffer, dir)
+        } else if (edit.jsonName === "repeatPenalty") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.05, 0.0, 2.0, 1.0)
+        } else if (edit.jsonName === "presencePenalty") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.1, 0.0, 2.0, 0.0)
+        } else if (edit.jsonName === "frequencyPenalty") {
+          nextVal = cycleFloat(edit.buffer, dir, 0.1, 0.0, 2.0, 0.0)
+        } else if (edit.jsonName === "repeatLastN") {
+          nextVal = getNextRepeatLastN(edit.buffer, dir)
         }
 
         if (nextVal !== undefined) {
