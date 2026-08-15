@@ -1,6 +1,6 @@
 {
   "name": "athanor",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Personal LLM alchemy for Apple Silicon: discover, run, and publish MLX and llama.cpp models",
   "license": "Apache-2.0",
   "repository": {
