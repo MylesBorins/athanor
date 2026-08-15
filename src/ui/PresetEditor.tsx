@@ -310,15 +310,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   }
 
   // For MLX entries, surface the active server explicitly (lm vs vlm)
-  // and flag the underlying vision capability when present so the user
-  // knows whether `v` will succeed.
   const isMlx     = entry.runtime === "mlx"
   const isVlm     = isMlx && entry.mlxFlavor === "vlm"
   const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
   const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
-
   const _innerWidth = Math.max(24, width - 4)
   const keyColWidth = 22
+
+  const MAX_VISIBLE_KEYS = 8
+  const windowStart = Math.max(
+    0,
+    Math.min(cursor - Math.floor(MAX_VISIBLE_KEYS / 2), keys.length - MAX_VISIBLE_KEYS)
+  )
+  const windowEnd = Math.min(keys.length, windowStart + MAX_VISIBLE_KEYS)
+  const visibleKeys = keys.slice(windowStart, windowEnd)
+  const countAbove = windowStart
+  const countBelow = keys.length - windowEnd
 
   return (
     <Box width={width} flexDirection="column" borderStyle="round" borderColor="cyan" padding={1} backgroundColor="black">
@@ -331,8 +338,12 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         ? <Text dimColor wrap="truncate-end" backgroundColor="black">vision tower detected — press <Text bold color="cyan" backgroundColor="black">v</Text> to switch to mlx-vlm</Text>
         : null}
       <Text backgroundColor="black"> </Text>
-      <Text dimColor backgroundColor="black">Tunable keys  (override marked with *)</Text>
-      {keys.map((k, i) => {
+      <Text dimColor backgroundColor="black">
+        Tunable keys  (override marked with *){keys.length > MAX_VISIBLE_KEYS ? ` · showing ${windowStart + 1}-${windowEnd} of ${keys.length}` : ""}
+      </Text>
+      {countAbove > 0 ? <Text dimColor backgroundColor="black">  ▲ {countAbove} more above</Text> : null}
+      {visibleKeys.map((k, relIndex) => {
+        const i = windowStart + relIndex
         const override = presetValueFor(entry, k.jsonName)
         const value = override !== undefined ? override : effective[k.jsonName]
         const marker = override !== undefined ? "*" : " "
@@ -344,9 +355,10 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           </Text>
         )
       })}
+      {countBelow > 0 ? <Text dimColor backgroundColor="black">  ▼ {countBelow} more below</Text> : null}
       <Text backgroundColor="black"> </Text>
-      <Text dimColor backgroundColor="black">Recipes  (1-9 applies)</Text>
-      {recipes.slice(0, 9).map((r, i) => (
+      <Text dimColor backgroundColor="black">Recipes  (1-5 applies)</Text>
+      {recipes.slice(0, 5).map((r, i) => (
         <Text key={r.name} backgroundColor="black" wrap="truncate-end">
           {`${i + 1}.`.padStart(3)} <Text bold backgroundColor="black">{r.name}</Text>
           <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
@@ -362,7 +374,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
             editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
           </Text>
         )
-        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-9 recipe · esc close</Text>}
+        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-5 recipe · esc close</Text>}
       {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
     </Box>
   )
