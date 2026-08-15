@@ -58,6 +58,20 @@ const BUILTINS: Recipe[] = [
     source: "builtin"
   },
   {
+    name: "thinking",
+    description: "Reasoning/thinking model sampling (Qwen/DeepSeek recommended: temp=1.0, topP=0.95, topK=20).",
+    mlx: { temp: 1.0, topP: 0.95, topK: 20, minP: 0 },
+    llama: { temp: 1.0, topP: 0.95, topK: 20, minP: 0, presencePenalty: 0.0, repeatPenalty: 1.0 },
+    source: "builtin"
+  },
+  {
+    name: "instruct",
+    description: "Standard instruct model sampling (temp=0.7, topP=0.80, topK=20, presencePenalty=1.5).",
+    mlx: { temp: 0.7, topP: 0.80, topK: 20, minP: 0 },
+    llama: { temp: 0.7, topP: 0.80, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1.0 },
+    source: "builtin"
+  },
+  {
     name: "mtp",
     description: "Multi-Token Prediction speculative decoding (requires an MTP-capable GGUF model).",
     llama: { specType: "draft-mtp", specDraftNgl: 999 },

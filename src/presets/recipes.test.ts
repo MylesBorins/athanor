@@ -26,6 +26,8 @@ describe("listRecipes", () => {
     expect(names).toContain("quality")
     expect(names).toContain("long-context")
     expect(names).toContain("coding")
+    expect(names).toContain("thinking")
+    expect(names).toContain("instruct")
     expect(names).toContain("mtp")
   })
 
