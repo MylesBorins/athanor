@@ -65,7 +65,7 @@ describe("buildRecommendation", () => {
 
     expect(rec.fitBand).toBe("risky")
     expect(rec.recommendedContext).toBe(4096)
-    expect(rec.recommendedContextNote).toBe("trained context unknown; using conservative default")
+    expect(rec.recommendedContextNote).toBe("trained context unknown; recommended based on memory capacity")
     expect(rec.confidence).toBe("low")
     expect(rec.explanation).toContain("swap risk likely")
     expect(rec.explanation).toContain("metadata unavailable — estimates from file size only")
@@ -112,5 +112,18 @@ describe("buildRecommendation", () => {
 
     expect(rec.recommendedContext).toBe(32768)
     expect(rec.presetHint).toBe("coding")
+  })
+
+  it("recommends 131072 context length for MoE models on 36 GB Macs", () => {
+    const rec = buildRecommendation(modelEntry({
+      sizeBytes: 18 * 1024 ** 3,
+      isMoe: true,
+      activeParams: 3,
+      paramCount: 35,
+      metadataSource: "gguf_header"
+    }), machineProfile(36))
+
+    expect(rec.fitBand).toBe("tight")
+    expect(rec.recommendedContext).toBe(131072)
   })
 })

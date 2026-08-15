@@ -110,11 +110,16 @@ function recommendContext(entry: ModelEntry, fitBand: FitBand, totalMemoryGiB: n
   value: number
   note: string
 } {
-  const base = entry.trainedContextLength ?? 4096
+  const base = entry.trainedContextLength ?? 131072
+  const isMoeHighMem = entry.isMoe && totalMemoryGiB >= 32
+  const maxContextTarget = isMoeHighMem
+    ? 131072
+    : (totalMemoryGiB > 48 ? 131072 : totalMemoryGiB >= 32 ? 65536 : 32768)
+
   const fitCap = fitBand === "comfortable"
-    ? Math.min(base, 32768)
+    ? Math.min(base, maxContextTarget)
     : fitBand === "tight"
-      ? Math.min(base, 8192)
+      ? (isMoeHighMem ? Math.min(base, maxContextTarget) : Math.min(base, 16384))
       : Math.min(base, 4096)
 
   const machineCap = totalMemoryGiB <= 8
@@ -122,14 +127,16 @@ function recommendContext(entry: ModelEntry, fitBand: FitBand, totalMemoryGiB: n
     : totalMemoryGiB <= 16
       ? 8192
       : totalMemoryGiB <= 32
-        ? 32768
-        : 32768
+        ? (isMoeHighMem ? 131072 : 32768)
+        : totalMemoryGiB <= 48
+          ? (isMoeHighMem ? 131072 : 65536)
+          : 131072
 
   return {
     value: Math.min(fitCap, machineCap),
     note: entry.trainedContextLength
       ? `trained max: ${entry.trainedContextLength}`
-      : "trained context unknown; using conservative default"
+      : "trained context unknown; recommended based on memory capacity"
   }
 }
 

@@ -54,5 +54,17 @@ export const SUGGESTIONS: readonly Suggestion[] = [
     taskTags: ["general", "reasoning", "coding"],
     rationale: "best reserved for machines with comfortable unified-memory headroom and users willing to trade speed for model quality",
     reviewedAt: "2026-05"
+  },
+  {
+    repo: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+    file: "Qwen3.6-35B-A3B-MTP-Q4_K_M.gguf",
+    runtime: "llama.cpp",
+    label: "Qwen3.6-35B A3B MTP (GGUF)",
+    sizeLabel: "~22 GB",
+    note: "high-performance 35B MoE (~3B active params) with built-in MTP speculative decoding",
+    memoryTier: "32gb",
+    taskTags: ["coding", "reasoning", "moe"],
+    rationale: "excellent MoE model for 32–36 GB+ Macs; active parameter efficiency enables 131K context window with built-in MTP speedups",
+    reviewedAt: "2026-08"
   }
 ]
