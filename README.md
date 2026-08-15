@@ -492,13 +492,14 @@ athanor preset qwen-32b apply coding
 athanor recipes
 ```
 
-Built-in recipes: `balanced`, `fast`, `quality`, `long-context`, `coding`.
+Built-in recipes: `balanced`, `fast`, `long-context`, `thinking`, `instruct`, `mtp`.
 
 - `balanced` — recommended default, 32K context
 - `fast` — lower latency, 8K context
-- `quality` — larger 32K context for more stable long reasoning
-- `coding` — 32K context for multi-file and agent workflows
-- `long-context` — 64K context, higher memory use
+- `long-context` — 64K context for large documents
+- `thinking` — reasoning model sampling (temp=1.0, topP=0.95, topK=20)
+- `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
+- `mtp` — Multi-Token Prediction speculative decoding
 
 `balanced` is an explicit preset recipe; clearing a preset is a separate action (`athanor preset <slug> clear`). Drop your own into `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`); user recipes override built-ins of the same name.
 

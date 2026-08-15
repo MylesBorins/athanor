@@ -334,8 +334,8 @@ describe("app model service", () => {
 
     const { setPreset } = await import("./models.js")
     const { findRecipe, recipeToPreset } = await import("../presets/recipes.js")
-    const quality = recipeToPreset(findRecipe("quality")!, "mlx")
-    const updated = setPreset("a", quality)
+    const balanced = recipeToPreset(findRecipe("balanced")!, "mlx")
+    const updated = setPreset("a", balanced)
 
     expect(updated.preset).toEqual({
       runtime: "mlx",

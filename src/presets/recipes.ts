@@ -37,24 +37,10 @@ const BUILTINS: Recipe[] = [
     source: "builtin"
   },
   {
-    name: "quality",
-    description: "Larger context for more stable long reasoning. Slightly higher memory use.",
-    mlx: { prefillStepSize: 2048, promptCacheSize: 32768, decodeConcurrency: 1, contextWindow: 32768, maxTokens: 4096, promptCacheBytes: 16 * 1024 ** 3 },
-    llama: { ctxSize: 32768, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
-    source: "builtin"
-  },
-  {
     name: "long-context",
     description: "Maximum context for large documents and long conversations. May be slow or unstable on 16 GB Macs.",
     mlx: { prefillStepSize: 2048, promptCacheSize: 65536, decodeConcurrency: 1, contextWindow: 65536, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3 },
     llama: { ctxSize: 65536, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
-    source: "builtin"
-  },
-  {
-    name: "coding",
-    description: "Optimized for multi-file and agent workflows with larger context.",
-    mlx: { prefillStepSize: 2048, promptCacheSize: 32768, decodeConcurrency: 1, contextWindow: 32768, maxTokens: 4096, promptCacheBytes: 16 * 1024 ** 3 },
-    llama: { ctxSize: 32768, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
     source: "builtin"
   },
   {

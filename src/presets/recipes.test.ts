@@ -23,9 +23,7 @@ describe("listRecipes", () => {
     const names = listRecipes().map(r => r.name)
     expect(names).toContain("balanced")
     expect(names).toContain("fast")
-    expect(names).toContain("quality")
     expect(names).toContain("long-context")
-    expect(names).toContain("coding")
     expect(names).toContain("thinking")
     expect(names).toContain("instruct")
     expect(names).toContain("mtp")
@@ -92,19 +90,15 @@ describe("recipeToPreset", () => {
   it("ships explicit built-in context bands", () => {
     expect(findRecipe("fast")?.mlx?.promptCacheSize).toBe(8192)
     expect(findRecipe("balanced")?.mlx?.promptCacheSize).toBe(32768)
-    expect(findRecipe("quality")?.mlx?.promptCacheSize).toBe(32768)
-    expect(findRecipe("coding")?.mlx?.promptCacheSize).toBe(32768)
     expect(findRecipe("long-context")?.mlx?.promptCacheSize).toBe(65536)
 
     expect(findRecipe("fast")?.llama?.ctxSize).toBe(8192)
     expect(findRecipe("balanced")?.llama?.ctxSize).toBe(32768)
-    expect(findRecipe("quality")?.llama?.ctxSize).toBe(32768)
-    expect(findRecipe("coding")?.llama?.ctxSize).toBe(32768)
     expect(findRecipe("long-context")?.llama?.ctxSize).toBe(65536)
   })
 
   it("keeps mlx and llama context bands aligned across built-ins", () => {
-    for (const name of ["fast", "balanced", "quality", "coding", "long-context"]) {
+    for (const name of ["fast", "balanced", "long-context"]) {
       const recipe = findRecipe(name)!
       expect(recipe.mlx?.promptCacheSize).toBe(recipe.llama?.ctxSize)
     }
