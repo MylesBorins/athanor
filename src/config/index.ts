@@ -91,9 +91,9 @@ export const DEFAULT_CONFIG: Config = {
     // Matches mlx_lm.server's own default so the flag is suppressed
     // when no recipe/preset overrides it.
     prefillStepSize: 2048,
-    promptCacheSize: 32768,
+    promptCacheSize: 65536,
     decodeConcurrency: 1,
-    contextWindow: 32768,
+    contextWindow: 65536,
     // Per-response output cap. mlx_lm.server's own default is 512;
     // 4096 is a more useful baseline for chat/coding workflows.
     maxTokens: 4096,
@@ -109,10 +109,10 @@ export const DEFAULT_CONFIG: Config = {
   },
   llama: {
     nGpuLayers: 999,
-    // 32768 is a safe default for Apple Silicon — ctxSize:0 loads the model's
+    // 65536 is a performant default for Apple Silicon — ctxSize:0 loads the model's
     // native context window which can exhaust unified memory before inference
     // starts. Recipes and per-model presets can override this.
-    ctxSize: 32768,
+    ctxSize: 65536,
     // Match llama-server's own defaults (batch-size: 2048, ubatch-size: 512)
     // so athanor does not silently degrade prompt-processing throughput.
     batchSize: 2048,

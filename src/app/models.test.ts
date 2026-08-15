@@ -274,9 +274,9 @@ describe("app model service", () => {
       runtime: "mlx",
       mlx: {
         prefillStepSize: 2048,
-        promptCacheSize: 32768,
+        promptCacheSize: 65536,
         decodeConcurrency: 1,
-        contextWindow: 32768,
+        contextWindow: 65536,
         maxTokens: 4096,
         promptCacheBytes: 16 * 1024 ** 3
       }
@@ -341,9 +341,9 @@ describe("app model service", () => {
       runtime: "mlx",
       mlx: {
         prefillStepSize: 2048,
-        promptCacheSize: 32768,
+        promptCacheSize: 65536,
         decodeConcurrency: 1,
-        contextWindow: 32768,
+        contextWindow: 65536,
         maxTokens: 4096,
         promptCacheBytes: 16 * 1024 ** 3
       }

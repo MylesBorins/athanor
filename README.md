@@ -474,7 +474,7 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
 
 ### Per-model presets
 
-`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 32K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
+`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 64K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
 
 ```bash
 # inspect effective config, launch command, and running state
@@ -494,9 +494,9 @@ athanor recipes
 
 Built-in recipes: `balanced`, `fast`, `long-context`, `thinking`, `instruct`, `mtp`.
 
-- `balanced` — recommended default, 32K context
+- `balanced` — recommended default, 64K context
 - `fast` — lower latency, 8K context
-- `long-context` — 64K context for large documents
+- `long-context` — 128K context for large documents
 - `thinking` — reasoning model sampling (temp=1.0, topP=0.95, topK=20)
 - `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
 - `mtp` — Multi-Token Prediction speculative decoding

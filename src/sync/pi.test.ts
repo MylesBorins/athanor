@@ -120,10 +120,10 @@ describe("pi sync", () => {
     const { syncPi } = await import("./pi.js")
     syncPi({ instances: [] })
     const p = JSON.parse(fs.readFileSync(PI_MODELS, "utf8")).providers
-    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(32768)
-    // Default ctxSize is now 32768, so pi always gets a concrete contextWindow
+    expect(p["athanor-mlx-a"].models[0].contextWindow).toBe(65536)
+    // Default ctxSize is now 65536, so pi always gets a concrete contextWindow
     // even for models with no explicit preset.
-    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(32768)
+    expect(p["athanor-llama-b"].models[0].contextWindow).toBe(65536)
   })
 
   it("prefers explicit preset overrides over defaults when router mode is disabled", async () => {

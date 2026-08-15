@@ -25,8 +25,8 @@ const BUILTINS: Recipe[] = [
   {
     name: "balanced",
     description: "Recommended default. Good for most chat, coding, and agent workflows.",
-    mlx: { prefillStepSize: 2048, promptCacheSize: 32768, decodeConcurrency: 1, contextWindow: 32768, maxTokens: 4096, promptCacheBytes: 16 * 1024 ** 3 },
-    llama: { ctxSize: 32768, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
+    mlx: { prefillStepSize: 2048, promptCacheSize: 65536, decodeConcurrency: 1, contextWindow: 65536, maxTokens: 4096, promptCacheBytes: 16 * 1024 ** 3 },
+    llama: { ctxSize: 65536, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
     source: "builtin"
   },
   {
@@ -39,8 +39,8 @@ const BUILTINS: Recipe[] = [
   {
     name: "long-context",
     description: "Maximum context for large documents and long conversations. May be slow or unstable on 16 GB Macs.",
-    mlx: { prefillStepSize: 2048, promptCacheSize: 65536, decodeConcurrency: 1, contextWindow: 65536, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3 },
-    llama: { ctxSize: 65536, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
+    mlx: { prefillStepSize: 2048, promptCacheSize: 131072, decodeConcurrency: 1, contextWindow: 131072, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3 },
+    llama: { ctxSize: 131072, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
     source: "builtin"
   },
   {
