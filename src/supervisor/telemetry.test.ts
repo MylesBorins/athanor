@@ -3,6 +3,7 @@ import {
   parseLogTelemetry,
   loadTelemetryHistory,
   saveTelemetryRecord,
+  saveTelemetryRecords,
   clearTelemetryHistory
 } from "./telemetry.js"
 import type { TelemetryRecord } from "../types/index.js"
@@ -83,21 +84,23 @@ describe("telemetry persistence", () => {
   })
 
   it("caps history at MAX_HISTORY_ITEMS", () => {
+    const records: TelemetryRecord[] = []
     for (let i = 0; i < 1010; i++) {
-      const record: TelemetryRecord = {
+      records.push({
         id: `run-${i}`,
         modelId: "llama-3-8b-mlx",
         slug: "llama-3-8b",
         runtime: "mlx",
-        timestamp: Date.now(),
+        timestamp: Date.now() + i,
         promptTokens: 10,
         generatedTokens: 20,
         generationThroughput: 25.0,
         totalDurationMs: 800,
         effectiveThroughput: 37.5
-      }
-      saveTelemetryRecord(record)
+      })
     }
+    // Reverse so run-1009 is added first into history.unshift
+    saveTelemetryRecords(records.reverse())
 
     const history = loadTelemetryHistory()
     expect(history.length).toBe(1000)

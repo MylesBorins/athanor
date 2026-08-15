@@ -30,15 +30,20 @@ export function loadTelemetryHistory(): TelemetryRecord[] {
   return []
 }
 
-export function saveTelemetryRecord(record: TelemetryRecord): void {
+export function saveTelemetryRecords(records: TelemetryRecord[]): void {
+  if (records.length === 0) return
   ensureBaseDirs()
   const history = loadTelemetryHistory()
-  history.unshift(record) // Add to beginning (most recent first)
+  history.unshift(...records)
   if (history.length > MAX_HISTORY_ITEMS) {
     history.length = MAX_HISTORY_ITEMS
   }
   const fileContent: TelemetryFile = { version: 1, history }
   atomicWrite(PATHS.telemetry, JSON.stringify(fileContent, null, 2))
+}
+
+export function saveTelemetryRecord(record: TelemetryRecord): void {
+  saveTelemetryRecords([record])
 }
 
 export function clearTelemetryHistory(): void {
