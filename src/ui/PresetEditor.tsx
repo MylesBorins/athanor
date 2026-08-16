@@ -11,6 +11,7 @@ import {
   unsetPresetFields
 } from "../presets/edit.js"
 import { listRecipes, recipeToPreset } from "../presets/recipes.js"
+import { copyToClipboard, formatPresetCopyText } from "./clipboard.js"
 
 export interface PresetEditorProps {
   entryId: string
@@ -278,6 +279,16 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         persistPreset(preset, `unset ${spec.jsonName}`)
       } catch (err) { setNotice(`error: ${errMsg(err)}`) }
     }
+    else if (input === "y") {
+      const textToCopy = formatPresetCopyText(entry, effective)
+      const ok = copyToClipboard(textToCopy)
+      if (ok) {
+        const isCmd = textToCopy.startsWith("athanor preset")
+        setNotice(isCmd ? "✓ copied preset command to clipboard!" : "✓ copied configuration to clipboard!")
+      } else {
+        setNotice("error: unable to access system clipboard")
+      }
+    }
     else if (input === "c") { persistPreset(undefined, "preset cleared") }
     else if (input === "v" && entry.runtime === "mlx") {
       // Toggle MLX flavor (lm <-> vlm). Mirrors cmdFlavor: warn when
@@ -374,7 +385,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
             editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
           </Text>
         )
-        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-5 recipe · esc close</Text>}
+        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · y copy · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-5 recipe · esc close</Text>}
       {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
     </Box>
   )

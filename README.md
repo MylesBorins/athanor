@@ -404,7 +404,7 @@ athanor doctor --check-updates   also compare installed versions with latest ava
 | `tab`      | hide the model selector and expand the log pane; press again to restore |
 | `q`        | quit (does **not** stop running models)             |
 
-The downloads modal shows queued/running/completed pulls. Inside it: `↑↓` selects a task, `c` cancels the selected running task, `C` clears finished tasks, and `esc` closes the modal.
+The downloads modal shows queued/running/completed pulls. Inside it: `↑↓` selects a task, `c` cancels the selected running task, `C` clears finished tasks, and `esc` closes the modal. Inside the preset editor (`e`): `↑↓` navigates keys, `⏎` edits, `y` copies preset command / config to clipboard, `u` unsets a field, `c` clears preset, `1-5` applies a recipe, `v` toggles MLX flavor (`lm`/`vlm`), and `esc` closes.
 
 With the selector hidden (`tab`), the log pane grows to fill the space and the arrow keys switch roles:
 
