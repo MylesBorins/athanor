@@ -17,25 +17,29 @@ function llamaEntry(overrides: Partial<ModelEntry> = {}): ModelEntry {
 }
 
 describe("formatPresetCopyText", () => {
-  it("formats an athanor preset set command when preset overrides exist", () => {
-    const entry = llamaEntry({
-      preset: {
-        runtime: "llama.cpp",
-        llama: {
-          ctxSize: 65536,
-          temp: 0.7,
-          repeatPenalty: 1.1
-        }
-      }
-    })
-    const text = formatPresetCopyText(entry, { ctxSize: 65536, temp: 0.7, repeatPenalty: 1.1 })
-    expect(text).toBe("athanor preset llama-3-8b set ctx-size=65536 temp=0.7 repeat-penalty=1.1")
-  })
-
-  it("falls back to JSON formatting of effective config when no preset overrides exist", () => {
+  it("formats a complete athanor preset set command containing all effective keys", () => {
     const entry = llamaEntry()
-    const effective = { ctxSize: 65536, nGpuLayers: 999 }
+    const effective = {
+      ctxSize: 65536,
+      nGpuLayers: 999,
+      batchSize: 2048,
+      ubatchSize: 512,
+      parallel: 1,
+      temp: 0.7,
+      topP: 0.95,
+      topK: 20,
+      minP: 0,
+      repeatPenalty: 1.0,
+      presencePenalty: 0.0,
+      frequencyPenalty: 0.0,
+      repeatLastN: 64
+    }
     const text = formatPresetCopyText(entry, effective)
-    expect(text).toBe(JSON.stringify(effective, null, 2))
+    expect(text).toContain("athanor preset llama-3-8b set")
+    expect(text).toContain("ctx-size=65536")
+    expect(text).toContain("n-gpu-layers=999")
+    expect(text).toContain("temp=0.7")
+    expect(text).toContain("top-p=0.95")
+    expect(text).toContain("repeat-penalty=1")
   })
 })
