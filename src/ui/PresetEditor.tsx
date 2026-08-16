@@ -283,8 +283,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       const textToCopy = formatPresetCopyText(entry, effective)
       const ok = copyToClipboard(textToCopy)
       if (ok) {
-        const isCmd = textToCopy.startsWith("athanor preset")
-        setNotice(isCmd ? "✓ copied preset command to clipboard!" : "✓ copied configuration to clipboard!")
+        setNotice("✓ copied audit configuration to clipboard!")
       } else {
         setNotice("error: unable to access system clipboard")
       }

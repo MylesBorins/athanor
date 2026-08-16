@@ -33,21 +33,49 @@ export function formatPresetCopyText(
   entry: ModelEntry,
   effective: Record<string, string | number>
 ): string {
-  const runtime = entry.runtime
-  const specs = listKeys(runtime)
-  const tokens: string[] = []
+  const isMlx = entry.runtime === "mlx"
+  const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
+  const specs = listKeys(entry.runtime)
+
+  const lines: string[] = [
+    `Model: ${entry.slug}`,
+    `Runtime: ${runtimeLabel} (Port ${entry.port})`,
+    ``,
+    `Effective Settings:`
+  ]
+
+  let bag: Record<string, unknown> | undefined
+  if (entry.preset) {
+    if (entry.preset.runtime === "mlx" && entry.runtime === "mlx") {
+      bag = entry.preset.mlx
+    } else if (entry.preset.runtime === "llama.cpp" && entry.runtime === "llama.cpp") {
+      bag = entry.preset.llama
+    }
+  }
 
   for (const spec of specs) {
     const val = effective[spec.jsonName]
     if (val !== undefined && val !== "") {
       const keyName = spec.aliases.find(a => a.includes("-")) ?? spec.aliases[0]!
-      tokens.push(`${keyName}=${val}`)
+      const isOverride = bag && bag[spec.jsonName] !== undefined
+      lines.push(`  ${keyName}: ${val}${isOverride ? " (*)" : ""}`)
     }
   }
 
-  if (tokens.length > 0) {
-    return `athanor preset ${entry.slug} set ${tokens.join(" ")}`
+  if (bag && Object.keys(bag).length > 0) {
+    const setTokens: string[] = []
+    for (const [jsonName, val] of Object.entries(bag)) {
+      if (val === undefined) continue
+      const spec = specs.find(s => s.jsonName === jsonName)
+      const keyName = spec ? (spec.aliases.find(a => a.includes("-")) ?? spec.aliases[0]!) : jsonName
+      setTokens.push(`${keyName}=${val}`)
+    }
+    if (setTokens.length > 0) {
+      lines.push(``)
+      lines.push(`Recreate Preset:`)
+      lines.push(`  athanor preset ${entry.slug} set ${setTokens.join(" ")}`)
+    }
   }
 
-  return JSON.stringify(effective, null, 2)
+  return lines.join("\n")
 }
