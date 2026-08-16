@@ -103,7 +103,7 @@ describe("buildRecommendation", () => {
     expect(rec.presetHint).toBe("fast")
   })
 
-  it("suggests coding when context headroom is large", () => {
+  it("suggests long-context when context headroom is large", () => {
     const rec = buildRecommendation(modelEntry({
       sizeBytes: 4 * 1024 ** 3,
       trainedContextLength: 65536,
@@ -111,7 +111,7 @@ describe("buildRecommendation", () => {
     }), machineProfile(32))
 
     expect(rec.recommendedContext).toBe(32768)
-    expect(rec.presetHint).toBe("coding")
+    expect(rec.presetHint).toBe("long-context")
   })
 
   it("recommends 131072 context length for MoE models on 36 GB Macs", () => {

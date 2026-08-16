@@ -453,7 +453,13 @@ async function proxy(
           slug: modelEntry.slug,
           runtime: modelEntry.runtime,
           quantization: modelEntry.quantization,
-          presetName: modelEntry.preset ? (modelEntry.preset as { recipe?: string }).recipe || "custom" : undefined,
+          presetName: (() => {
+            const active = (modelEntry.formula ?? modelEntry.preset) as Record<string, unknown> | undefined
+            if (!active) return undefined
+            if (typeof active.name === "string") return active.name
+            if (typeof active.recipe === "string") return active.recipe
+            return "custom"
+          })(),
           timestamp: Date.now(),
           promptTokens,
           generatedTokens,
@@ -479,7 +485,6 @@ async function proxy(
         saveTelemetryRecord(telemetryRecord)
       } catch (err) {
         routerLog(`[router] failed to record telemetry: ${String(err)}`)
-        console.error("TELEMETRY ERROR:", err)
       }
     }, 150)
   }

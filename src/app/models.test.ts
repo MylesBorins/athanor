@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 import * as fs from "fs"
 import * as path from "path"
+import * as os from "os"
 import type { ModelEntry } from "../types/index.js"
 
 function entry(): ModelEntry {
@@ -100,27 +101,65 @@ describe("app model service", () => {
     expect(syncPi).toHaveBeenCalledWith({ instances: [] })
   })
 
-  it("deleteModelFromDisk leaves the registry entry intact when files cannot be removed", async () => {
+  it("deleteModelFromDisk throws when model is actively running", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry(),
+      removeModel: vi.fn(),
+      setModelFlavor: vi.fn(),
+      setModelPreset: vi.fn(),
+      setModelPublish: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn(),
+        list: () => [{ id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081, pid: 123, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log" }]
+      }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+    vi.doMock("../discovery/ingest.js", () => ({ ingestDiscovered: vi.fn() }))
+    vi.doMock("../pull/hf.js", () => ({ pull: vi.fn() }))
+
+    const mod = await import("./models.js")
+    expect(() => mod.deleteModelFromDisk("a")).toThrow("cannot delete model \"a\" while it is running")
+  })
+
+  it("deleteModelFromDisk removes the entire HF model cache repo directory for MLX models", async () => {
+    const hubDir = path.join(os.homedir(), ".cache", "huggingface", "hub")
+    const modelRepoDir = path.join(hubDir, "models--mlx-community--A")
+    const snapshotDir = path.join(modelRepoDir, "snapshots", "123456")
+    const blobsDir = path.join(modelRepoDir, "blobs")
+    fs.mkdirSync(snapshotDir, { recursive: true })
+    fs.mkdirSync(blobsDir, { recursive: true })
+    fs.writeFileSync(path.join(blobsDir, "blob1"), "weights-content")
+    fs.writeFileSync(path.join(snapshotDir, "config.json"), "{}")
+
     const syncPi = vi.fn()
     const removeModel = vi.fn(() => true)
 
     vi.doMock("../registry/index.js", () => ({
-      getModel: () => ({ ...entry(), runtime: "llama.cpp" as const, path: "/missing/a.gguf", source: { type: "local" as const } }),
+      getModel: () => ({ ...entry(), path: snapshotDir }),
       removeModel,
       setModelFlavor: vi.fn(),
       setModelPreset: vi.fn(),
       setModelPublish: vi.fn()
     }))
-    vi.doMock("../supervisor/index.js", () => ({ supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] } }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] }
+    }))
     vi.doMock("../sync/pi.js", () => ({ syncPi }))
     vi.doMock("../discovery/ingest.js", () => ({ ingestDiscovered: vi.fn() }))
     vi.doMock("../pull/hf.js", () => ({ pull: vi.fn() }))
+    vi.doUnmock("../config/index.js")
 
     const mod = await import("./models.js")
-    expect(() => mod.deleteModelFromDisk("a"))
-      .toThrow("could not remove files from disk for a; registry entry left intact")
-    expect(removeModel).not.toHaveBeenCalled()
-    expect(syncPi).not.toHaveBeenCalled()
+    const deleted = mod.deleteModelFromDisk("a")
+    expect(deleted.id).toBe("mlx-community/A")
+    expect(fs.existsSync(modelRepoDir)).toBe(false)
+    expect(removeModel).toHaveBeenCalledWith("mlx-community/A")
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
   })
 
   it("setPublished updates registry and syncs pi", async () => {

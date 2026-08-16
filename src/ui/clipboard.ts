@@ -73,8 +73,8 @@ export function formatPresetCopyText(
     }
     if (setTokens.length > 0) {
       lines.push(``)
-      lines.push(`Recreate Preset:`)
-      lines.push(`  athanor preset ${entry.slug} set ${setTokens.join(" ")}`)
+      lines.push(`Recreate Formula:`)
+      lines.push(`  athanor formula ${entry.slug} set ${setTokens.join(" ")}`)
     }
   }
 

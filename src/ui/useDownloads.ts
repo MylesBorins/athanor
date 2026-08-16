@@ -162,14 +162,13 @@ export function useDownloads(onTaskFinished?: (message: string) => void): Downlo
         onTaskFinished?.(message)
       })
       .catch(err => {
-        const tasksWithFailure = markTaskFailure(tasks, id, err)
-        const failed = tasksWithFailure.find(task => task.id === id)
+        const failureMessage = err instanceof PullAbortedError ? "pull cancelled" : `pull failed: ${err instanceof Error ? err.message : String(err)}`
         setTasks(prev => markTaskFailure(prev, id, err))
-        onTaskFinished?.(failed?.resultMessage ?? "pull failed")
+        onTaskFinished?.(failureMessage)
       })
 
     return base
-  }, [onTaskFinished, tasks])
+  }, [onTaskFinished])
 
   const cancelDownload = useCallback((id: string) => {
     setTasks(prev => {

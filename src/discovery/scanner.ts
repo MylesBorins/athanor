@@ -203,7 +203,7 @@ export function detectGgufMetadata(filePath: string, fallbackName?: string): Pic
   }
 }
 
-function snapshotSizeBytes(snapshotDir: string): number {
+export function snapshotSizeBytes(snapshotDir: string): number {
   try {
     return fs.readdirSync(snapshotDir).reduce((sum, name) => {
       try {

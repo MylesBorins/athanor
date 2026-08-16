@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   // in App.tsx, so no toast here.
 
   process.env.ATHANOR_TUI_ACTIVE = "1"
-  startControlApi()
+  startControlApi({ silent: true })
   await reconcileIngressForCurrentState()
 
   if (!devTui) process.stdout.write(ENTER_ALT_SCREEN + CLEAR_SCREEN + HIDE_CURSOR)

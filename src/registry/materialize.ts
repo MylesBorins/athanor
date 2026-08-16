@@ -1,6 +1,13 @@
+import * as fs from "fs"
 import * as path from "path"
 import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js"
-import { detectGgufMtp } from "../discovery/scanner.js"
+import {
+  detectGgufMetadata,
+  detectGgufMtp,
+  detectMlxCapabilities,
+  detectMlxMetadata,
+  snapshotSizeBytes
+} from "../discovery/scanner.js"
 import {
   allocatePort,
   loadRegistry,
@@ -74,19 +81,52 @@ export function pullToMaterializeInput(
   revision: string | undefined,
   runtime: RuntimeType,
   resolvedPath: string,
-  mlxCapabilities?: ModelEntry["mlxCapabilities"]
+  mlxCapabilities?: ModelEntry["mlxCapabilities"],
+  extraMetadata?: Partial<RegistryMaterializeInput>
 ): RegistryMaterializeInput {
   const source: ModelEntry["source"] = { type: "hf", repo, revision, file }
+  const name = sourceAwareName(runtime, source, file ? path.basename(file, ".gguf") : repo)
+
+  if (runtime === "mlx") {
+    const meta = detectMlxMetadata(resolvedPath, repo.split("/").pop() ?? repo)
+    const caps = mlxCapabilities ?? detectMlxCapabilities(resolvedPath)
+    return {
+      id: file ? `${repo}:${file}` : repo,
+      name,
+      path: resolvedPath,
+      runtime,
+      source,
+      sizeBytes: extraMetadata?.sizeBytes ?? snapshotSizeBytes(resolvedPath),
+      mlxCapabilities: caps.length > 0 ? caps : undefined,
+      capabilities: caps.includes("vlm") ? ["vlm"] : [],
+      architectureFamily: meta.architectureFamily,
+      trainedContextLength: meta.trainedContextLength,
+      quantization: meta.quantization,
+      paramCount: meta.paramCount,
+      isMoe: meta.isMoe,
+      activeParams: meta.activeParams,
+      metadataSource: meta.metadataSource,
+      ...extraMetadata
+    }
+  }
+
+  const ggufMeta = detectGgufMetadata(resolvedPath, file ? path.basename(file, ".gguf") : undefined)
+  let sizeBytes = extraMetadata?.sizeBytes
+  if (sizeBytes === undefined) {
+    try { sizeBytes = fs.statSync(resolvedPath).size } catch {}
+  }
   return {
     id: file ? `${repo}:${file}` : repo,
-    name: sourceAwareName(runtime, source, file ? path.basename(file, ".gguf") : repo),
+    name,
     path: resolvedPath,
     runtime,
     source,
-    mlxCapabilities: runtime === "mlx" ? mlxCapabilities : undefined,
-    capabilities: runtime === "mlx"
-      ? (mlxCapabilities && mlxCapabilities.includes("vlm") ? ["vlm"] : [])
-      : (detectGgufMtp(resolvedPath) ? ["mtp"] : [])
+    sizeBytes,
+    capabilities: ggufMeta.capabilities,
+    architectureFamily: ggufMeta.architectureFamily,
+    quantization: ggufMeta.quantization,
+    metadataSource: ggufMeta.metadataSource,
+    ...extraMetadata
   }
 }
 

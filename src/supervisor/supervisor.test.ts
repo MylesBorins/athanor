@@ -33,15 +33,15 @@ function resetState(): void {
   try { fs.unlinkSync(PATHS.registry) } catch { /* not present */ }
 }
 
-async function loadSupervisor() {
+async function loadSupervisor(customCmd?: { cmd: string; args: string[] }) {
   vi.doMock("../adapters/index.js", async () => {
     const real: any = await vi.importActual("../adapters/index.js")
     return {
       ...real,
-      buildCommandFor: (e: ModelEntry) => ({
+      buildCommandFor: (e: ModelEntry) => customCmd ?? {
         cmd: process.execPath,
         args: ["-e", fauxServer(e.port, e.piAlias ?? e.slug)]
-      })
+      }
     }
   })
   vi.doMock("../config/index.js", async () => {
@@ -171,4 +171,12 @@ describe("Supervisor (integration)", () => {
       })
     }
   }, 15_000)
+
+  it("handles spawn error gracefully when binary does not exist without crashing process", async () => {
+    const sup = await loadSupervisor({
+      cmd: "non_existent_binary_for_testing_12345",
+      args: []
+    })
+    await expect(sup.start(entry(19555))).rejects.toThrow("Failed to execute 'non_existent_binary_for_testing_12345'")
+  }, 10_000)
 })

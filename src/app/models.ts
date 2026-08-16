@@ -118,7 +118,9 @@ function realpathIfExists(p: string): string | null {
 }
 
 function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(parent, child)
+  const realParent = realpathIfExists(parent) ?? path.resolve(parent)
+  const realChild = realpathIfExists(child) ?? path.resolve(child)
+  const rel = path.relative(realParent, realChild)
   return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)
 }
 
@@ -127,23 +129,50 @@ function removePathRecursive(target: string): void {
 }
 
 function removeHfSnapshotFromEntry(entry: ModelEntry): boolean {
-  const snapshotPath = realpathIfExists(entry.path)
-  if (!snapshotPath) return false
+  const targetPath = entry.path
+  if (!fs.existsSync(targetPath)) return false
+
+  const config = loadConfig()
+  const hubRoot = path.join(os.homedir(), ".cache", "huggingface", "hub")
+  const configuredRoot = realpathIfExists(config.modelDirs.mlx.replace(/^~/, os.homedir()))
+  const resolvedHubRoot = configuredRoot ?? realpathIfExists(hubRoot) ?? hubRoot
+  const resolvedTarget = realpathIfExists(targetPath) ?? targetPath
 
   if (entry.runtime === "mlx") {
-    const config = loadConfig()
-    const hubRoot = path.join(os.homedir(), ".cache", "huggingface", "hub")
-    const configuredRoot = realpathIfExists(config.modelDirs.mlx.replace(/^~/, os.homedir()))
-    const resolvedHubRoot = configuredRoot ?? realpathIfExists(hubRoot) ?? hubRoot
-    if (!isInside(resolvedHubRoot, snapshotPath)) {
-      throw new Error(`refusing to remove snapshot outside HF cache: ${snapshotPath}`)
+    if (!isInside(resolvedHubRoot, resolvedTarget) && !isInside(resolvedHubRoot, targetPath)) {
+      throw new Error(`refusing to remove snapshot outside HF cache: ${targetPath}`)
     }
-    removePathRecursive(snapshotPath)
+    // If target is inside a models--org--repo directory, remove the entire model directory
+    const parsed = path.resolve(targetPath)
+    const parts = parsed.split(path.sep)
+    const modelDirIdx = parts.findIndex(p => p.startsWith("models--"))
+    if (modelDirIdx >= 0) {
+      const modelRepoDir = parts.slice(0, modelDirIdx + 1).join(path.sep)
+      if (isInside(resolvedHubRoot, modelRepoDir) || path.resolve(resolvedHubRoot) === path.dirname(modelRepoDir)) {
+        removePathRecursive(modelRepoDir)
+        return true
+      }
+    }
+    removePathRecursive(resolvedTarget)
     return true
   }
 
   if (entry.source.type === "hf" && entry.source.file) {
-    removePathRecursive(snapshotPath)
+    // Single-file GGUF in HF cache: remove the underlying blob and the snapshot file
+    if (resolvedTarget && resolvedTarget !== targetPath && fs.existsSync(resolvedTarget)) {
+      removePathRecursive(resolvedTarget)
+    }
+    if (fs.existsSync(targetPath)) {
+      removePathRecursive(targetPath)
+    }
+    try {
+      const snapshotDir = path.dirname(targetPath)
+      if (fs.existsSync(snapshotDir) && fs.readdirSync(snapshotDir).length === 0) {
+        fs.rmdirSync(snapshotDir)
+      }
+    } catch {
+      // ignore rmdir cleanup errors
+    }
     return true
   }
 
@@ -151,8 +180,8 @@ function removeHfSnapshotFromEntry(entry: ModelEntry): boolean {
 }
 
 function removeLocalModelPath(entry: ModelEntry): boolean {
-  const target = realpathIfExists(entry.path)
-  if (!target) return false
+  const target = realpathIfExists(entry.path) ?? entry.path
+  if (!fs.existsSync(target)) return false
   removePathRecursive(target)
   return true
 }
@@ -160,6 +189,11 @@ function removeLocalModelPath(entry: ModelEntry): boolean {
 export function deleteModelFromDisk(idOrSlug: string): ModelEntry {
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+
+  const running = supervisor.list().some(i => i.id === entry.id || i.slug === entry.slug)
+  if (running) {
+    throw new Error(`cannot delete model "${entry.slug}" while it is running; stop it first with 'athanor stop ${entry.slug}'`)
+  }
 
   const removedPath = entry.source.type === "local"
     ? removeLocalModelPath(entry)

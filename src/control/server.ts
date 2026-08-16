@@ -59,7 +59,11 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 
 let current: Server | null = null
 
-export function startControlApi(): Server | null {
+export interface StartControlApiOptions {
+  silent?: boolean
+}
+
+export function startControlApi(opts: StartControlApiOptions = {}): Server | null {
   const cfg = loadConfig()
   if (!cfg.controlApi.enabled) return null
   if (current) return current
@@ -68,9 +72,11 @@ export function startControlApi(): Server | null {
     handle(req, res).catch(err => sendJson(res, 500, { error: String(err) }))
   })
   server.listen(cfg.controlApi.port, cfg.controlApi.host, () => {
-    console.log(
-      `athanor control API listening on http://${cfg.controlApi.host}:${cfg.controlApi.port}`
-    )
+    if (!opts.silent) {
+      console.log(
+        `athanor control API listening on http://${cfg.controlApi.host}:${cfg.controlApi.port}`
+      )
+    }
   })
   current = server
   return server

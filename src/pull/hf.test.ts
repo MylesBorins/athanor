@@ -23,9 +23,13 @@ describe("pull registry materialization", () => {
       runHfDownload: vi.fn(async () => {}),
       resolveMlxSnapshot: vi.fn(() => "/cache/mlx/snap-1")
     }))
-    vi.doMock("../discovery/scanner.js", () => ({
-      detectMlxCapabilities: vi.fn(() => [])
-    }))
+    vi.doMock("../discovery/scanner.js", async (importOriginal) => {
+      const actual: any = await importOriginal()
+      return {
+        ...actual,
+        detectMlxCapabilities: vi.fn(() => [])
+      }
+    })
 
     const mod = await import("./hf.js")
     const first = await mod.pull({ repo: "mlx-community/Test-4bit" })
@@ -42,9 +46,13 @@ describe("pull registry materialization", () => {
       runHfDownload: vi.fn(async () => {}),
       resolveMlxSnapshot: vi.fn(() => "/cache/mlx/snap-2")
     }))
-    vi.doMock("../discovery/scanner.js", () => ({
-      detectMlxCapabilities: vi.fn(() => ["vlm"])
-    }))
+    vi.doMock("../discovery/scanner.js", async (importOriginal) => {
+      const actual: any = await importOriginal()
+      return {
+        ...actual,
+        detectMlxCapabilities: vi.fn(() => ["vlm"])
+      }
+    })
     vi.resetModules()
 
     const mod2 = await import("./hf.js")
@@ -73,9 +81,13 @@ describe("pull registry materialization", () => {
       runHfDownload: vi.fn(async () => {}),
       resolveMlxSnapshot: vi.fn(() => null)
     }))
-    vi.doMock("../discovery/scanner.js", () => ({
-      detectMlxCapabilities: vi.fn(() => [])
-    }))
+    vi.doMock("../discovery/scanner.js", async (importOriginal) => {
+      const actual: any = await importOriginal()
+      return {
+        ...actual,
+        detectMlxCapabilities: vi.fn(() => [])
+      }
+    })
 
     const mod = await import("./hf.js")
     await expect(mod.pull({ repo: "mlx-community/Test-4bit" }))
@@ -93,9 +105,13 @@ describe("pull registry materialization", () => {
       runHfDownload: vi.fn(async () => "/cache/mlx/revision-snap"),
       resolveMlxSnapshot: vi.fn(() => "/cache/mlx/main-snap")
     }))
-    vi.doMock("../discovery/scanner.js", () => ({
-      detectMlxCapabilities: vi.fn(() => [])
-    }))
+    vi.doMock("../discovery/scanner.js", async (importOriginal) => {
+      const actual: any = await importOriginal()
+      return {
+        ...actual,
+        detectMlxCapabilities: vi.fn(() => [])
+      }
+    })
 
     const mod = await import("./hf.js")
     const pulled = await mod.pull({ repo: "mlx-community/Test-4bit", revision: "refs/pr/7" })

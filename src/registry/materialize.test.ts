@@ -1,4 +1,5 @@
 import * as fs from "fs"
+import * as path from "path"
 import { beforeEach, describe, expect, it } from "vitest"
 import { PATHS } from "../config/index.js"
 import { listModels, updateModel } from "./index.js"
@@ -223,5 +224,38 @@ describe("registry materialization", () => {
     expect(entry.source.type).toBe("hf")
     expect((entry.source as { type: "hf"; repo: string }).repo).toBe("author/model")
     expect(entry.id).toBe("author/model:same-model.gguf")
+  })
+
+  it("populates metadata fields automatically on pull", () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "pull-meta-"))
+    const snapDir = path.join(tmp, "snapshots", "123")
+    fs.mkdirSync(snapDir, { recursive: true })
+    fs.writeFileSync(path.join(snapDir, "config.json"), JSON.stringify({
+      model_type: "qwen2",
+      max_position_embeddings: 32768,
+      num_experts: 4,
+      num_experts_per_tok: 2
+    }))
+    fs.writeFileSync(path.join(snapDir, "quantization_config.json"), JSON.stringify({
+      group_size: 64,
+      bits: 4
+    }))
+    fs.writeFileSync(path.join(snapDir, "weights.safetensors"), "abcde")
+
+    const input = pullToMaterializeInput(
+      "mlx-community/Qwen2-4bit",
+      undefined,
+      undefined,
+      "mlx",
+      snapDir
+    )
+
+    expect(input.architectureFamily).toBe("qwen")
+    expect(input.trainedContextLength).toBe(32768)
+    expect(input.quantization).toBe("4-bit")
+    expect(input.isMoe).toBe(true)
+    expect(input.activeParams).toBe(2)
+    expect(input.sizeBytes).toBeGreaterThan(0)
+    expect(input.metadataSource).toBe("mlx_config")
   })
 })

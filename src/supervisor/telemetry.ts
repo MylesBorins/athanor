@@ -10,7 +10,7 @@ export interface TelemetryFile {
 const MAX_HISTORY_ITEMS = 1000
 
 function atomicWrite(filepath: string, data: string): void {
-  const tmp = filepath + ".tmp"
+  const tmp = `${filepath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`
   fs.writeFileSync(tmp, data, "utf8")
   fs.renameSync(tmp, filepath)
 }

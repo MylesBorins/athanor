@@ -18,7 +18,7 @@ export interface Recommendation {
   recommendedContextNote: string
   confidence: RecommendationConfidence
   explanation: string
-  presetHint?: "fast" | "balanced" | "coding"
+  presetHint?: "fast" | "balanced" | "long-context"
   presetHintReason?: string
 }
 
@@ -188,7 +188,7 @@ function recommendPresetHint(entry: ModelEntry, fitBand: FitBand, recommendedCon
   }
   if (recommendedContext >= 32768) {
     return {
-      presetHint: entry.runtime === "llama.cpp" ? "coding" : "coding",
+      presetHint: "long-context",
       presetHintReason: "you have enough headroom to start with a larger working context"
     }
   }

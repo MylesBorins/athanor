@@ -156,8 +156,15 @@ export class Supervisor {
         env: adapterEnv ? { ...process.env, ...adapterEnv } : process.env
       })
       fs.closeSync(stdoutLog.fd)
+
+      let spawnError: Error | null = null
+      proc.on("error", err => {
+        spawnError = err
+      })
+
       if (!proc.pid) {
-        throw new Error(`Failed to spawn ${cmd}`)
+        const detail = spawnError ? `: ${(spawnError as Error).message}` : ""
+        throw new Error(`Failed to execute '${cmd}'${detail}`)
       }
       proc.unref()
 
@@ -182,12 +189,25 @@ export class Supervisor {
       this.instances.set(entry.id, instance)
       this.persist()
 
+      const spawnPromise = new Promise<never>((_, reject) => {
+        if (spawnError) {
+          reject(new Error(`Failed to execute '${cmd}': ${(spawnError as Error).message}`))
+        } else {
+          proc.once("error", err => {
+            reject(new Error(`Failed to execute '${cmd}': ${err.message}`))
+          })
+        }
+      })
+
       try {
-        await waitForHealthy(entry.runtime, entry.port, {
-          timeoutMs: cfg.supervisor.startupTimeoutMs,
-          intervalMs: cfg.supervisor.healthPollIntervalMs,
-          abort: abortSignal
-        })
+        await Promise.race([
+          waitForHealthy(entry.runtime, entry.port, {
+            timeoutMs: cfg.supervisor.startupTimeoutMs,
+            intervalMs: cfg.supervisor.healthPollIntervalMs,
+            abort: abortSignal
+          }),
+          spawnPromise
+        ])
         instance.status = "running"
         instance.healthyAt = Date.now()
         this.persist()

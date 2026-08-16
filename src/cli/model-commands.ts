@@ -272,7 +272,7 @@ export function cmdShow(idOrSlug: string): void {
   if (rec.presetHint) {
     console.log(`  ${dim("formula")}   ${rec.presetHint}  ${dim(rec.presetHintReason ?? "")}`)
   }
-  console.log(`  ${dim("next")}     ${dim(`start here, then tune with athanor formula apply ${entry.slug} ${rec.presetHint ?? "balanced"} or athanor formula set ${entry.slug} ...`)}`)
+  console.log(`  ${dim("next")}     ${dim(`start here, then tune with athanor formula ${entry.slug} apply ${rec.presetHint ?? "balanced"} or athanor formula ${entry.slug} set ...`)}`)
   console.log(`  ${dim("confidence")} ${rec.confidence}${entry.metadataSource ? dim(` (${entry.metadataSource})`) : ""}`)
   console.log()
 
@@ -310,9 +310,9 @@ export function cmdShow(idOrSlug: string): void {
   console.log()
 
   head("tune")
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset set ${entry.slug} key=value ...`)}`)
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor preset apply ${entry.slug} <recipe>`)}`)
-  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor recipes`)}  ${dim("# list available recipes")}`)
+  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor formula ${entry.slug} set key=value ...`)}`)
+  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor formula ${entry.slug} apply <formula>`)}`)
+  console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor formulas`)}  ${dim("# list available formulas")}`)
   if (entry.runtime === "mlx") {
     console.log(`  ${style.cyan(sym.arrow)} ${style.bold(`athanor flavor ${entry.slug} lm|vlm`)}  ${dim("# force mlx_lm vs mlx_vlm server")}`)
   }
