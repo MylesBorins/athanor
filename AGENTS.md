@@ -17,15 +17,15 @@ These are load-bearing. If a change seems to need to break one, stop and ask.
 3. **Preserve non-athanor pi entries.** `src/sync/pi.ts` rewrites only providers whose name starts with `athanor-`. Everything else in `~/.pi/agent/models.json` (OpenAI, Anthropic, Ollama, OpenRouter, user customs) must round-trip untouched. Same for `~/.pi/agent/settings.json` — only `defaultProvider` / `defaultModel` are touched, and only when a model is started as the active default.
 4. **Pi sync shape follows `config.router.enabled`.** Default (`router.enabled: true`): up to two aggregator providers — `athanor-mlx` and `athanor-llama` — both pointing at the ingress `baseUrl`, each listing only models of its runtime and carrying runtime-specific compat flags (MLX sets `supportsDeveloperRole: false`; llama-server doesn't). Providers with zero exposed members are suppressed. When `router.enabled` is false: each exposed model becomes its own pi provider `athanor-<runtime>-<slug>` with one `baseUrl` per model. Never emit both shapes. The CLI verbs are `expose` / `hide`; the underlying registry field is `publish: boolean` (storage name, kept stable for backward-compat of on-disk `models.json`).
 5. **Runtime model id matches launch argument literally.** `mlx_lm.server` compares the request's `model` field to whatever was passed as `--model` and falls back to a HuggingFace network lookup on mismatch. The pi model `id` we emit must equal the adapter's `--model` (MLX) or `--alias` (llama-server). Hub GGUF defaults to registry `id` (`author/repo:file.gguf`) unless the user set a custom `piAlias` different from `slug`. See `src/adapters/model-id.ts`, `src/sync/pi.ts`, and `src/adapters/*.ts`. pi's `/model` picker lists by `id`, not `name`.
-6. **Pi context metadata reflects effective served context.** `src/sync/pi.ts` must advertise the model's effective runtime context window from merged runtime config (`mergedConfigFor(entry)`), not only explicit per-model preset fields and not the model's theoretical maximum. pi should see what athanor will actually serve.
+6. **Pi context metadata reflects effective served context.** `src/sync/pi.ts` must advertise the model's effective runtime context window from merged runtime config (`mergedConfigFor(entry)`), not only explicit per-model formula fields and not the model's theoretical maximum. pi should see what athanor will actually serve.
 7. **MLX capability detection and flavor routing are separate axes.** Two fields live on an MLX entry:
    - `mlxCapabilities: ("vlm")[]` — a detected *fact* about the model (does config.json advertise a vision tower?). Refreshed by `ingestDiscovered` and `pull` via `detectMlxCapabilities()` in `src/discovery/scanner.ts`. Safe to overwrite on re-scan.
    - `mlxFlavor: "lm" | "vlm"` — user *intent* about which server binary to launch. `"vlm"` routes to `mlx_vlm.server`; `"lm"` (or absent) routes to `mlx_lm.server`. Only set by `athanor flavor <slug> lm|vlm` (`cmdFlavor` in `src/cli/commands.ts`). Discovery and ingest must never touch it.
 
    Detection is advisory because many VLM-tagged repos run fine as text-only under `mlx_lm.server` with no torch/torchvision installed, and that's usually the preferred path. `cmdShow` surfaces the capability with a hint that points at `athanor flavor`. Do not add VLM detection anywhere other than `detectMlxCapabilities`; keep it a single source of truth.
 8. **Supervisor default policy is `single-active`.** Starting model B stops model A unless the user opts into `multi-active-lru` (or `manual`) in `config.json`. Policies live in `src/supervisor/policies.ts`.
-9. **Presets are additive, scans are non-destructive.** `athanor scan` refreshes `path`, `sizeBytes`, and `mlxCapabilities`. `preset`, `publish`, `piAlias`, `tags`, `port`, `slug`, and `mlxFlavor` must survive re-scans. Built-in recipes are explicit presets; `balanced` is not shorthand for clearing a preset, and `preset clear` is the separate remove action.
-10. **All mutations go through helpers.** Use `setPresetFields` / `unsetPresetFields` / `recipeToPreset` from `src/presets/edit.ts` and `updateModel` from `src/registry/index.ts`. Do not hand-edit registry objects in commands or UI components.
+9. **Formulas are additive, scans are non-destructive.** `athanor scan` refreshes `path`, `sizeBytes`, and `mlxCapabilities`. `formula`, `publish`, `piAlias`, `tags`, `port`, `slug`, and `mlxFlavor` must survive re-scans. Built-in formulas are explicit; `balanced` is not shorthand for clearing a formula, and `formula clear` is the separate remove action.
+10. **All mutations go through helpers.** Use `setFormulaFields` / `unsetFormulaFields` from `src/presets/edit.ts`, `formulaToRuntime` from `src/presets/recipes.ts`, and `updateModel` / `setModelFormula` from `src/registry/index.ts`. Do not hand-edit registry objects in commands or UI components.
 
 ## Layout
 
@@ -36,14 +36,14 @@ src/
   config/       # config load + defaults
   control/      # optional HTTP control API (opt-in)
   discovery/    # HF cache scanner + ingest + fs.watch watcher; detectMlxCapabilities lives here
-  presets/      # preset merge, tunable-key metadata, recipes
+  presets/      # formula merge, tunable-key metadata, built-in + user formulas engine
   pull/         # HF repo inspection + `hf` download wrapper
   registry/     # atomic models.json CRUD, slug + port allocation, dedup on load, display labels
   router/       # optional OpenAI-compatible proxy (opt-in, single port)
   search/       # HF Hub search + trending
   supervisor/   # detached process lifecycle, policy, reattach, logs
   sync/         # namespaced pi-agent catalog merge
-  ui/           # Ink TUI: App, ModelList, LogTail, PullModal, PresetEditor
+  ui/           # Ink TUI: App, ModelList, LogTail, PullModal, PresetEditor (Formula Editor)
   types/        # shared types (ModelEntry, DiscoveredModel, etc.)
 test/setup.ts   # redirects ATHANOR_HOME and PI_HOME to a tmp dir per run
 ```
@@ -148,13 +148,13 @@ End-to-end operator flow once a model is in the registry (pulled or scanned):
 |---|---|---|
 | refresh cache | `athanor scan` | idempotent; picks up anything downloaded outside `athanor pull`, e.g. via `hf download` directly |
 | list | `athanor ls` | empty ⇒ curated suggestions; otherwise shows slug, runtime, port, publish state, running state |
-| inspect | `athanor show <slug>` | detected capabilities, resolved launch command, merged preset, current status |
+| inspect | `athanor show <slug>` | detected capabilities, resolved launch command, merged formula, current status |
 | start | `athanor start <slug>` | spawns a detached child on the entry's stable port; default policy (`single-active`) stops any currently-running model first |
 | tail logs | `athanor logs <slug> -n 500` | prints the last N lines from `~/.athanor/logs/<slug>-<pid>.log`; for live follow use the TUI |
 | verify endpoint | `curl localhost:<port>/v1/models` | OpenAI-compatible; port is printed by `ls` / `show` / `status` |
 | runtime status | `athanor status` | pid, cpu, rss, tok/s across all running instances |
 | stop | `athanor stop <slug>` | graceful SIGTERM; if the router is on, any in-flight stream drains up to `config.router.drainTimeoutMs` (30s default) first |
-| restart | `athanor restart <slug>` | stop + start; useful after `athanor preset set` changes |
+| restart | `athanor restart <slug>` | stop + start; useful after `athanor formula set` changes |
 
 Bare `athanor` (no args) opens the Ink TUI with the same surface. When the registry is empty, the TUI's start screen lists the curated suggestions from `src/pull/suggestions.ts`; pressing `Enter` pulls the selected one inline. Once models exist: `p` pulls, `s` scans, `Enter` toggles start/stop, `tab` hides the selector to scroll logs with `↑ ↓ / page up/down / mouse wheel`, `q` exits.
 
@@ -173,8 +173,8 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 | Path | Purpose |
 |---|---|
 | `~/.athanor/config.json` | user config: scan roots, port range, supervisor policy, control API |
-| `~/.athanor/models.json` | registry — source of truth for slugs, ports, presets, publish state |
-| `~/.athanor/recipes.json` | optional user recipes; overrides built-ins of the same name |
+| `~/.athanor/models.json` | registry — source of truth for slugs, ports, formulas, publish state |
+| `~/.athanor/formulas.json` | optional user formulas; overrides built-ins of the same name (with auto-migration from legacy `recipes.json`) |
 | `~/.athanor/logs/<slug>-<pid>.log` | per-run supervisor log |
 | `~/.athanor/state.json` | running PIDs / ports for reattach (see `src/supervisor/state.ts`) |
 | `~/.pi/agent/models.json` | pi-agent providers; athanor namespace only |
