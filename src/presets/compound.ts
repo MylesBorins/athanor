@@ -32,8 +32,8 @@ export const COMPOUND_KNOBS: CompoundKnob[] = [
     label: "KV Cache",
     runtimes: ["llama.cpp"],
     options: [
-      { key: "f16", label: "f16" },
-      { key: "q8_0", label: "q8_0 (half)" },
+      { key: "f16", label: "f16 (default)" },
+      { key: "q8_0", label: "q8_0 (half RAM)" },
       { key: "q4_0", label: "q4_0" }
     ]
   },

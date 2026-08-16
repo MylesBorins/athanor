@@ -522,6 +522,18 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       }
       return
     }
+    if (input === "d") {
+      const customRecipes = recipesList.filter(r => r.source === "user")
+      const targetName = activeRecipeName || customRecipes[0]?.name
+      if (targetName && deleteUserRecipe(targetName)) {
+        setRecipesList(listRecipes())
+        setActiveRecipeName(null)
+        setNotice(`✓ recipe "${targetName}" deleted`)
+      } else {
+        setNotice("error: no custom recipe found to delete")
+      }
+      return
+    }
     // Any other key resets clear confirmation
     if (clearConfirmPending) {
       setClearConfirmPending(false)
