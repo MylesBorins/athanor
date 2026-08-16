@@ -22,9 +22,11 @@ export {
 export {
   cmdPresetApply,
   cmdPresetClear,
+  cmdPresetSave,
   cmdPresetSet,
   cmdPresetShow,
   cmdPresetUnset,
+  cmdRecipeDelete,
   cmdRecipes
 } from "./preset-commands.js"
 

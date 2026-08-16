@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import { describe, it, expect, afterEach, beforeEach } from "vitest"
-import { findRecipe, listRecipes, recipeToPreset } from "./recipes.js"
+import { deleteUserRecipe, findRecipe, listRecipes, recipeToPreset, saveUserRecipe } from "./recipes.js"
 import { PATHS } from "../config/index.js"
 
 function stash(p: string): string | null {
@@ -67,6 +67,17 @@ describe("user recipes", () => {
       recipes: [{ name: "wrap", description: "w" }]
     }))
     expect(findRecipe("wrap")?.source).toBe("user")
+  })
+
+  it("saves user recipes with saveUserRecipe and allows deleting with deleteUserRecipe", () => {
+    saveUserRecipe({ name: "custom-1", description: "my custom", llama: { temp: 0.5 } })
+    const r1 = findRecipe("custom-1")!
+    expect(r1.source).toBe("user")
+    expect(r1.llama?.temp).toBe(0.5)
+
+    const deleted = deleteUserRecipe("custom-1")
+    expect(deleted).toBe(true)
+    expect(findRecipe("custom-1")).toBeUndefined()
   })
 
   it("ignores malformed files silently", () => {

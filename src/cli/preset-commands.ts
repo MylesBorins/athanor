@@ -1,6 +1,6 @@
 import { getModel } from "../registry/index.js"
 import { setPreset } from "../app/models.js"
-import { findRecipe, listRecipes, recipeToPreset } from "../presets/recipes.js"
+import { deleteUserRecipe, findRecipe, listRecipes, recipeToPreset, saveUserRecipe, type Recipe } from "../presets/recipes.js"
 import { listKeys, parseKvTokens, setPresetFields, unsetPresetFields } from "../presets/edit.js"
 import { style } from "./style.js"
 import { dim, head, info, ok } from "./shared.js"
@@ -50,6 +50,28 @@ export function cmdPresetApply(idOrSlug: string, recipeName: string): void {
   const tag = preset ? style.bold(recipeName) : `${style.bold(recipeName)} ${dim("(no-op for " + entry.runtime + ")")}`
   ok(`${style.bold(entry.slug)} ← recipe ${tag}`)
   if (preset) info(`restart to apply: ${style.bold(`athanor restart ${entry.slug}`)}`)
+}
+
+export function cmdPresetSave(idOrSlug: string, recipeName: string, description?: string): void {
+  const entry = getModel(idOrSlug)
+  if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
+  if (!entry.preset) throw new Error(`model "${entry.slug}" has no custom preset configured to save. Tune fields first with "athanor preset ${entry.slug} set ..."`)
+
+  const recipe: Recipe = {
+    name: recipeName,
+    description: description || `Saved preset from ${entry.slug}`,
+    mlx: entry.preset.runtime === "mlx" ? entry.preset.mlx : undefined,
+    llama: entry.preset.runtime === "llama.cpp" ? entry.preset.llama : undefined,
+    source: "user"
+  }
+  saveUserRecipe(recipe)
+  ok(`saved preset from ${style.bold(entry.slug)} as recipe ${style.bold(recipeName)} in ~/.athanor/recipes.json`)
+}
+
+export function cmdRecipeDelete(recipeName: string): void {
+  const deleted = deleteUserRecipe(recipeName)
+  if (!deleted) throw new Error(`unknown user recipe: ${recipeName}`)
+  ok(`recipe ${style.bold(recipeName)} removed from ~/.athanor/recipes.json`)
 }
 
 export function cmdRecipes(): void {

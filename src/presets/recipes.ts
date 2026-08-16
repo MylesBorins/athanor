@@ -114,3 +114,33 @@ export function recipeToPreset(
   if (!recipe.llama || Object.keys(recipe.llama).length === 0) return undefined
   return { runtime: "llama.cpp", llama: { ...recipe.llama } }
 }
+
+export function saveUserRecipe(recipe: Recipe): void {
+  const recipes = readUserRecipes()
+  const idx = recipes.findIndex(r => r.name === recipe.name)
+  const cleanRecipe: Recipe = {
+    name: recipe.name,
+    description: recipe.description || "",
+    mlx: recipe.mlx,
+    llama: recipe.llama,
+    source: "user"
+  }
+  if (idx >= 0) {
+    recipes[idx] = cleanRecipe
+  } else {
+    recipes.push(cleanRecipe)
+  }
+  const tmp = PATHS.recipes + ".tmp"
+  fs.writeFileSync(tmp, JSON.stringify(recipes, null, 2), "utf8")
+  fs.renameSync(tmp, PATHS.recipes)
+}
+
+export function deleteUserRecipe(name: string): boolean {
+  const recipes = readUserRecipes()
+  const filtered = recipes.filter(r => r.name !== name)
+  if (filtered.length === recipes.length) return false
+  const tmp = PATHS.recipes + ".tmp"
+  fs.writeFileSync(tmp, JSON.stringify(filtered, null, 2), "utf8")
+  fs.renameSync(tmp, PATHS.recipes)
+  return true
+}

@@ -7,6 +7,7 @@ import {
   cmdLogs,
   cmdPresetApply,
   cmdPresetClear,
+  cmdPresetSave,
   cmdPresetSet,
   cmdPresetShow,
   cmdPresetUnset,
@@ -108,7 +109,7 @@ export async function runCli(argv: string[]): Promise<boolean> {
     case "recipes":     cmdRecipes(); return true
     case "preset": {
       const slug = required(rest[0], "id|slug")
-      const sub = required(rest[1], "show|set|unset|clear|apply")
+      const sub = required(rest[1], "show|set|unset|clear|apply|save")
       const tail = rest.slice(2)
       switch (sub) {
         case "show":   cmdPresetShow(slug); return true
@@ -116,6 +117,10 @@ export async function runCli(argv: string[]): Promise<boolean> {
         case "unset":  cmdPresetUnset(slug, tail); return true
         case "clear":  cmdPresetClear(slug); return true
         case "apply":  cmdPresetApply(slug, required(tail[0], "recipe")); return true
+        case "save":
+        case "save-recipe":
+          cmdPresetSave(slug, required(tail[0], "recipe-name"), tail[1])
+          return true
         default:
           console.error(`${style.red("✗")} unknown preset subcommand: ${style.bold(sub)}`)
           process.exit(1)

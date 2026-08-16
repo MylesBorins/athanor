@@ -486,7 +486,10 @@ athanor preset qwen-32b unset ctx-size
 athanor preset qwen-32b clear
 
 # apply a named recipe for the model's runtime
-athanor preset qwen-32b apply coding
+athanor preset qwen-32b apply thinking
+
+# save a model's current preset tuning as a reusable custom recipe
+athanor preset qwen-32b save my-reasoning-preset
 
 # list built-in + user recipes and every tunable key per runtime
 athanor recipes
@@ -501,7 +504,7 @@ Built-in recipes: `balanced`, `fast`, `long-context`, `thinking`, `instruct`, `m
 - `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
 - `mtp` — Multi-Token Prediction speculative decoding
 
-`balanced` is an explicit preset recipe; clearing a preset is a separate action (`athanor preset <slug> clear`). Drop your own into `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`); user recipes override built-ins of the same name.
+`balanced` is an explicit preset recipe; clearing a preset is a separate action (`athanor preset <slug> clear`). Save your own tuning as custom named recipes via `athanor preset <slug> save <name>` or by editing `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`). User recipes override built-ins of the same name.
 
 Presets survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxCapabilities`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
 

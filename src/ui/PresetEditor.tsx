@@ -10,7 +10,7 @@ import {
   setPresetFields,
   unsetPresetFields
 } from "../presets/edit.js"
-import { listRecipes, recipeToPreset } from "../presets/recipes.js"
+import { deleteUserRecipe, listRecipes, recipeToPreset, saveUserRecipe, type Recipe } from "../presets/recipes.js"
 import { copyToClipboard, formatPresetCopyText } from "./clipboard.js"
 
 export interface PresetEditorProps {
@@ -173,14 +173,17 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   const [entry, setEntry] = useState<ModelEntry | undefined>(initial)
   const [cursor, setCursor] = useState(0)
   const [edit, setEdit] = useState<EditState>(null)
+  const [savingRecipe, setSavingRecipe] = useState<{ buffer: string } | null>(null)
+  const [recipesList, setRecipesList] = useState<Recipe[]>(() => listRecipes())
   const [notice, setNotice] = useState("")
 
   const keys = useMemo(() => entry ? listKeys(entry.runtime) : [], [entry])
-  const recipes = useMemo(() => listRecipes(), [])
   const effective = useMemo(
     () => entry ? (mergedConfigFor(entry) as unknown as Record<string, string | number>) : {},
     [entry]
   )
+
+  const totalItems = keys.length + recipesList.length
 
   function refresh(msg: string): void {
     setEntry(getModel(entryId))
@@ -199,6 +202,34 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 
   useInput((input, key) => {
     if (!entry) { if (key.escape) onClose(""); return }
+
+    if (savingRecipe) {
+      if (key.escape) { setSavingRecipe(null); return }
+      if (key.return) {
+        const name = savingRecipe.buffer.trim()
+        if (!name) { setNotice("error: recipe name cannot be empty"); return }
+        const recipe: Recipe = {
+          name,
+          description: `Custom recipe saved from ${entry.slug}`,
+          mlx: entry.preset?.runtime === "mlx" ? entry.preset.mlx : undefined,
+          llama: entry.preset?.runtime === "llama.cpp" ? entry.preset.llama : undefined,
+          source: "user"
+        }
+        saveUserRecipe(recipe)
+        setRecipesList(listRecipes())
+        setSavingRecipe(null)
+        setNotice(`✓ recipe "${name}" saved to ~/.athanor/recipes.json`)
+        return
+      }
+      if (key.backspace || key.delete) {
+        setSavingRecipe(s => s ? { buffer: s.buffer.slice(0, -1) } : s)
+        return
+      }
+      if (input && /^[a-zA-Z0-9_\-]$/.test(input)) {
+        setSavingRecipe(s => s ? { buffer: s.buffer + input } : s)
+      }
+      return
+    }
 
     if (edit) {
       if (key.escape) { setEdit(null); return }
@@ -261,23 +292,47 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     }
 
     if (key.escape) { onClose(notice); return }
-    if (key.downArrow) setCursor(c => Math.min(keys.length - 1, c + 1))
+    if (key.downArrow) setCursor(c => Math.min(totalItems - 1, c + 1))
     else if (key.upArrow) setCursor(c => Math.max(0, c - 1))
     else if (key.return) {
-      const spec = keys[cursor]
-      if (spec) {
-        const existing = presetValueFor(entry, spec.jsonName)
-        const start = existing !== undefined ? String(existing) : String(effective[spec.jsonName] ?? "")
-        setEdit({ jsonName: spec.jsonName, buffer: start })
+      if (cursor < keys.length) {
+        const spec = keys[cursor]
+        if (spec) {
+          const existing = presetValueFor(entry, spec.jsonName)
+          const start = existing !== undefined ? String(existing) : String(effective[spec.jsonName] ?? "")
+          setEdit({ jsonName: spec.jsonName, buffer: start })
+        }
+      } else {
+        const recipeIndex = cursor - keys.length
+        const r = recipesList[recipeIndex]
+        if (r) {
+          const preset = recipeToPreset(r, entry.runtime)
+          persistPreset(preset, `applied recipe: ${r.name}`)
+        }
+      }
+    }
+    else if (input === "s") {
+      setSavingRecipe({ buffer: "" })
+    }
+    else if ((input === "d" || key.delete) && cursor >= keys.length) {
+      const recipeIndex = cursor - keys.length
+      const r = recipesList[recipeIndex]
+      if (r && r.source === "user") {
+        deleteUserRecipe(r.name)
+        setRecipesList(listRecipes())
+        setCursor(c => Math.max(0, c - 1))
+        setNotice(`✓ recipe "${r.name}" deleted`)
       }
     }
     else if (input === "u") {
-      const spec = keys[cursor]
-      if (!spec) return
-      try {
-        const preset = unsetPresetFields(entry, [spec.jsonName])
-        persistPreset(preset, `unset ${spec.jsonName}`)
-      } catch (err) { setNotice(`error: ${errMsg(err)}`) }
+      if (cursor < keys.length) {
+        const spec = keys[cursor]
+        if (!spec) return
+        try {
+          const preset = unsetPresetFields(entry, [spec.jsonName])
+          persistPreset(preset, `unset ${spec.jsonName}`)
+        } catch (err) { setNotice(`error: ${errMsg(err)}`) }
+      }
     }
     else if (input === "y") {
       const textToCopy = formatPresetCopyText(entry, effective)
@@ -290,10 +345,6 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     }
     else if (input === "c") { persistPreset(undefined, "preset cleared") }
     else if (input === "v" && entry.runtime === "mlx") {
-      // Toggle MLX flavor (lm <-> vlm). Mirrors cmdFlavor: warn when
-      // flipping to vlm on a model that has no detected vision tower,
-      // and append a restart hint when the model is currently running
-      // since the change only takes effect on a fresh spawn.
       const next = entry.mlxFlavor === "vlm" ? "lm" : "vlm"
       const noVlmCap = !(entry.mlxCapabilities ?? []).includes("vlm")
       const running = supervisor.list().some(i => i.id === entry.id)
@@ -304,7 +355,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     }
     else if (input && /^[1-9]$/.test(input)) {
       const idx = Number(input) - 1
-      const r = recipes[idx]
+      const r = recipesList[idx]
       if (!r) return
       const preset = recipeToPreset(r, entry.runtime)
       persistPreset(preset, `recipe: ${r.name}`)
@@ -319,18 +370,17 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     )
   }
 
-  // For MLX entries, surface the active server explicitly (lm vs vlm)
   const isMlx     = entry.runtime === "mlx"
   const isVlm     = isMlx && entry.mlxFlavor === "vlm"
   const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
   const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
-  const _innerWidth = Math.max(24, width - 4)
   const keyColWidth = 22
 
-  const MAX_VISIBLE_KEYS = 8
+  const MAX_VISIBLE_KEYS = 7
+  const activeKeyCursor = Math.min(cursor, keys.length - 1)
   const windowStart = Math.max(
     0,
-    Math.min(cursor - Math.floor(MAX_VISIBLE_KEYS / 2), keys.length - MAX_VISIBLE_KEYS)
+    Math.min(activeKeyCursor - Math.floor(MAX_VISIBLE_KEYS / 2), keys.length - MAX_VISIBLE_KEYS)
   )
   const windowEnd = Math.min(keys.length, windowStart + MAX_VISIBLE_KEYS)
   const visibleKeys = keys.slice(windowStart, windowEnd)
@@ -367,24 +417,33 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       })}
       {countBelow > 0 ? <Text dimColor backgroundColor="black">  ▼ {countBelow} more below</Text> : null}
       <Text backgroundColor="black"> </Text>
-      <Text dimColor backgroundColor="black">Recipes  (1-5 applies)</Text>
-      {recipes.slice(0, 5).map((r, i) => (
-        <Text key={r.name} backgroundColor="black" wrap="truncate-end">
-          {`${i + 1}.`.padStart(3)} <Text bold backgroundColor="black">{r.name}</Text>
-          <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
-            {r.source === "user" ? " [user]" : " [builtin]"}
-          </Text>
-          <Text dimColor backgroundColor="black"> {r.description}</Text>
-        </Text>
-      ))}
-      <Text backgroundColor="black"> </Text>
-      {edit
-        ? (
-          <Text wrap="truncate-end" backgroundColor="black">
-            editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
+      <Text dimColor backgroundColor="black">Recipes  (press ⏎ or 1-9 to apply, s to save, d to delete custom)</Text>
+      {recipesList.map((r, i) => {
+        const itemIdx = keys.length + i
+        const active = itemIdx === cursor
+        const hotkeyTag = i < 9 ? `${i + 1}.`.padStart(3) : "   "
+        return (
+          <Text key={r.name} color={active ? "cyan" : undefined} backgroundColor="black" wrap="truncate-end">
+            {active ? "▸" : " "} {hotkeyTag} <Text bold backgroundColor="black">{r.name}</Text>
+            <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
+              {r.source === "user" ? " [user]" : " [builtin]"}
+            </Text>
+            <Text dimColor backgroundColor="black"> {r.description}</Text>
           </Text>
         )
-        : <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit · y copy · u unset · c clear{isMlx ? " · v flavor" : ""} · 1-5 recipe · esc close</Text>}
+      })}
+      <Text backgroundColor="black"> </Text>
+      {savingRecipe ? (
+        <Text wrap="truncate-end" backgroundColor="black">
+          save recipe as: <Text color="cyan" backgroundColor="black">{savingRecipe.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel)</Text>
+        </Text>
+      ) : edit ? (
+        <Text wrap="truncate-end" backgroundColor="black">
+          editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
+        </Text>
+      ) : (
+        <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit/apply · s save recipe · y copy audit · u unset · c clear{isMlx ? " · v flavor" : ""} · esc close</Text>
+      )}
       {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
     </Box>
   )
