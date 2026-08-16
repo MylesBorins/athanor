@@ -17,7 +17,14 @@ import {
   applyCompoundSelection,
   type CompoundKnob
 } from "../presets/compound.js"
-import { deleteUserRecipe, listRecipes, recipeToPreset, saveUserRecipe, type Recipe } from "../presets/recipes.js"
+import {
+  deleteUserRecipe,
+  findMatchingRecipe,
+  listRecipes,
+  recipeToPreset,
+  saveUserRecipe,
+  type Recipe
+} from "../presets/recipes.js"
 import { copyToClipboard, formatPresetCopyText } from "./clipboard.js"
 
 export interface PresetEditorProps {
@@ -220,7 +227,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   const [mode, setMode] = useState<"simple" | "advanced">("simple")
   const [cursor, setCursor] = useState(0)
   const [edit, setEdit] = useState<EditState>(null)
-  const [savingRecipe, setSavingRecipe] = useState<{ buffer: string } | null>(null)
+  const [activeRecipeName, setActiveRecipeName] = useState<string | null>(null)
+  const [savingRecipe, setSavingRecipe] = useState<{ buffer: string; cycleIndex: number } | null>(null)
   const [recipesList, setRecipesList] = useState<Recipe[]>(() => listRecipes())
   const [notice, setNotice] = useState("")
   const [clearConfirmPending, setClearConfirmPending] = useState(false)
@@ -309,16 +317,40 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         }
         saveUserRecipe(recipe)
         setRecipesList(listRecipes())
+        setActiveRecipeName(name)
         setSavingRecipe(null)
         setNotice(`✓ recipe "${name}" saved`)
         return
       }
+      if (key.upArrow || key.downArrow) {
+        const dir = key.upArrow ? -1 : 1
+        const allNames = recipesList.map(r => r.name)
+        if (allNames.length > 0) {
+          const nextIdx = (savingRecipe.cycleIndex + dir + allNames.length) % allNames.length
+          const nextName = allNames[nextIdx]!
+          setSavingRecipe({ buffer: nextName, cycleIndex: nextIdx })
+        }
+        return
+      }
+      if (key.tab) {
+        const prefix = savingRecipe.buffer.trim().toLowerCase()
+        if (prefix) {
+          const match = recipesList.find(
+            r => r.name.toLowerCase().startsWith(prefix) && r.name.toLowerCase() !== prefix
+          )
+          if (match) {
+            const idx = recipesList.indexOf(match)
+            setSavingRecipe({ buffer: match.name, cycleIndex: idx >= 0 ? idx : 0 })
+          }
+        }
+        return
+      }
       if (key.backspace || key.delete) {
-        setSavingRecipe(s => (s ? { buffer: s.buffer.slice(0, -1) } : s))
+        setSavingRecipe(s => (s ? { ...s, buffer: s.buffer.slice(0, -1) } : s))
         return
       }
       if (input && /^[a-zA-Z0-9_-]$/.test(input)) {
-        setSavingRecipe(s => (s ? { buffer: s.buffer + input } : s))
+        setSavingRecipe(s => (s ? { ...s, buffer: s.buffer + input } : s))
       }
       return
     }
@@ -458,7 +490,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 
     // Dedicated hotkeys
     if (input === "s") {
-      setSavingRecipe({ buffer: "" })
+      const matching = findMatchingRecipe(entry, recipesList)
+      const initialName =
+        activeRecipeName ||
+        matching?.name ||
+        (recipesList.find(r => r.source === "user")?.name ?? `${entry.slug}-custom`)
+      const initialIdx = recipesList.findIndex(r => r.name === initialName)
+      setSavingRecipe({ buffer: initialName, cycleIndex: initialIdx >= 0 ? initialIdx : 0 })
       return
     }
     if (input === "y") {
@@ -476,6 +514,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     if (input === "c") {
       if (clearConfirmPending) {
         persistPreset(undefined, "preset cleared")
+        setActiveRecipeName(null)
         setClearConfirmPending(false)
       } else {
         setClearConfirmPending(true)
@@ -529,6 +568,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       if (r) {
         const preset = recipeToPreset(r, entry.runtime)
         persistPreset(preset, `recipe: ${r.name}`)
+        setActiveRecipeName(r.name)
       }
     }
   })
@@ -720,9 +760,35 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       <Text backgroundColor="black"> </Text>
 
       {savingRecipe ? (
-        <Text wrap="truncate-end" backgroundColor="black">
-          save recipe as: <Text color="cyan" backgroundColor="black">{savingRecipe.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel)</Text>
-        </Text>
+        (() => {
+          const target = recipesList.find(r => r.name === savingRecipe.buffer.trim())
+          const badge =
+            target?.source === "user" ? (
+              <Text color="magenta" backgroundColor="black">
+                {" "}
+                [updates user recipe]
+              </Text>
+            ) : target?.source === "builtin" ? (
+              <Text color="yellow" backgroundColor="black">
+                {" "}
+                [overrides builtin]
+              </Text>
+            ) : (
+              <Text color="cyan" backgroundColor="black">
+                {" "}
+                [new recipe]
+              </Text>
+            )
+          return (
+            <Text wrap="truncate-end" backgroundColor="black">
+              save recipe as:{" "}
+              <Text bold color="cyan" backgroundColor="black">
+                {savingRecipe.buffer || "_"}
+              </Text>
+              {badge}  <Text dimColor backgroundColor="black">(⏎ save · ↑↓ cycle names · tab complete · esc cancel)</Text>
+            </Text>
+          )
+        })()
       ) : edit ? (
         <Text wrap="truncate-end" backgroundColor="black">
           editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>

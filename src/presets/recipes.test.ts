@@ -115,3 +115,35 @@ describe("recipeToPreset", () => {
     }
   })
 })
+
+describe("findMatchingRecipe", () => {
+  it("finds matching recipe from model preset", () => {
+    const entry = {
+      id: "test",
+      slug: "test",
+      path: "/test",
+      runtime: "llama.cpp" as const,
+      source: { type: "local" as const },
+      port: 8000,
+      publish: true,
+      addedAt: 0,
+      preset: {
+        runtime: "llama.cpp" as const,
+        llama: {
+          temp: 1.0,
+          topP: 0.95,
+          topK: 20,
+          minP: 0,
+          presencePenalty: 0.0,
+          repeatPenalty: 1.0
+        }
+      }
+    }
+    const match = findRecipe("thinking")
+    expect(match).toBeDefined()
+    // Matching thinking recipe
+    const found = findRecipe("thinking")
+    expect(found?.name).toBe("thinking")
+  })
+})
+

@@ -2,6 +2,7 @@ import * as fs from "fs"
 import type {
   LlamaConfig,
   MlxConfig,
+  ModelEntry,
   RuntimePreset,
   RuntimeType
 } from "../types/index.js"
@@ -105,6 +106,34 @@ export function listRecipes(): Recipe[] {
 
 export function findRecipe(name: string): Recipe | undefined {
   return listRecipes().find(r => r.name === name)
+}
+
+export function findMatchingRecipe(
+  entry: ModelEntry,
+  recipes: Recipe[] = listRecipes()
+): Recipe | undefined {
+  if (!entry.preset) return undefined
+  for (const r of recipes) {
+    if (entry.preset.runtime === "llama.cpp" && r.llama && Object.keys(r.llama).length > 0) {
+      const p = entry.preset.llama as Record<string, unknown>
+      const rec = r.llama as Record<string, unknown>
+      const pKeys = Object.keys(p).filter(k => p[k] !== undefined)
+      const rKeys = Object.keys(rec).filter(k => rec[k] !== undefined)
+      if (pKeys.length === rKeys.length && pKeys.every(k => p[k] === rec[k])) {
+        return r
+      }
+    }
+    if (entry.preset.runtime === "mlx" && r.mlx && Object.keys(r.mlx).length > 0) {
+      const p = entry.preset.mlx as Record<string, unknown>
+      const rec = r.mlx as Record<string, unknown>
+      const pKeys = Object.keys(p).filter(k => p[k] !== undefined)
+      const rKeys = Object.keys(rec).filter(k => rec[k] !== undefined)
+      if (pKeys.length === rKeys.length && pKeys.every(k => p[k] === rec[k])) {
+        return r
+      }
+    }
+  }
+  return undefined
 }
 
 // Produces a preset for a specific runtime from a recipe. Built-ins are
