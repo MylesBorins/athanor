@@ -105,6 +105,38 @@ describe("setPresetFields", () => {
     expect(p.llama.frequencyPenalty).toBe(0.3)
     expect(p.llama.repeatLastN).toBe(128)
   })
+
+  it("accepts KV cache quantization and flash attention keys for llama.cpp", () => {
+    const p = setPresetFields(llamaEntry(), [
+      ["cache-type-k", "q8_0"],
+      ["ctv", "q4_0"],
+      ["flash-attn", "on"],
+      ["cache-type-k-draft", "q8_0"],
+      ["ctvd", "q4_0"]
+    ])
+    expect(p.runtime).toBe("llama.cpp")
+    if (p.runtime !== "llama.cpp") throw new Error()
+    expect(p.llama.cacheTypeK).toBe("q8_0")
+    expect(p.llama.cacheTypeV).toBe("q4_0")
+    expect(p.llama.flashAttn).toBe("on")
+    expect(p.llama.specDraftCacheTypeK).toBe("q8_0")
+    expect(p.llama.specDraftCacheTypeV).toBe("q4_0")
+  })
+
+  it("validates and normalizes flash-attn and rejects invalid cache types", () => {
+    const p1 = setPresetFields(llamaEntry(), [["fa", "true"]])
+    if (p1.runtime !== "llama.cpp") throw new Error()
+    expect(p1.llama.flashAttn).toBe("on")
+
+    const p2 = setPresetFields(llamaEntry(), [["fa", "disabled"]])
+    if (p2.runtime !== "llama.cpp") throw new Error()
+    expect(p2.llama.flashAttn).toBe("off")
+
+    expect(() => setPresetFields(llamaEntry(), [["cache-type-k", "invalid_quant"]]))
+      .toThrow(/expected one of/)
+    expect(() => setPresetFields(llamaEntry(), [["flash-attn", "invalid_mode"]]))
+      .toThrow(/expected on, off, or auto/)
+  })
 })
 
 describe("unsetPresetFields", () => {

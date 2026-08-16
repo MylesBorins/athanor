@@ -495,11 +495,12 @@ athanor preset qwen-32b save my-reasoning-preset
 athanor recipes
 ```
 
-Built-in recipes: `balanced`, `fast`, `long-context`, `thinking`, `instruct`, `mtp`.
+Built-in recipes: `balanced`, `fast`, `long-context`, `q8-kv`, `thinking`, `instruct`, `mtp`.
 
 - `balanced` — recommended default, 64K context
 - `fast` — lower latency, 8K context
-- `long-context` — 128K context for large documents
+- `long-context` — 128K context for large documents (with Q8_0 KV cache and Flash Attention)
+- `q8-kv` — Q8_0 KV cache quantization with Flash Attention for reduced memory footprint
 - `thinking` — reasoning model sampling (temp=1.0, topP=0.95, topK=20)
 - `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
 - `mtp` — Multi-Token Prediction speculative decoding
@@ -524,6 +525,27 @@ Under the hood, a preset looks like this in `~/.athanor/models.json` — you can
 Restart the model for the preset to take effect.
 
 pi-agent receives the model's effective served context window from athanor's merged runtime configuration (global defaults plus any per-model preset), so pi metadata matches the actual launch settings rather than only explicit override fields.
+
+### KV Cache Quantization & Flash Attention (llama.cpp only)
+
+Large context windows (32K–128K+) with default FP16 KV cache can consume 10–30+ GB of memory alone. On Apple Silicon unified memory, this can trigger OS paging and swap thrashing, collapsing throughput from 15+ tok/s down to single digits.
+
+Quantizing the KV cache to `q8_0` (or `q4_0`) roughly halves the KV cache memory while preserving reasoning accuracy:
+
+```bash
+# Halve KV cache size with Q8_0 quantization and enable Flash Attention
+athanor preset qwen-27b set cache-type-k=q8_0 cache-type-v=q8_0 flash-attn=on
+
+# Or apply the built-in q8-kv recipe
+athanor preset qwen-27b apply q8-kv
+```
+
+Available keys:
+- `cache-type-k` / `cacheTypeK` / `ctk` — KV cache key data type (`f16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1`, `bf16`, `f32`)
+- `cache-type-v` / `cacheTypeV` / `ctv` — KV cache value data type (`f16`, `q8_0`, `q4_0`, etc.)
+- `flash-attn` / `flashAttn` / `fa` — Flash Attention mode (`on`, `off`, `auto`). Required when using quantized KV cache in `llama.cpp`.
+- `spec-draft-type-k` / `specDraftCacheTypeK` / `ctkd` — Draft model KV cache key data type
+- `spec-draft-type-v` / `specDraftCacheTypeV` / `ctvd` — Draft model KV cache value data type
 
 ### Speculative Decoding & MTP (llama.cpp only)
 

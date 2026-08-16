@@ -31,6 +31,23 @@ function str(raw: string): string {
   return raw
 }
 
+const VALID_CACHE_TYPES = new Set(["f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"])
+function cacheType(raw: string): string {
+  const val = raw.toLowerCase().trim()
+  if (!VALID_CACHE_TYPES.has(val)) {
+    throw new Error(`expected one of: ${Array.from(VALID_CACHE_TYPES).join(", ")}, got "${raw}"`)
+  }
+  return val
+}
+
+function flashAttn(raw: string): string {
+  const val = raw.toLowerCase().trim()
+  if (val === "on" || val === "true" || val === "1" || val === "enabled") return "on"
+  if (val === "off" || val === "false" || val === "0" || val === "disabled") return "off"
+  if (val === "auto") return "auto"
+  throw new Error(`expected on, off, or auto, got "${raw}"`)
+}
+
 const KEYS: KeySpec[] = [
   { runtime: "mlx", jsonName: "prefillStepSize", type: "number",
     aliases: ["prefillStepSize", "prefill-step-size"],
@@ -134,7 +151,22 @@ const KEYS: KeySpec[] = [
         throw new Error("expected auto, enabled, or disabled")
       }
       return val
-    }, help: "llama: speculative decoding mode (auto, enabled, disabled)" }
+    }, help: "llama: speculative decoding mode (auto, enabled, disabled)" },
+  { runtime: "llama.cpp", jsonName: "cacheTypeK", type: "string",
+    aliases: ["cacheTypeK", "cache-type-k", "ctk"],
+    parse: cacheType, help: "llama: KV cache key data type (f16, q8_0, q4_0, etc.)" },
+  { runtime: "llama.cpp", jsonName: "cacheTypeV", type: "string",
+    aliases: ["cacheTypeV", "cache-type-v", "ctv"],
+    parse: cacheType, help: "llama: KV cache value data type (f16, q8_0, q4_0, etc.)" },
+  { runtime: "llama.cpp", jsonName: "flashAttn", type: "string",
+    aliases: ["flashAttn", "flash-attn", "fa"],
+    parse: flashAttn, help: "llama: Flash Attention use (on, off, auto)" },
+  { runtime: "llama.cpp", jsonName: "specDraftCacheTypeK", type: "string",
+    aliases: ["specDraftCacheTypeK", "spec-draft-type-k", "cache-type-k-draft", "ctkd"],
+    parse: cacheType, help: "llama: KV cache key data type for draft model" },
+  { runtime: "llama.cpp", jsonName: "specDraftCacheTypeV", type: "string",
+    aliases: ["specDraftCacheTypeV", "spec-draft-type-v", "cache-type-v-draft", "ctvd"],
+    parse: cacheType, help: "llama: KV cache value data type for draft model" }
 ]
 
 export function listKeys(runtime: RuntimeType): KeySpec[] {

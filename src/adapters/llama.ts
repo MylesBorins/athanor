@@ -50,6 +50,15 @@ export class LlamaAdapter implements RuntimeAdapter {
     if (merged.repeatLastN !== undefined) {
       args.push("--repeat-last-n", String(merged.repeatLastN))
     }
+    if (merged.cacheTypeK !== undefined) {
+      args.push("--cache-type-k", String(merged.cacheTypeK))
+    }
+    if (merged.cacheTypeV !== undefined) {
+      args.push("--cache-type-v", String(merged.cacheTypeV))
+    }
+    if (merged.flashAttn !== undefined) {
+      args.push("--flash-attn", String(merged.flashAttn))
+    }
 
     const isMtpCapable = entry.capabilities?.includes("mtp") || false
     const specMode = merged.speculativeMode || "auto"
@@ -85,6 +94,12 @@ export class LlamaAdapter implements RuntimeAdapter {
     }
     if (effectiveSpecDraftNgl !== undefined) {
       args.push("--spec-draft-ngl", String(effectiveSpecDraftNgl))
+    }
+    if (merged.specDraftCacheTypeK !== undefined) {
+      args.push("--spec-draft-type-k", String(merged.specDraftCacheTypeK))
+    }
+    if (merged.specDraftCacheTypeV !== undefined) {
+      args.push("--spec-draft-type-v", String(merged.specDraftCacheTypeV))
     }
 
     return {

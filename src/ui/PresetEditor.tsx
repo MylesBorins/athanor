@@ -144,6 +144,39 @@ export function cycleFloat(
   return Math.round(clamped * 100) / 100
 }
 
+export const CACHE_TYPES = ["f16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1", "bf16", "f32"]
+export function getNextCacheType(currentStr: string, direction: "left" | "right"): string {
+  const idx = CACHE_TYPES.indexOf(currentStr)
+  if (idx < 0) return CACHE_TYPES[0]!
+  if (direction === "left") {
+    return CACHE_TYPES[Math.max(0, idx - 1)]!
+  } else {
+    return CACHE_TYPES[Math.min(CACHE_TYPES.length - 1, idx + 1)]!
+  }
+}
+
+export const FLASH_ATTN_MODES = ["auto", "on", "off"]
+export function getNextFlashAttn(currentStr: string, direction: "left" | "right"): string {
+  const idx = FLASH_ATTN_MODES.indexOf(currentStr)
+  if (idx < 0) return FLASH_ATTN_MODES[0]!
+  if (direction === "left") {
+    return FLASH_ATTN_MODES[Math.max(0, idx - 1)]!
+  } else {
+    return FLASH_ATTN_MODES[Math.min(FLASH_ATTN_MODES.length - 1, idx + 1)]!
+  }
+}
+
+export const SPECULATIVE_MODES = ["auto", "enabled", "disabled"]
+export function getNextSpeculativeMode(currentStr: string, direction: "left" | "right"): string {
+  const idx = SPECULATIVE_MODES.indexOf(currentStr)
+  if (idx < 0) return SPECULATIVE_MODES[0]!
+  if (direction === "left") {
+    return SPECULATIVE_MODES[Math.max(0, idx - 1)]!
+  } else {
+    return SPECULATIVE_MODES[Math.min(SPECULATIVE_MODES.length - 1, idx + 1)]!
+  }
+}
+
 export const CYCLABLE_KEYS = [
   "contextWindow",
   "ctxSize",
@@ -161,7 +194,13 @@ export const CYCLABLE_KEYS = [
   "repeatPenalty",
   "presencePenalty",
   "frequencyPenalty",
-  "repeatLastN"
+  "repeatLastN",
+  "cacheTypeK",
+  "cacheTypeV",
+  "flashAttn",
+  "specDraftCacheTypeK",
+  "specDraftCacheTypeV",
+  "speculativeMode"
 ]
 
 export const PresetEditor: React.FC<PresetEditorProps> = ({
@@ -269,6 +308,12 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           nextVal = cycleFloat(edit.buffer, dir, 0.1, 0.0, 2.0, 0.0)
         } else if (edit.jsonName === "repeatLastN") {
           nextVal = getNextRepeatLastN(edit.buffer, dir)
+        } else if (["cacheTypeK", "cacheTypeV", "specDraftCacheTypeK", "specDraftCacheTypeV"].includes(edit.jsonName)) {
+          nextVal = getNextCacheType(edit.buffer, dir)
+        } else if (edit.jsonName === "flashAttn") {
+          nextVal = getNextFlashAttn(edit.buffer, dir)
+        } else if (edit.jsonName === "speculativeMode") {
+          nextVal = getNextSpeculativeMode(edit.buffer, dir)
         }
 
         if (nextVal !== undefined) {

@@ -38,9 +38,15 @@ const BUILTINS: Recipe[] = [
   },
   {
     name: "long-context",
-    description: "Maximum context for large documents and long conversations. May be slow or unstable on 16 GB Macs.",
+    description: "Maximum context for large documents and long conversations (128K context with Q8_0 KV cache and Flash Attention).",
     mlx: { prefillStepSize: 2048, promptCacheSize: 131072, decodeConcurrency: 1, contextWindow: 131072, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3 },
-    llama: { ctxSize: 131072, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999 },
+    llama: { ctxSize: 131072, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999, cacheTypeK: "q8_0", cacheTypeV: "q8_0", flashAttn: "on" },
+    source: "builtin"
+  },
+  {
+    name: "q8-kv",
+    description: "Quantized Q8_0 KV cache with Flash Attention to reduce memory footprint at large contexts.",
+    llama: { cacheTypeK: "q8_0", cacheTypeV: "q8_0", flashAttn: "on" },
     source: "builtin"
   },
   {

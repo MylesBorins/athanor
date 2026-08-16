@@ -5,6 +5,9 @@ import {
   getNextGpuLayer,
   getNextSpecType,
   getNextRepeatLastN,
+  getNextCacheType,
+  getNextFlashAttn,
+  getNextSpeculativeMode,
   cycleFloat,
   CYCLABLE_KEYS
 } from "./PresetEditor.js"
@@ -100,8 +103,39 @@ describe("PresetEditor cycleFloat", () => {
   })
 })
 
+describe("PresetEditor getNextCacheType", () => {
+  it("cycles cache types correctly", () => {
+    expect(getNextCacheType("f16", "right")).toBe("q8_0")
+    expect(getNextCacheType("q8_0", "right")).toBe("q4_0")
+    expect(getNextCacheType("q8_0", "left")).toBe("f16")
+    expect(getNextCacheType("f32", "right")).toBe("f32")
+    expect(getNextCacheType("f16", "left")).toBe("f16")
+    expect(getNextCacheType("invalid", "right")).toBe("f16")
+  })
+})
+
+describe("PresetEditor getNextFlashAttn", () => {
+  it("cycles flash attention modes correctly", () => {
+    expect(getNextFlashAttn("auto", "right")).toBe("on")
+    expect(getNextFlashAttn("on", "right")).toBe("off")
+    expect(getNextFlashAttn("off", "left")).toBe("on")
+    expect(getNextFlashAttn("auto", "left")).toBe("auto")
+    expect(getNextFlashAttn("invalid", "right")).toBe("auto")
+  })
+})
+
+describe("PresetEditor getNextSpeculativeMode", () => {
+  it("cycles speculative modes correctly", () => {
+    expect(getNextSpeculativeMode("auto", "right")).toBe("enabled")
+    expect(getNextSpeculativeMode("enabled", "right")).toBe("disabled")
+    expect(getNextSpeculativeMode("disabled", "left")).toBe("enabled")
+    expect(getNextSpeculativeMode("auto", "left")).toBe("auto")
+    expect(getNextSpeculativeMode("invalid", "right")).toBe("auto")
+  })
+})
+
 describe("CYCLABLE_KEYS", () => {
-  it("includes all sampling and penalty keys", () => {
+  it("includes all sampling, penalty, and cache keys", () => {
     expect(CYCLABLE_KEYS).toContain("temp")
     expect(CYCLABLE_KEYS).toContain("topP")
     expect(CYCLABLE_KEYS).toContain("topK")
@@ -110,5 +144,11 @@ describe("CYCLABLE_KEYS", () => {
     expect(CYCLABLE_KEYS).toContain("presencePenalty")
     expect(CYCLABLE_KEYS).toContain("frequencyPenalty")
     expect(CYCLABLE_KEYS).toContain("repeatLastN")
+    expect(CYCLABLE_KEYS).toContain("cacheTypeK")
+    expect(CYCLABLE_KEYS).toContain("cacheTypeV")
+    expect(CYCLABLE_KEYS).toContain("flashAttn")
+    expect(CYCLABLE_KEYS).toContain("specDraftCacheTypeK")
+    expect(CYCLABLE_KEYS).toContain("specDraftCacheTypeV")
+    expect(CYCLABLE_KEYS).toContain("speculativeMode")
   })
 })

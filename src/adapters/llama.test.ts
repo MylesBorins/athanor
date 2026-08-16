@@ -159,6 +159,29 @@ describe("LlamaAdapter", () => {
     expect(args[args.indexOf("--repeat-last-n") + 1]).toBe("128")
   })
 
+  it("includes KV cache quantization and flash attention flags when present", () => {
+    const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
+    const kvLlama: LlamaConfig = {
+      ...llama,
+      cacheTypeK: "q8_0",
+      cacheTypeV: "q8_0",
+      flashAttn: "on",
+      specDraftCacheTypeK: "q4_0",
+      specDraftCacheTypeV: "q4_0"
+    }
+    const { args } = adapter.buildCommand(entry, kvLlama)
+    expect(args).toContain("--cache-type-k")
+    expect(args[args.indexOf("--cache-type-k") + 1]).toBe("q8_0")
+    expect(args).toContain("--cache-type-v")
+    expect(args[args.indexOf("--cache-type-v") + 1]).toBe("q8_0")
+    expect(args).toContain("--flash-attn")
+    expect(args[args.indexOf("--flash-attn") + 1]).toBe("on")
+    expect(args).toContain("--spec-draft-type-k")
+    expect(args[args.indexOf("--spec-draft-type-k") + 1]).toBe("q4_0")
+    expect(args).toContain("--spec-draft-type-v")
+    expect(args[args.indexOf("--spec-draft-type-v") + 1]).toBe("q4_0")
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

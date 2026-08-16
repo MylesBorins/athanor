@@ -57,6 +57,19 @@ export type LlamaSpecType =
   | "ngram-mod"
   | "ngram-cache"
 
+export type LlamaCacheType =
+  | "f32"
+  | "f16"
+  | "bf16"
+  | "q8_0"
+  | "q4_0"
+  | "q4_1"
+  | "iq4_nl"
+  | "q5_0"
+  | "q5_1"
+
+export type LlamaFlashAttn = "on" | "off" | "auto"
+
 export interface LlamaConfig {
   nGpuLayers: number
   ctxSize: number
@@ -71,6 +84,9 @@ export interface LlamaConfig {
   presencePenalty?: number
   frequencyPenalty?: number
   repeatLastN?: number
+  cacheTypeK?: LlamaCacheType | (string & {})
+  cacheTypeV?: LlamaCacheType | (string & {})
+  flashAttn?: LlamaFlashAttn | (string & {})
   specType?: LlamaSpecType | (string & {})
   specDraftNMax?: number
   specDraftNMin?: number
@@ -78,6 +94,8 @@ export interface LlamaConfig {
   specDraftPMin?: number
   specDraftModel?: string
   specDraftNgl?: number
+  specDraftCacheTypeK?: LlamaCacheType | (string & {})
+  specDraftCacheTypeV?: LlamaCacheType | (string & {})
   speculativeMode?: "auto" | "enabled" | "disabled"
 }
 
