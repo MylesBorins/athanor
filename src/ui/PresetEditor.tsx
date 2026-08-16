@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Box, Text, useInput } from "ink"
 import type { ModelEntry } from "../types/index.js"
 import { getModel } from "../registry/index.js"
@@ -10,6 +10,13 @@ import {
   setPresetFields,
   unsetPresetFields
 } from "../presets/edit.js"
+import {
+  COMPOUND_KNOBS,
+  getCategoriesForRuntime,
+  inferCompoundState,
+  applyCompoundSelection,
+  type CompoundKnob
+} from "../presets/compound.js"
 import { deleteUserRecipe, listRecipes, recipeToPreset, saveUserRecipe, type Recipe } from "../presets/recipes.js"
 import { copyToClipboard, formatPresetCopyText } from "./clipboard.js"
 
@@ -210,19 +217,48 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 }) => {
   const initial = getModel(entryId)
   const [entry, setEntry] = useState<ModelEntry | undefined>(initial)
+  const [mode, setMode] = useState<"simple" | "advanced">("simple")
   const [cursor, setCursor] = useState(0)
   const [edit, setEdit] = useState<EditState>(null)
   const [savingRecipe, setSavingRecipe] = useState<{ buffer: string } | null>(null)
   const [recipesList, setRecipesList] = useState<Recipe[]>(() => listRecipes())
   const [notice, setNotice] = useState("")
+  const [clearConfirmPending, setClearConfirmPending] = useState(false)
 
-  const keys = useMemo(() => entry ? listKeys(entry.runtime) : [], [entry])
+  // Reset clear confirmation after 3 seconds
+  useEffect(() => {
+    if (!clearConfirmPending) return
+    const timer = setTimeout(() => {
+      setClearConfirmPending(false)
+      setNotice("")
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [clearConfirmPending])
+
+  const compoundKnobs = useMemo(() => {
+    if (!entry) return []
+    return COMPOUND_KNOBS.filter(k => k.runtimes.includes(entry.runtime))
+  }, [entry])
+
+  const categories = useMemo(() => {
+    if (!entry) return []
+    return getCategoriesForRuntime(entry.runtime)
+  }, [entry])
+
+  const allKeys = useMemo(() => (entry ? listKeys(entry.runtime) : []), [entry])
+
   const effective = useMemo(
-    () => entry ? (mergedConfigFor(entry) as unknown as Record<string, string | number>) : {},
+    () => (entry ? (mergedConfigFor(entry) as unknown as Record<string, string | number>) : {}),
     [entry]
   )
 
-  const totalItems = keys.length + recipesList.length
+  const compoundState = useMemo(() => {
+    if (!entry) return {}
+    return inferCompoundState(entry, effective)
+  }, [entry, effective])
+
+  // In Advanced mode, flat items represent all tunable keys
+  const totalItems = mode === "simple" ? compoundKnobs.length : allKeys.length
 
   function refresh(msg: string): void {
     setEntry(getModel(entryId))
@@ -240,13 +276,30 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   }
 
   useInput((input, key) => {
-    if (!entry) { if (key.escape) onClose(""); return }
+    if (!entry) {
+      if (key.escape) onClose("")
+      return
+    }
+
+    // Tab key toggles between Simple and Advanced modes
+    if (key.tab) {
+      setMode(m => (m === "simple" ? "advanced" : "simple"))
+      setCursor(0)
+      setEdit(null)
+      return
+    }
 
     if (savingRecipe) {
-      if (key.escape) { setSavingRecipe(null); return }
+      if (key.escape) {
+        setSavingRecipe(null)
+        return
+      }
       if (key.return) {
         const name = savingRecipe.buffer.trim()
-        if (!name) { setNotice("error: recipe name cannot be empty"); return }
+        if (!name) {
+          setNotice("error: recipe name cannot be empty")
+          return
+        }
         const recipe: Recipe = {
           name,
           description: `Custom recipe saved from ${entry.slug}`,
@@ -257,27 +310,32 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         saveUserRecipe(recipe)
         setRecipesList(listRecipes())
         setSavingRecipe(null)
-        setNotice(`✓ recipe "${name}" saved to ~/.athanor/recipes.json`)
+        setNotice(`✓ recipe "${name}" saved`)
         return
       }
       if (key.backspace || key.delete) {
-        setSavingRecipe(s => s ? { buffer: s.buffer.slice(0, -1) } : s)
+        setSavingRecipe(s => (s ? { buffer: s.buffer.slice(0, -1) } : s))
         return
       }
-      if (input && /^[a-zA-Z0-9_\-]$/.test(input)) {
-        setSavingRecipe(s => s ? { buffer: s.buffer + input } : s)
+      if (input && /^[a-zA-Z0-9_-]$/.test(input)) {
+        setSavingRecipe(s => (s ? { buffer: s.buffer + input } : s))
       }
       return
     }
 
     if (edit) {
-      if (key.escape) { setEdit(null); return }
+      if (key.escape) {
+        setEdit(null)
+        return
+      }
       if (key.return) {
         try {
           const preset = setPresetFields(entry, [[edit.jsonName, edit.buffer]])
-          persistPreset(preset, `set ${edit.jsonName}=${edit.buffer}`)
+          persistPreset(preset, `updated ${edit.jsonName} = ${edit.buffer}`)
           setEdit(null)
-        } catch (err) { setNotice(`error: ${errMsg(err)}`) }
+        } catch (err) {
+          setNotice(`error: ${errMsg(err)}`)
+        }
         return
       }
       if (key.leftArrow || key.rightArrow) {
@@ -317,167 +375,350 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         }
 
         if (nextVal !== undefined) {
-          setEdit(e => e ? { ...e, buffer: String(nextVal) } : e)
+          setEdit(e => (e ? { ...e, buffer: String(nextVal) } : e))
           return
         }
       }
       if (key.backspace || key.delete) {
-        setEdit(e => e ? { ...e, buffer: e.buffer.slice(0, -1) } : e)
+        setEdit(e => (e ? { ...e, buffer: e.buffer.slice(0, -1) } : e))
         return
       }
-      const spec = keys.find(k => k.jsonName === edit.jsonName)
+      const spec = allKeys.find(k => k.jsonName === edit.jsonName)
       const isStringField = spec?.type === "string"
       if (input) {
         const allowed = isStringField ? /^[a-zA-Z0-9_\-./:]$/ : /^[0-9.-]$/
         if (allowed.test(input)) {
-          setEdit(e => e ? { ...e, buffer: e.buffer + input } : e)
+          setEdit(e => (e ? { ...e, buffer: e.buffer + input } : e))
         }
       }
       return
     }
 
-    if (key.escape) { onClose(notice); return }
-    if (key.downArrow) setCursor(c => Math.min(totalItems - 1, c + 1))
-    else if (key.upArrow) setCursor(c => Math.max(0, c - 1))
-    else if (key.return) {
-      if (cursor < keys.length) {
-        const spec = keys[cursor]
-        if (spec) {
+    if (key.escape) {
+      onClose(notice)
+      return
+    }
+
+    // Up / Down navigation
+    if (key.downArrow) {
+      setCursor(c => Math.min(totalItems - 1, c + 1))
+      return
+    }
+    if (key.upArrow) {
+      setCursor(c => Math.max(0, c - 1))
+      return
+    }
+
+    // SIMPLE MODE: Left/Right directly cycles compound options
+    if (mode === "simple") {
+      const knob = compoundKnobs[cursor]
+      if (knob && (key.leftArrow || key.rightArrow)) {
+        const dir = key.leftArrow ? "left" : "right"
+        const currentVal = compoundState[knob.id]
+        const optKeys = knob.options.map(o => o.key)
+        const curIdx = optKeys.indexOf(currentVal ?? "")
+        let nextIdx = 0
+        if (curIdx >= 0) {
+          nextIdx = dir === "left" ? Math.max(0, curIdx - 1) : Math.min(optKeys.length - 1, curIdx + 1)
+        } else {
+          nextIdx = dir === "left" ? 0 : optKeys.length - 1
+        }
+        const nextOption = knob.options[nextIdx]
+        if (nextOption) {
+          const updated = applyCompoundSelection(entry, knob.id, nextOption.key)
+          persistPreset(updated, `${knob.label} → ${nextOption.label}`)
+        }
+        return
+      }
+
+      if (key.return && knob) {
+        // Open edit buffer for custom input on context or GPU
+        if (knob.id === "contextWindow") {
+          const field = entry.runtime === "mlx" ? "contextWindow" : "ctxSize"
+          setEdit({ jsonName: field, buffer: String(effective[field] ?? "") })
+        } else if (knob.id === "gpuOffload") {
+          setEdit({ jsonName: "nGpuLayers", buffer: String(effective.nGpuLayers ?? "") })
+        }
+        return
+      }
+    }
+
+    // ADVANCED MODE: Enter opens buffer
+    if (mode === "advanced") {
+      if (cursor < allKeys.length) {
+        const spec = allKeys[cursor]
+        if (spec && key.return) {
           const existing = presetValueFor(entry, spec.jsonName)
           const start = existing !== undefined ? String(existing) : String(effective[spec.jsonName] ?? "")
           setEdit({ jsonName: spec.jsonName, buffer: start })
-        }
-      } else {
-        const recipeIndex = cursor - keys.length
-        const r = recipesList[recipeIndex]
-        if (r) {
-          const preset = recipeToPreset(r, entry.runtime)
-          persistPreset(preset, `applied recipe: ${r.name}`)
+          return
         }
       }
     }
-    else if (input === "s") {
+
+    // Dedicated hotkeys
+    if (input === "s") {
       setSavingRecipe({ buffer: "" })
+      return
     }
-    else if ((input === "d" || key.delete) && cursor >= keys.length) {
-      const recipeIndex = cursor - keys.length
-      const r = recipesList[recipeIndex]
-      if (r && r.source === "user") {
-        deleteUserRecipe(r.name)
-        setRecipesList(listRecipes())
-        setCursor(c => Math.max(0, c - 1))
-        setNotice(`✓ recipe "${r.name}" deleted`)
+    if (input === "y") {
+      const textToCopy = formatPresetCopyText(entry, effective)
+      const ok = copyToClipboard(textToCopy)
+      if (ok) {
+        setNotice("✓ copied configuration & command to clipboard!")
+      } else {
+        setNotice("error: unable to access system clipboard")
       }
+      return
     }
-    else if (input === "u") {
-      if (cursor < keys.length) {
-        const spec = keys[cursor]
+
+    // Two-tap confirm for 'c' (clear preset)
+    if (input === "c") {
+      if (clearConfirmPending) {
+        persistPreset(undefined, "preset cleared")
+        setClearConfirmPending(false)
+      } else {
+        setClearConfirmPending(true)
+        setNotice("⚠ press 'c' again within 3s to confirm clearing preset")
+      }
+      return
+    }
+    // Any other key resets clear confirmation
+    if (clearConfirmPending) {
+      setClearConfirmPending(false)
+    }
+
+    if (input === "u") {
+      if (mode === "advanced" && cursor < allKeys.length) {
+        const spec = allKeys[cursor]
         if (!spec) return
         try {
           const preset = unsetPresetFields(entry, [spec.jsonName])
           persistPreset(preset, `unset ${spec.jsonName}`)
-        } catch (err) { setNotice(`error: ${errMsg(err)}`) }
+        } catch (err) {
+          setNotice(`error: ${errMsg(err)}`)
+        }
+      } else if (mode === "simple") {
+        const knob = compoundKnobs[cursor]
+        if (knob?.id === "kvCache") {
+          const preset = unsetPresetFields(entry, ["cacheTypeK", "cacheTypeV"])
+          persistPreset(preset, "reset KV cache to defaults")
+        } else if (knob?.id === "speculative") {
+          const preset = unsetPresetFields(entry, ["speculativeMode", "specType", "specDraftNgl", "specDraftModel"])
+          persistPreset(preset, "reset speculative decoding to defaults")
+        }
       }
+      return
     }
-    else if (input === "y") {
-      const textToCopy = formatPresetCopyText(entry, effective)
-      const ok = copyToClipboard(textToCopy)
-      if (ok) {
-        setNotice("✓ copied audit configuration to clipboard!")
-      } else {
-        setNotice("error: unable to access system clipboard")
-      }
-    }
-    else if (input === "c") { persistPreset(undefined, "preset cleared") }
-    else if (input === "v" && entry.runtime === "mlx") {
+
+    if (input === "v" && entry.runtime === "mlx") {
       const next = entry.mlxFlavor === "vlm" ? "lm" : "vlm"
       const noVlmCap = !(entry.mlxCapabilities ?? []).includes("vlm")
       const running = supervisor.list().some(i => i.id === entry.id)
-      const warn = next === "vlm" && noVlmCap
-        ? " · ⚠ no vision tower detected, mlx_vlm.server may fail to load" : ""
+      const warn =
+        next === "vlm" && noVlmCap ? " · ⚠ no vision tower detected, mlx_vlm.server may fail to load" : ""
       const restart = running ? " · restart to apply" : ""
       persistFlavor(next, `flavor → mlx-${next}${warn}${restart}`)
+      return
     }
-    else if (input && /^[1-9]$/.test(input)) {
+
+    // Number hotkeys 1-7 apply recipes immediately
+    if (input && /^[1-7]$/.test(input)) {
       const idx = Number(input) - 1
       const r = recipesList[idx]
-      if (!r) return
-      const preset = recipeToPreset(r, entry.runtime)
-      persistPreset(preset, `recipe: ${r.name}`)
+      if (r) {
+        const preset = recipeToPreset(r, entry.runtime)
+        persistPreset(preset, `recipe: ${r.name}`)
+      }
     }
   })
 
   if (!entry) {
     return (
-      <Box width={width} flexDirection="column" borderStyle="round" borderColor="red" padding={1} backgroundColor="black">
-        <Text color="red" backgroundColor="black">model not found</Text>
+      <Box
+        width={width}
+        flexDirection="column"
+        borderStyle="round"
+        borderColor="red"
+        padding={1}
+        backgroundColor="black"
+      >
+        <Text color="red" backgroundColor="black">
+          model not found
+        </Text>
       </Box>
     )
   }
 
-  const isMlx     = entry.runtime === "mlx"
-  const isVlm     = isMlx && entry.mlxFlavor === "vlm"
+  const isMlx = entry.runtime === "mlx"
+  const isVlm = isMlx && entry.mlxFlavor === "vlm"
   const hasVlmCap = isMlx && (entry.mlxCapabilities ?? []).includes("vlm")
   const runtimeLabel = isMlx ? `mlx-${entry.mlxFlavor ?? "lm"}` : entry.runtime
   const keyColWidth = 22
 
-  const MAX_VISIBLE_KEYS = 7
-  const activeKeyCursor = Math.min(cursor, keys.length - 1)
+  // Advanced mode scrolling
+  const MAX_VISIBLE_KEYS = 8
+  const activeKeyCursor = Math.min(cursor, allKeys.length - 1)
   const windowStart = Math.max(
     0,
-    Math.min(activeKeyCursor - Math.floor(MAX_VISIBLE_KEYS / 2), keys.length - MAX_VISIBLE_KEYS)
+    Math.min(activeKeyCursor - Math.floor(MAX_VISIBLE_KEYS / 2), allKeys.length - MAX_VISIBLE_KEYS)
   )
-  const windowEnd = Math.min(keys.length, windowStart + MAX_VISIBLE_KEYS)
-  const visibleKeys = keys.slice(windowStart, windowEnd)
+  const windowEnd = Math.min(allKeys.length, windowStart + MAX_VISIBLE_KEYS)
+  const visibleKeys = allKeys.slice(windowStart, windowEnd)
   const countAbove = windowStart
-  const countBelow = keys.length - windowEnd
+  const countBelow = allKeys.length - windowEnd
 
   return (
-    <Box width={width} flexDirection="column" borderStyle="round" borderColor="cyan" padding={1} backgroundColor="black">
-      <Text bold color="cyan" backgroundColor="black">Preset editor</Text>
+    <Box
+      width={width}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="cyan"
+      padding={1}
+      backgroundColor="black"
+    >
+      <Box justifyContent="space-between">
+        <Text bold color="cyan" backgroundColor="black">
+          Preset editor {mode === "advanced" ? "[ADVANCED]" : "[SIMPLE]"}
+        </Text>
+        <Text dimColor backgroundColor="black">
+          [Tab] {mode === "simple" ? "Switch to Advanced" : "Switch to Simple"}
+        </Text>
+      </Box>
+
       <Text wrap="truncate-end" backgroundColor="black">
         <Text backgroundColor="black">{entry.slug} </Text>
-        <Text dimColor backgroundColor="black">({runtimeLabel})</Text>
+        <Text dimColor backgroundColor="black">
+          ({runtimeLabel})
+        </Text>
       </Text>
-      {isMlx && hasVlmCap && !isVlm
-        ? <Text dimColor wrap="truncate-end" backgroundColor="black">vision tower detected — press <Text bold color="cyan" backgroundColor="black">v</Text> to switch to mlx-vlm</Text>
-        : null}
+      {isMlx && hasVlmCap && !isVlm ? (
+        <Text dimColor wrap="truncate-end" backgroundColor="black">
+          vision tower detected — press{" "}
+          <Text bold color="cyan" backgroundColor="black">
+            v
+          </Text>{" "}
+          to switch to mlx-vlm
+        </Text>
+      ) : null}
+
       <Text backgroundColor="black"> </Text>
-      <Text dimColor backgroundColor="black">
-        Tunable keys  (override marked with *){keys.length > MAX_VISIBLE_KEYS ? ` · showing ${windowStart + 1}-${windowEnd} of ${keys.length}` : ""}
-      </Text>
-      {countAbove > 0 ? <Text dimColor backgroundColor="black">  ▲ {countAbove} more above</Text> : null}
-      {visibleKeys.map((k, relIndex) => {
-        const i = windowStart + relIndex
-        const override = presetValueFor(entry, k.jsonName)
-        const value = override !== undefined ? override : effective[k.jsonName]
-        const marker = override !== undefined ? "*" : " "
-        const active = i === cursor
-        const label = k.aliases[0]!.padEnd(Math.max(8, keyColWidth - 2))
-        return (
-          <Text key={k.jsonName} color={active ? "cyan" : undefined} backgroundColor="black" wrap="truncate-end">
-            {active ? "▸" : " "} {label} {String(value).padStart(7)} {marker}  <Text dimColor backgroundColor="black">{k.help}</Text>
+
+      {/* SIMPLE MODE VIEW */}
+      {mode === "simple" ? (
+        <Box flexDirection="column">
+          <Text dimColor backgroundColor="black">
+            Smart controls  (◀ / ▶ to cycle, ⏎ to edit custom value)
           </Text>
-        )
-      })}
-      {countBelow > 0 ? <Text dimColor backgroundColor="black">  ▼ {countBelow} more below</Text> : null}
-      <Text backgroundColor="black"> </Text>
-      <Text dimColor backgroundColor="black">Recipes  (press ⏎ or 1-9 to apply, s to save, d to delete custom)</Text>
-      {recipesList.map((r, i) => {
-        const itemIdx = keys.length + i
-        const active = itemIdx === cursor
-        const hotkeyTag = i < 9 ? `${i + 1}.`.padStart(3) : "   "
-        return (
-          <Text key={r.name} color={active ? "cyan" : undefined} backgroundColor="black" wrap="truncate-end">
-            {active ? "▸" : " "} {hotkeyTag} <Text bold backgroundColor="black">{r.name}</Text>
-            <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
-              {r.source === "user" ? " [user]" : " [builtin]"}
+          <Text backgroundColor="black"> </Text>
+          {compoundKnobs.map((knob, idx) => {
+            const active = idx === cursor
+            const currentKey = compoundState[knob.id]
+            return (
+              <Box key={knob.id} flexDirection="row" marginBottom={0}>
+                <Text color={active ? "cyan" : undefined} backgroundColor="black">
+                  {active ? "▸" : " "} <Text bold={active}>{knob.label.padEnd(16)}</Text>
+                </Text>
+                <Text backgroundColor="black"> ◀  </Text>
+                {knob.options.map((opt, optIdx) => {
+                  const isSelected = currentKey === opt.key
+                  return (
+                    <Text key={opt.key} backgroundColor="black">
+                      {optIdx > 0 ? " · " : ""}
+                      {isSelected ? (
+                        <Text bold color="cyan" backgroundColor="black">
+                          [{opt.label}]
+                        </Text>
+                      ) : (
+                        <Text dimColor backgroundColor="black">
+                          {opt.label}
+                        </Text>
+                      )}
+                    </Text>
+                  )
+                })}
+                {currentKey === "custom" ? (
+                  <Text color="yellow" backgroundColor="black">
+                    {" "}· [custom]
+                  </Text>
+                ) : null}
+                <Text backgroundColor="black">  ▶</Text>
+              </Box>
+            )
+          })}
+        </Box>
+      ) : (
+        /* ADVANCED MODE VIEW */
+        <Box flexDirection="column">
+          <Text dimColor backgroundColor="black">
+            Tunable keys (override marked with *){allKeys.length > MAX_VISIBLE_KEYS ? ` · showing ${windowStart + 1}-${windowEnd} of ${allKeys.length}` : ""}
+          </Text>
+          {countAbove > 0 ? (
+            <Text dimColor backgroundColor="black">
+              {" "}
+              ▲ {countAbove} more above
             </Text>
-            <Text dimColor backgroundColor="black"> {r.description}</Text>
-          </Text>
-        )
-      })}
+          ) : null}
+          {visibleKeys.map((k, relIndex) => {
+            const i = windowStart + relIndex
+            const override = presetValueFor(entry, k.jsonName)
+            const value = override !== undefined ? override : effective[k.jsonName]
+            const marker = override !== undefined ? "*" : " "
+            const active = i === cursor
+            const label = k.aliases[0]!.padEnd(Math.max(8, keyColWidth - 2))
+
+            // Check if this key starts a category
+            const matchingCat = categories.find(c => c.keys[0] === k.jsonName)
+            return (
+              <Box key={k.jsonName} flexDirection="column">
+                {matchingCat ? (
+                  <Text bold color="yellow" backgroundColor="black">
+                    ▼ {matchingCat.name}
+                  </Text>
+                ) : null}
+                <Text
+                  color={active ? "cyan" : undefined}
+                  backgroundColor="black"
+                  wrap="truncate-end"
+                >
+                  {active ? "▸" : " "} {label} {String(value).padStart(7)} {marker}  <Text dimColor backgroundColor="black">{k.help}</Text>
+                </Text>
+              </Box>
+            )
+          })}
+          {countBelow > 0 ? (
+            <Text dimColor backgroundColor="black">
+              {" "}
+              ▼ {countBelow} more below
+            </Text>
+          ) : null}
+        </Box>
+      )}
+
       <Text backgroundColor="black"> </Text>
+
+      {/* QUICK RECIPES BAR */}
+      <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+        <Text dimColor backgroundColor="black">
+          Quick recipes (1-7 to apply · s to save custom · d to delete):
+        </Text>
+        <Text wrap="truncate-end" backgroundColor="black">
+          {recipesList.slice(0, 7).map((r, i) => (
+            <Text key={r.name} backgroundColor="black">
+              {i > 0 ? "  " : ""}
+              <Text bold color="cyan" backgroundColor="black">
+                {i + 1}.
+              </Text>{" "}
+              <Text color={r.source === "user" ? "magenta" : undefined} backgroundColor="black">
+                {r.name}
+              </Text>
+            </Text>
+          ))}
+        </Text>
+      </Box>
+
+      <Text backgroundColor="black"> </Text>
+
       {savingRecipe ? (
         <Text wrap="truncate-end" backgroundColor="black">
           save recipe as: <Text color="cyan" backgroundColor="black">{savingRecipe.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel)</Text>
@@ -487,9 +728,15 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           editing <Text bold backgroundColor="black">{edit.jsonName}</Text> = <Text color="cyan" backgroundColor="black">{edit.buffer || "_"}</Text>  <Text dimColor backgroundColor="black">(⏎ save · esc cancel{CYCLABLE_KEYS.includes(edit.jsonName) ? " · ◀/▶ cycle" : ""})</Text>
         </Text>
       ) : (
-        <Text dimColor wrap="truncate-end" backgroundColor="black">↑↓ nav · ⏎ edit/apply · s save recipe · y copy audit · u unset · c clear{isMlx ? " · v flavor" : ""} · esc close</Text>
+        <Text dimColor wrap="truncate-end" backgroundColor="black">
+          {mode === "simple" ? "↑↓ select · ◀/▶ cycle · ⏎ custom" : "↑↓ nav · ⏎ edit · u unset"} · Tab {mode === "simple" ? "advanced" : "simple"} · 1-7 recipe · s save · y copy · c clear · esc close
+        </Text>
       )}
-      {notice ? <Text color="yellow" wrap="truncate-end" backgroundColor="black">{notice}</Text> : null}
+      {notice ? (
+        <Text color={notice.startsWith("⚠") ? "yellow" : notice.startsWith("✓") ? "green" : "yellow"} wrap="truncate-end" backgroundColor="black">
+          {notice}
+        </Text>
+      ) : null}
     </Box>
   )
 }

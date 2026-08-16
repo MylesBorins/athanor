@@ -48,6 +48,7 @@ Compressed, code-driven architecture context for future work.
   - `src/adapters/llama.ts`
   - `src/adapters/health.ts`
 - **presets**
+  - `src/presets/compound.ts`
   - `src/presets/edit.ts`
   - `src/presets/recipes.ts`
 - **supervisor**
