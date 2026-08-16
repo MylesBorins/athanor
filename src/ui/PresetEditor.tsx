@@ -4,11 +4,11 @@ import type { ModelEntry } from "../types/index.js"
 import { getModel } from "../registry/index.js"
 import { mergedConfigFor } from "../adapters/index.js"
 import { supervisor } from "../supervisor/index.js"
-import { setFlavor, setPreset } from "../app/models.js"
+import { setFlavor, setFormula } from "../app/models.js"
 import {
   listKeys,
-  setPresetFields,
-  unsetPresetFields
+  setFormulaFields,
+  unsetFormulaFields
 } from "../presets/edit.js"
 import {
   COMPOUND_KNOBS,
@@ -18,12 +18,12 @@ import {
   type CompoundKnob
 } from "../presets/compound.js"
 import {
-  deleteUserRecipe,
-  findMatchingRecipe,
-  listRecipes,
-  recipeToPreset,
-  saveUserRecipe,
-  type Recipe
+  deleteUserFormula,
+  findMatchingFormula,
+  listFormulas,
+  formulaToRuntime,
+  saveUserFormula,
+  type Formula
 } from "../presets/recipes.js"
 import { copyToClipboard, formatPresetCopyText } from "./clipboard.js"
 
@@ -34,7 +34,7 @@ export interface PresetEditorProps {
 }
 
 // In-memory value for the key currently being edited. Kept separate
-// from the saved preset so Esc cleanly discards.
+// from the saved formula so Esc cleanly discards.
 type EditState = { jsonName: string; buffer: string } | null
 
 function errMsg(err: unknown): string {
@@ -43,8 +43,9 @@ function errMsg(err: unknown): string {
 }
 
 function presetValueFor(entry: ModelEntry, jsonName: string): string | number | undefined {
-  if (!entry.preset || entry.preset.runtime !== entry.runtime) return undefined
-  const bag = entry.preset.runtime === "mlx" ? entry.preset.mlx : entry.preset.llama
+  const active = entry.formula ?? entry.preset
+  if (!active || active.runtime !== entry.runtime) return undefined
+  const bag = active.runtime === "mlx" ? active.mlx : active.llama
   return (bag as Record<string, string | number | undefined>)[jsonName]
 }
 
@@ -229,7 +230,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
   const [edit, setEdit] = useState<EditState>(null)
   const [activeRecipeName, setActiveRecipeName] = useState<string | null>(null)
   const [savingRecipe, setSavingRecipe] = useState<{ buffer: string; cycleIndex: number } | null>(null)
-  const [recipesList, setRecipesList] = useState<Recipe[]>(() => listRecipes())
+  const [recipesList, setRecipesList] = useState<Formula[]>(() => listFormulas())
   const [notice, setNotice] = useState("")
   const [clearConfirmPending, setClearConfirmPending] = useState(false)
 
@@ -273,8 +274,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     setNotice(msg)
   }
 
-  function persistPreset(preset: ModelEntry["preset"], msg: string): void {
-    setPreset(entryId, preset)
+  function persistPreset(formula: ModelEntry["formula"], msg: string): void {
+    setFormula(entryId, formula)
     refresh(msg)
   }
 
@@ -305,21 +306,22 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       if (key.return) {
         const name = savingRecipe.buffer.trim()
         if (!name) {
-          setNotice("error: recipe name cannot be empty")
+          setNotice("error: formula name cannot be empty")
           return
         }
-        const recipe: Recipe = {
+        const active = entry.formula ?? entry.preset
+        const formula: Formula = {
           name,
-          description: `Custom recipe saved from ${entry.slug}`,
-          mlx: entry.preset?.runtime === "mlx" ? entry.preset.mlx : undefined,
-          llama: entry.preset?.runtime === "llama.cpp" ? entry.preset.llama : undefined,
+          description: `Custom formula saved from ${entry.slug}`,
+          mlx: active?.runtime === "mlx" ? active.mlx : undefined,
+          llama: active?.runtime === "llama.cpp" ? active.llama : undefined,
           source: "user"
         }
-        saveUserRecipe(recipe)
-        setRecipesList(listRecipes())
+        saveUserFormula(formula)
+        setRecipesList(listFormulas())
         setActiveRecipeName(name)
         setSavingRecipe(null)
-        setNotice(`✓ recipe "${name}" saved`)
+        setNotice(`✓ formula "${name}" saved`)
         return
       }
       if (key.upArrow || key.downArrow) {
@@ -362,8 +364,8 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       }
       if (key.return) {
         try {
-          const preset = setPresetFields(entry, [[edit.jsonName, edit.buffer]])
-          persistPreset(preset, `updated ${edit.jsonName} = ${edit.buffer}`)
+          const formula = setFormulaFields(entry, [[edit.jsonName, edit.buffer]])
+          persistPreset(formula, `updated ${edit.jsonName} = ${edit.buffer}`)
           setEdit(null)
         } catch (err) {
           setNotice(`error: ${errMsg(err)}`)
@@ -490,7 +492,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 
     // Dedicated hotkeys
     if (input === "s") {
-      const matching = findMatchingRecipe(entry, recipesList)
+      const matching = findMatchingFormula(entry, recipesList)
       const initialName =
         activeRecipeName ||
         matching?.name ||
@@ -510,27 +512,27 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       return
     }
 
-    // Two-tap confirm for 'c' (clear preset)
+    // Two-tap confirm for 'c' (clear formula)
     if (input === "c") {
       if (clearConfirmPending) {
-        persistPreset(undefined, "preset cleared")
+        persistPreset(undefined, "formula cleared")
         setActiveRecipeName(null)
         setClearConfirmPending(false)
       } else {
         setClearConfirmPending(true)
-        setNotice("⚠ press 'c' again within 3s to confirm clearing preset")
+        setNotice("⚠ press 'c' again within 3s to confirm clearing formula")
       }
       return
     }
     if (input === "d") {
-      const customRecipes = recipesList.filter(r => r.source === "user")
-      const targetName = activeRecipeName || customRecipes[0]?.name
-      if (targetName && deleteUserRecipe(targetName)) {
-        setRecipesList(listRecipes())
+      const customFormulas = recipesList.filter(r => r.source === "user")
+      const targetName = activeRecipeName || customFormulas[0]?.name
+      if (targetName && deleteUserFormula(targetName)) {
+        setRecipesList(listFormulas())
         setActiveRecipeName(null)
-        setNotice(`✓ recipe "${targetName}" deleted`)
+        setNotice(`✓ formula "${targetName}" deleted`)
       } else {
-        setNotice("error: no custom recipe found to delete")
+        setNotice("error: no custom formula found to delete")
       }
       return
     }
@@ -544,19 +546,19 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         const spec = allKeys[cursor]
         if (!spec) return
         try {
-          const preset = unsetPresetFields(entry, [spec.jsonName])
-          persistPreset(preset, `unset ${spec.jsonName}`)
+          const formula = unsetFormulaFields(entry, [spec.jsonName])
+          persistPreset(formula, `unset ${spec.jsonName}`)
         } catch (err) {
           setNotice(`error: ${errMsg(err)}`)
         }
       } else if (mode === "simple") {
         const knob = compoundKnobs[cursor]
         if (knob?.id === "kvCache") {
-          const preset = unsetPresetFields(entry, ["cacheTypeK", "cacheTypeV"])
-          persistPreset(preset, "reset KV cache to defaults")
+          const formula = unsetFormulaFields(entry, ["cacheTypeK", "cacheTypeV"])
+          persistPreset(formula, "reset KV cache to defaults")
         } else if (knob?.id === "speculative") {
-          const preset = unsetPresetFields(entry, ["speculativeMode", "specType", "specDraftNgl", "specDraftModel"])
-          persistPreset(preset, "reset speculative decoding to defaults")
+          const formula = unsetFormulaFields(entry, ["speculativeMode", "specType", "specDraftNgl", "specDraftModel"])
+          persistPreset(formula, "reset speculative decoding to defaults")
         }
       }
       return
@@ -573,13 +575,13 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       return
     }
 
-    // Number hotkeys 1-7 apply recipes immediately
+    // Number hotkeys 1-7 apply formulas immediately
     if (input && /^[1-7]$/.test(input)) {
       const idx = Number(input) - 1
       const r = recipesList[idx]
       if (r) {
-        const preset = recipeToPreset(r, entry.runtime)
-        persistPreset(preset, `recipe: ${r.name}`)
+        const formula = formulaToRuntime(r, entry.runtime)
+        persistPreset(formula, `formula: ${r.name}`)
         setActiveRecipeName(r.name)
       }
     }
@@ -631,7 +633,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
     >
       <Box justifyContent="space-between">
         <Text bold color="cyan" backgroundColor="black">
-          Preset editor {mode === "advanced" ? "[ADVANCED]" : "[SIMPLE]"}
+          Formula editor {mode === "advanced" ? "[ADVANCED]" : "[SIMPLE]"}
         </Text>
         <Text dimColor backgroundColor="black">
           [Tab] {mode === "simple" ? "Switch to Advanced" : "Switch to Simple"}
@@ -749,10 +751,10 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 
       <Text backgroundColor="black"> </Text>
 
-      {/* QUICK RECIPES BAR */}
+      {/* FORMULAS BAR */}
       <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
         <Text dimColor backgroundColor="black">
-          Quick recipes (1-7 to apply · s to save custom · d to delete):
+          Formulas (1-7 to apply · s to save custom · d to delete):
         </Text>
         <Text wrap="truncate-end" backgroundColor="black">
           {recipesList.slice(0, 7).map((r, i) => (
@@ -778,7 +780,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
             target?.source === "user" ? (
               <Text color="magenta" backgroundColor="black">
                 {" "}
-                [updates user recipe]
+                [updates user formula]
               </Text>
             ) : target?.source === "builtin" ? (
               <Text color="yellow" backgroundColor="black">
@@ -788,12 +790,12 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
             ) : (
               <Text color="cyan" backgroundColor="black">
                 {" "}
-                [new recipe]
+                [new formula]
               </Text>
             )
           return (
             <Text wrap="truncate-end" backgroundColor="black">
-              save recipe as:{" "}
+              save formula as:{" "}
               <Text bold color="cyan" backgroundColor="black">
                 {savingRecipe.buffer || "_"}
               </Text>
@@ -807,7 +809,7 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
         </Text>
       ) : (
         <Text dimColor wrap="truncate-end" backgroundColor="black">
-          {mode === "simple" ? "↑↓ select · ◀/▶ cycle · ⏎ custom" : "↑↓ nav · ⏎ edit · u unset"} · Tab {mode === "simple" ? "advanced" : "simple"} · 1-7 recipe · s save · y copy · c clear · esc close
+          {mode === "simple" ? "↑↓ select · ◀/▶ cycle · ⏎ custom" : "↑↓ nav · ⏎ edit · u unset"} · Tab {mode === "simple" ? "advanced" : "simple"} · 1-7 formula · s save · y copy · c clear · esc close
         </Text>
       )}
       {notice ? (

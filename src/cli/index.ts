@@ -3,6 +3,14 @@ import {
   cmdDoctor,
   cmdExpose,
   cmdFlavor,
+  cmdFormulaApply,
+  cmdFormulaClear,
+  cmdFormulaSave,
+  cmdFormulaSet,
+  cmdFormulaShow,
+  cmdFormulaUnset,
+  cmdFormulas,
+  cmdFormulasDelete,
   cmdList,
   cmdLogs,
   cmdPresetApply,
@@ -12,6 +20,7 @@ import {
   cmdPresetShow,
   cmdPresetUnset,
   cmdPull,
+  cmdRecipeDelete,
   cmdRecipes,
   cmdRestart,
   cmdRm,
@@ -43,8 +52,8 @@ function usage(): void {
     ["pull",       "<repo> [--file F] [--revision R]", ""],
     ["search",     "[q] [--mlx|--gguf] [--author A] [--sort S] [--limit N]", "find models on HuggingFace"],
     ["trending",   "[--mlx|--gguf] [--limit N]",     "top trending MLX/GGUF models"],
-    ["preset",     "<slug> show|set k=v...|unset k...|clear|apply <recipe>", "tune a model"],
-    ["recipes",    "",                               "list built-in and user recipes + tunable keys"],
+    ["formula",    "<slug> show|set k=v...|unset k...|clear|apply <name>|save <name>", "tune a model formula"],
+    ["formulas",   "[delete <name>]",                "list or manage formulas + tunable keys"],
     ["flavor",     "<slug> lm|vlm",                  "force MLX runtime flavor (lm = mlx_lm, vlm = mlx_vlm)"],
     ["expose",     "<id|slug>",                      "include in pi-agent catalog"],
     ["hide",       "<id|slug>",                      "remove from pi-agent catalog"],
@@ -106,23 +115,33 @@ export async function runCli(argv: string[]): Promise<boolean> {
       await cmdSearch({ ...parseSearchOpts(rest), sort: "trending" }); return true
     case "show":        cmdShow(required(rest[0], "id|slug")); return true
     case "snippet":     cmdSnippet(required(rest[0], "id|slug")); return true
-    case "recipes":     cmdRecipes(); return true
+    case "formulas":
+    case "recipes": {
+      if (rest[0] === "delete" || rest[0] === "rm") {
+        cmdFormulasDelete(required(rest[1], "formula-name"))
+        return true
+      }
+      cmdFormulas()
+      return true
+    }
+    case "formula":
     case "preset": {
       const slug = required(rest[0], "id|slug")
       const sub = required(rest[1], "show|set|unset|clear|apply|save")
       const tail = rest.slice(2)
       switch (sub) {
-        case "show":   cmdPresetShow(slug); return true
-        case "set":    cmdPresetSet(slug, tail); return true
-        case "unset":  cmdPresetUnset(slug, tail); return true
-        case "clear":  cmdPresetClear(slug); return true
-        case "apply":  cmdPresetApply(slug, required(tail[0], "recipe")); return true
+        case "show":   cmdFormulaShow(slug); return true
+        case "set":    cmdFormulaSet(slug, tail); return true
+        case "unset":  cmdFormulaUnset(slug, tail); return true
+        case "clear":  cmdFormulaClear(slug); return true
+        case "apply":  cmdFormulaApply(slug, required(tail[0], "formula")); return true
         case "save":
+        case "save-formula":
         case "save-recipe":
-          cmdPresetSave(slug, required(tail[0], "recipe-name"), tail[1])
+          cmdFormulaSave(slug, required(tail[0], "formula-name"), tail[1])
           return true
         default:
-          console.error(`${style.red("✗")} unknown preset subcommand: ${style.bold(sub)}`)
+          console.error(`${style.red("✗")} unknown formula subcommand: ${style.bold(sub)}`)
           process.exit(1)
       }
       return true

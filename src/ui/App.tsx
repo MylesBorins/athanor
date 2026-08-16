@@ -445,7 +445,7 @@ const App: React.FC<AppProps> = ({ initialMessage }) => {
   const compactViewportRows = !isEmpty && !showLogPreview && dims.rows <= 24 ? visibleListRows : undefined
   const listHelp = isEmpty
     ? (dims.cols < 90 ? "↑↓ move · ⏎ pull · p · S · s · D · q" : "↑↓ move · ⏎ pull · p repo · S search · s scan · D downloads · q quit")
-    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · t · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e preset · t telemetry · / filter · tab logs · q quit")
+    : (dims.cols < 90 ? "↑↓ move · ⏎ toggle · r · k · P · d · D · / · t · tab · q" : "↑↓ move · ⏎ toggle · r restart · k kill · P expose · d delete · D downloads · s scan · p pull · S search · e formula · t telemetry · / filter · tab logs · q quit")
 
   return (
     <Box width={dims.cols} flexDirection="column">

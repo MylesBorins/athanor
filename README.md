@@ -240,7 +240,7 @@ athanor ls           # now usable directly
 | `runtime`   | `mlx` or `llama.cpp`                                          |
 | `source`    | `{ type: "hf", repo, [revision], [file] }` or `{ type: "local" }` |
 | `port`      | **stable** port allocated once per model, never changes       |
-| `preset`    | per-model overrides that merge on top of global runtime config |
+| `formula`   | per-model overrides that merge on top of global runtime config |
 | `mlxFlavor` | `"lm"` or `"vlm"` — picks which MLX binary to use (MLX only)  |
 | `publish`   | whether pi-agent sees this model                              |
 | `piAlias`   | optional llama launch alias; when set to something other than `slug`, overrides the default runtime model id |
@@ -368,9 +368,9 @@ athanor search   [q] [--mlx|--gguf|--any] [--author A] [--sort S] [--limit N]
                                  search the HuggingFace Hub
 athanor trending [--mlx|--gguf] [--limit N]
                                  top trending MLX/GGUF models
-athanor preset   <slug> show|set k=v...|unset k...|clear|apply <recipe>
-                                 view or modify a model's preset
-athanor recipes                  list built-in + user recipes and tunable keys
+athanor formula  <slug> show|set k=v...|unset k...|clear|apply <name>|save <name>
+                                 view or modify a model's formula
+athanor formulas [delete <name>] list or manage formulas in library
 athanor flavor   <slug> lm|vlm   force MLX runtime flavor (lm = mlx_lm, vlm = mlx_vlm)
 athanor expose    <id|slug>      include in pi-agent catalog
 athanor hide      <id|slug>      remove from pi-agent catalog
@@ -398,13 +398,13 @@ athanor doctor --check-updates   also compare installed versions with latest ava
 | `D`        | open the downloads modal                            |
 | `s`        | rescan and ingest new models (automatic on start and when the HF cache changes) |
 | `p`        | open the pull modal (`esc` cancels in progress)     |
-| `e`        | open the preset editor for the highlighted model    |
+| `e`        | open the formula editor for the highlighted model   |
 | `t`        | open the telemetry modal for the highlighted model  |
 | `/`        | filter the list by substring of slug or id          |
 | `tab`      | hide the model selector and expand the log pane; press again to restore |
 | `q`        | quit (does **not** stop running models)             |
 
-The downloads modal shows queued/running/completed pulls. Inside it: `↑↓` selects a task, `c` cancels the selected running task, `C` clears finished tasks, and `esc` closes the modal. Inside the preset editor (`e`): `Tab` toggles between Simple and Advanced modes. In Simple mode: `↑↓` selects smart compound knobs (Context, KV Cache, Speculative, Sampling Mode, GPU Offload), `◀/▶` cycles options, and `⏎` enters custom values. In Advanced mode: keys are grouped by category with full granular control. In both modes: `1-7` applies quick recipes, `s` saves custom recipes, `y` copies preset config & command to clipboard, `u` unsets a field, `c` prompts confirmation to clear, `v` toggles MLX flavor (`lm`/`vlm`), and `esc` closes.
+The downloads modal shows queued/running/completed pulls. Inside it: `↑↓` selects a task, `c` cancels the selected running task, `C` clears finished tasks, and `esc` closes the modal. Inside the formula editor (`e`): `Tab` toggles between Simple and Advanced modes. In Simple mode: `↑↓` selects smart compound knobs (Context, KV Cache, Speculative, Sampling Mode, GPU Offload), `◀/▶` cycles options, and `⏎` enters custom values. In Advanced mode: keys are grouped by category with full granular control. In both modes: `1-7` applies formulas, `s` saves custom formulas, `y` copies formula config & command to clipboard, `u` unsets a field, `c` prompts confirmation to clear, `v` toggles MLX flavor (`lm`/`vlm`), and `esc` closes.
 
 With the selector hidden (`tab`), the log pane grows to fill the space and the arrow keys switch roles:
 
@@ -472,30 +472,35 @@ Models downloaded out-of-band (`hf download` in another terminal, or pulled whil
 }
 ```
 
-### Per-model presets
+### Per-model formulas
 
-`mlx` and `llama` above are **global defaults**. Athanor now ships a practical 64K default context baseline; built-in recipes scale that up or down by use case. Any model in the registry can override the globals with its `preset` field, which is merged on top per-runtime. Manage presets via the CLI (preferred) or the TUI (press `e` on a highlighted model):
+`mlx` and `llama` above are **global defaults**. Athanor ships a practical 64K default context baseline; built-in formulas scale that up or down by use case. Any model in the registry can override the globals with its `formula` field, which is merged on top per-runtime. Manage formulas via the CLI (preferred) or the TUI (press `e` on a highlighted model):
 
 ```bash
 # inspect effective config, launch command, and running state
 athanor show qwen-32b
 
 # set / unset individual fields — kebab-case and camelCase both work
-athanor preset qwen-32b set ctx-size=32768 nGpuLayers=48
-athanor preset qwen-32b unset ctx-size
-athanor preset qwen-32b clear
+athanor formula qwen-32b set ctx-size=32768 nGpuLayers=48
+athanor formula qwen-32b unset ctx-size
+athanor formula qwen-32b clear
 
-# apply a named recipe for the model's runtime
-athanor preset qwen-32b apply thinking
+# apply a named formula for the model's runtime
+athanor formula qwen-32b apply thinking
 
-# save a model's current preset tuning as a reusable custom recipe
-athanor preset qwen-32b save my-reasoning-preset
+# save a model's current formula tuning as a reusable custom formula
+athanor formula qwen-32b save my-reasoning-formula
 
-# list built-in + user recipes and every tunable key per runtime
-athanor recipes
+# list built-in + user formulas and every tunable key per runtime
+athanor formulas
+
+# delete a custom formula from your library
+athanor formulas delete my-reasoning-formula
 ```
 
-Built-in recipes: `balanced`, `fast`, `long-context`, `q8-kv`, `thinking`, `instruct`, `mtp`.
+*(Note: `athanor preset` and `athanor recipes` remain supported as backward-compatible aliases).*
+
+Built-in formulas: `balanced`, `fast`, `long-context`, `q8-kv`, `thinking`, `instruct`, `mtp`.
 
 - `balanced` — recommended default, 64K context
 - `fast` — lower latency, 8K context
@@ -505,26 +510,26 @@ Built-in recipes: `balanced`, `fast`, `long-context`, `q8-kv`, `thinking`, `inst
 - `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
 - `mtp` — Multi-Token Prediction speculative decoding
 
-`balanced` is an explicit preset recipe; clearing a preset is a separate action (`athanor preset <slug> clear`). Save your own tuning as custom named recipes via `athanor preset <slug> save <name>` or by editing `~/.athanor/recipes.json` (a plain list or `{ "recipes": [...] }`). User recipes override built-ins of the same name.
+`balanced` is an explicit formula; clearing a formula is a separate action (`athanor formula <slug> clear`). Save your own tuning as custom named formulas via `athanor formula <slug> save <name>` or by editing `~/.athanor/formulas.json` (a plain list or `{ "formulas": [...] }`). User formulas override built-ins of the same name.
 
-Presets survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxCapabilities`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
+Formulas survive re-scans: `athanor scan` only refreshes `path`, `sizeBytes`, and — for MLX — `mlxCapabilities`. Everything else is left alone. `athanor ls` marks tuned models with `[tuned]`.
 
-Under the hood, a preset looks like this in `~/.athanor/models.json` — you can edit it directly if you prefer:
+Under the hood, a formula looks like this in `~/.athanor/models.json` — you can edit it directly if you prefer:
 
 ```json
 {
   "id": "mlx-community/Qwen2.5-32B-Instruct-4bit",
   "slug": "qwen-32b",
-  "preset": {
+  "formula": {
     "runtime": "mlx",
     "mlx": { "decodeConcurrency": 1, "prefillStepSize": 512, "promptCacheSize": 32768 }
   }
 }
 ```
 
-Restart the model for the preset to take effect.
+Restart the model for the formula to take effect.
 
-pi-agent receives the model's effective served context window from athanor's merged runtime configuration (global defaults plus any per-model preset), so pi metadata matches the actual launch settings rather than only explicit override fields.
+pi-agent receives the model's effective served context window from athanor's merged runtime configuration (global defaults plus any per-model formula), so pi metadata matches the actual launch settings rather than only explicit override fields.
 
 ### KV Cache Quantization & Flash Attention (llama.cpp only)
 

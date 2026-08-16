@@ -99,9 +99,21 @@ export interface LlamaConfig {
   speculativeMode?: "auto" | "enabled" | "disabled"
 }
 
-export type RuntimePreset =
+export type RuntimeFormula =
   | { runtime: "mlx"; mlx: Partial<MlxConfig> }
   | { runtime: "llama.cpp"; llama: Partial<LlamaConfig> }
+
+export type RuntimePreset = RuntimeFormula
+
+export interface Formula {
+  name: string
+  description: string
+  mlx?: Partial<MlxConfig>
+  llama?: Partial<LlamaConfig>
+  source?: "builtin" | "user"
+}
+
+export type Recipe = Formula
 
 export interface ModelSourceHF {
   type: "hf"
@@ -127,6 +139,7 @@ export interface ModelEntry {
   runtime: RuntimeType
   source: ModelSource
   port: number
+  formula?: RuntimeFormula
   preset?: RuntimePreset
   publish: boolean
   piAlias?: string

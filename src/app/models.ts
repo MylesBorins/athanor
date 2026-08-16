@@ -8,6 +8,7 @@ import {
   getModel,
   removeModel,
   setModelFlavor,
+  setModelFormula,
   setModelPreset,
   setModelPublish
 } from "../registry/index.js"
@@ -103,12 +104,14 @@ export function setFlavor(idOrSlug: string, mlxFlavor: ModelEntry["mlxFlavor"]):
   return entry
 }
 
-export function setPreset(idOrSlug: string, preset: ModelEntry["preset"]): ModelEntry {
-  const entry = setModelPreset(idOrSlug, preset)
+export function setFormula(idOrSlug: string, formula: ModelEntry["formula"]): ModelEntry {
+  const entry = setModelFormula(idOrSlug, formula)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
   syncPi({ instances: supervisor.list() })
   return entry
 }
+
+export const setPreset = setFormula
 
 function realpathIfExists(p: string): string | null {
   try { return fs.realpathSync(p) } catch { return null }

@@ -29,13 +29,14 @@ export function inferRuntime(modelPath: string): RuntimeType | undefined {
 
 export function mergedConfigFor(entry: ModelEntry): MlxConfig | LlamaConfig {
   const cfg = loadConfig()
+  const active = entry.formula ?? entry.preset
   if (entry.runtime === "mlx") {
     const override =
-      entry.preset && entry.preset.runtime === "mlx" ? entry.preset.mlx : {}
+      active && active.runtime === "mlx" ? active.mlx : {}
     return { ...cfg.mlx, ...override }
   }
   const override =
-    entry.preset && entry.preset.runtime === "llama.cpp" ? entry.preset.llama : {}
+    active && active.runtime === "llama.cpp" ? active.llama : {}
   return { ...cfg.llama, ...override }
 }
 

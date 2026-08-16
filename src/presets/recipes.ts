@@ -1,28 +1,21 @@
 import * as fs from "fs"
 import type {
+  Formula,
   LlamaConfig,
   MlxConfig,
   ModelEntry,
+  RuntimeFormula,
   RuntimePreset,
   RuntimeType
 } from "../types/index.js"
 import { PATHS } from "../config/index.js"
 
-// Recipes are named, opinionated presets. A recipe can carry mlx,
-// llama, or both sections; when applied to a specific model only the
-// matching runtime's section is used.
-export interface Recipe {
-  name: string
-  description: string
-  mlx?: Partial<MlxConfig>
-  llama?: Partial<LlamaConfig>
-  source?: "builtin" | "user"
-}
+export type { Formula, Recipe } from "../types/index.js"
 
-// Keep recipe intent tight and each setting justifiable. These are
-// starting points, not magic numbers. Users can override via their
-// own ~/.athanor/recipes.json or via `athanor preset set`.
-const BUILTINS: Recipe[] = [
+// Built-in formulas are named, opinionated runtime configurations.
+// A formula can carry mlx, llama, or both sections; when applied to a
+// specific model only the matching runtime's section is used.
+export const BUILTIN_FORMULAS: Formula[] = [
   {
     name: "balanced",
     description: "Recommended default. Good for most chat, coding, and agent workflows.",
@@ -72,15 +65,17 @@ const BUILTINS: Recipe[] = [
   }
 ]
 
-function readUserRecipes(): Recipe[] {
-  if (!fs.existsSync(PATHS.recipes)) return []
+export const BUILTINS = BUILTIN_FORMULAS
+
+function parseFormulaFile(filepath: string): Formula[] {
+  if (!fs.existsSync(filepath)) return []
   try {
-    const parsed = JSON.parse(fs.readFileSync(PATHS.recipes, "utf8"))
-    const list = Array.isArray(parsed) ? parsed : parsed?.recipes
+    const parsed = JSON.parse(fs.readFileSync(filepath, "utf8"))
+    const list = Array.isArray(parsed) ? parsed : (parsed?.formulas || parsed?.recipes)
     if (!Array.isArray(list)) return []
     return list
       .filter(r => r && typeof r.name === "string")
-      .map((r): Recipe => ({
+      .map((r): Formula => ({
         name: r.name,
         description: typeof r.description === "string" ? r.description : "",
         mlx: r.mlx && typeof r.mlx === "object" ? r.mlx : undefined,
@@ -92,30 +87,60 @@ function readUserRecipes(): Recipe[] {
   }
 }
 
-// User-defined recipes with the same name as a built-in override the
-// built-in entirely. Order in listRecipes(): user wins, then builtins
+export function readUserFormulas(): Formula[] {
+  // If formulas.json exists, load it directly
+  if (fs.existsSync(PATHS.formulas)) {
+    return parseFormulaFile(PATHS.formulas)
+  }
+  // Migration fallback: if legacy recipes.json exists and formulas.json doesn't,
+  // load recipes.json and save to formulas.json
+  if (fs.existsSync(PATHS.recipes)) {
+    const legacy = parseFormulaFile(PATHS.recipes)
+    if (legacy.length > 0) {
+      try {
+        const tmp = PATHS.formulas + ".tmp"
+        fs.writeFileSync(tmp, JSON.stringify(legacy, null, 2), "utf8")
+        fs.renameSync(tmp, PATHS.formulas)
+      } catch {
+        // Fall back to reading in memory if write fails
+      }
+    }
+    return legacy
+  }
+  return []
+}
+
+export const readUserRecipes = readUserFormulas
+
+// User-defined formulas with the same name as a built-in override the
+// built-in entirely. Order in listFormulas(): user wins, then builtins
 // not shadowed.
-export function listRecipes(): Recipe[] {
-  const user = readUserRecipes()
+export function listFormulas(): Formula[] {
+  const user = readUserFormulas()
   const taken = new Set(user.map(r => r.name))
   return [
     ...user,
-    ...BUILTINS.filter(r => !taken.has(r.name))
+    ...BUILTIN_FORMULAS.filter(r => !taken.has(r.name))
   ]
 }
 
-export function findRecipe(name: string): Recipe | undefined {
-  return listRecipes().find(r => r.name === name)
+export const listRecipes = listFormulas
+
+export function findFormula(name: string): Formula | undefined {
+  return listFormulas().find(r => r.name === name)
 }
 
-export function findMatchingRecipe(
+export const findRecipe = findFormula
+
+export function findMatchingFormula(
   entry: ModelEntry,
-  recipes: Recipe[] = listRecipes()
-): Recipe | undefined {
-  if (!entry.preset) return undefined
-  for (const r of recipes) {
-    if (entry.preset.runtime === "llama.cpp" && r.llama && Object.keys(r.llama).length > 0) {
-      const p = entry.preset.llama as Record<string, unknown>
+  formulas: Formula[] = listFormulas()
+): Formula | undefined {
+  const active = entry.formula ?? entry.preset
+  if (!active) return undefined
+  for (const r of formulas) {
+    if (active.runtime === "llama.cpp" && r.llama && Object.keys(r.llama).length > 0) {
+      const p = active.llama as Record<string, unknown>
       const rec = r.llama as Record<string, unknown>
       const pKeys = Object.keys(p).filter(k => p[k] !== undefined)
       const rKeys = Object.keys(rec).filter(k => rec[k] !== undefined)
@@ -123,8 +148,8 @@ export function findMatchingRecipe(
         return r
       }
     }
-    if (entry.preset.runtime === "mlx" && r.mlx && Object.keys(r.mlx).length > 0) {
-      const p = entry.preset.mlx as Record<string, unknown>
+    if (active.runtime === "mlx" && r.mlx && Object.keys(r.mlx).length > 0) {
+      const p = active.mlx as Record<string, unknown>
       const rec = r.mlx as Record<string, unknown>
       const pKeys = Object.keys(p).filter(k => p[k] !== undefined)
       const rKeys = Object.keys(rec).filter(k => rec[k] !== undefined)
@@ -136,46 +161,53 @@ export function findMatchingRecipe(
   return undefined
 }
 
-// Produces a preset for a specific runtime from a recipe. Built-ins are
-// explicit, stored presets; clearing a preset is a separate action.
-export function recipeToPreset(
-  recipe: Recipe,
+export const findMatchingRecipe = findMatchingFormula
+
+// Produces a runtime formula for a specific runtime from a named formula template.
+export function formulaToRuntime(
+  formula: Formula,
   runtime: RuntimeType
-): RuntimePreset | undefined {
+): RuntimeFormula | undefined {
   if (runtime === "mlx") {
-    if (!recipe.mlx || Object.keys(recipe.mlx).length === 0) return undefined
-    return { runtime: "mlx", mlx: { ...recipe.mlx } }
+    if (!formula.mlx || Object.keys(formula.mlx).length === 0) return undefined
+    return { runtime: "mlx", mlx: { ...formula.mlx } }
   }
-  if (!recipe.llama || Object.keys(recipe.llama).length === 0) return undefined
-  return { runtime: "llama.cpp", llama: { ...recipe.llama } }
+  if (!formula.llama || Object.keys(formula.llama).length === 0) return undefined
+  return { runtime: "llama.cpp", llama: { ...formula.llama } }
 }
 
-export function saveUserRecipe(recipe: Recipe): void {
-  const recipes = readUserRecipes()
-  const idx = recipes.findIndex(r => r.name === recipe.name)
-  const cleanRecipe: Recipe = {
-    name: recipe.name,
-    description: recipe.description || "",
-    mlx: recipe.mlx,
-    llama: recipe.llama,
+export const recipeToPreset = formulaToRuntime
+
+export function saveUserFormula(formula: Formula): void {
+  const formulas = readUserFormulas()
+  const idx = formulas.findIndex(r => r.name === formula.name)
+  const cleanFormula: Formula = {
+    name: formula.name,
+    description: formula.description || "",
+    mlx: formula.mlx,
+    llama: formula.llama,
     source: "user"
   }
   if (idx >= 0) {
-    recipes[idx] = cleanRecipe
+    formulas[idx] = cleanFormula
   } else {
-    recipes.push(cleanRecipe)
+    formulas.push(cleanFormula)
   }
-  const tmp = PATHS.recipes + ".tmp"
-  fs.writeFileSync(tmp, JSON.stringify(recipes, null, 2), "utf8")
-  fs.renameSync(tmp, PATHS.recipes)
+  const tmp = PATHS.formulas + ".tmp"
+  fs.writeFileSync(tmp, JSON.stringify(formulas, null, 2), "utf8")
+  fs.renameSync(tmp, PATHS.formulas)
 }
 
-export function deleteUserRecipe(name: string): boolean {
-  const recipes = readUserRecipes()
-  const filtered = recipes.filter(r => r.name !== name)
-  if (filtered.length === recipes.length) return false
-  const tmp = PATHS.recipes + ".tmp"
+export const saveUserRecipe = saveUserFormula
+
+export function deleteUserFormula(name: string): boolean {
+  const formulas = readUserFormulas()
+  const filtered = formulas.filter(r => r.name !== name)
+  if (filtered.length === formulas.length) return false
+  const tmp = PATHS.formulas + ".tmp"
   fs.writeFileSync(tmp, JSON.stringify(filtered, null, 2), "utf8")
-  fs.renameSync(tmp, PATHS.recipes)
+  fs.renameSync(tmp, PATHS.formulas)
   return true
 }
+
+export const deleteUserRecipe = deleteUserFormula

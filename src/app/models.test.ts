@@ -248,15 +248,17 @@ describe("app model service", () => {
 
   it("setPreset stores balanced as an explicit preset", async () => {
     let current = entry()
+    const setModelFormulaMock = vi.fn((_id: string, formula: ModelEntry["formula"]) => {
+      current = { ...current, formula, preset: formula }
+      return current
+    })
     vi.doMock("../registry/index.js", () => ({
       getModel: () => current,
       removeModel: vi.fn(),
       setModelFlavor: vi.fn(),
       setModelPublish: vi.fn(),
-      setModelPreset: vi.fn((_id: string, preset: ModelEntry["preset"]) => {
-        current = { ...current, preset }
-        return current
-      })
+      setModelFormula: setModelFormulaMock,
+      setModelPreset: setModelFormulaMock
     }))
     vi.doMock("../supervisor/index.js", () => ({
       supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] }
@@ -288,15 +290,17 @@ describe("app model service", () => {
       ...entry(),
       preset: { runtime: "mlx", mlx: { promptCacheSize: 32768 } }
     }
+    const setModelFormulaMock = vi.fn((_id: string, formula: ModelEntry["formula"]) => {
+      current = { ...current, formula, preset: formula }
+      return current
+    })
     vi.doMock("../registry/index.js", () => ({
       getModel: () => current,
       removeModel: vi.fn(),
       setModelFlavor: vi.fn(),
       setModelPublish: vi.fn(),
-      setModelPreset: vi.fn((_id: string, preset: ModelEntry["preset"]) => {
-        current = { ...current, preset }
-        return current
-      })
+      setModelFormula: setModelFormulaMock,
+      setModelPreset: setModelFormulaMock
     }))
     vi.doMock("../supervisor/index.js", () => ({
       supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] }
@@ -315,15 +319,17 @@ describe("app model service", () => {
       ...entry(),
       preset: { runtime: "mlx", mlx: { prefillStepSize: 256, promptCacheSize: 8192, decodeConcurrency: 1 } }
     }
+    const setModelFormulaMock = vi.fn((_id: string, formula: ModelEntry["formula"]) => {
+      current = { ...current, formula, preset: formula }
+      return current
+    })
     vi.doMock("../registry/index.js", () => ({
       getModel: () => current,
       removeModel: vi.fn(),
       setModelFlavor: vi.fn(),
       setModelPublish: vi.fn(),
-      setModelPreset: vi.fn((_id: string, preset: ModelEntry["preset"]) => {
-        current = { ...current, preset }
-        return current
-      })
+      setModelFormula: setModelFormulaMock,
+      setModelPreset: setModelFormulaMock
     }))
     vi.doMock("../supervisor/index.js", () => ({
       supervisor: { start: vi.fn(), stop: vi.fn(), stopAll: vi.fn(), restart: vi.fn(), list: () => [] }

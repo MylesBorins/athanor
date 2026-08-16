@@ -197,13 +197,14 @@ export function parseKvTokens(tokens: string[]): Array<[string, string]> {
 // Produces a new preset for an entry with the given kv pairs applied.
 // Non-specified keys are preserved. A preset's runtime always matches
 // the entry's runtime.
-export function setPresetFields(
+export function setFormulaFields(
   entry: ModelEntry,
   kvs: Array<[string, string]>
 ): RuntimePreset {
   const runtime = entry.runtime
-  const existing = (entry.preset && entry.preset.runtime === runtime)
-    ? entry.preset
+  const active = entry.formula ?? entry.preset
+  const existing = (active && active.runtime === runtime)
+    ? active
     : undefined
 
   const patch: Record<string, string | number> = {}
@@ -222,26 +223,30 @@ export function setPresetFields(
   }
 }
 
-export function unsetPresetFields(
+export const setPresetFields = setFormulaFields
+
+export function unsetFormulaFields(
   entry: ModelEntry,
   keys: string[]
 ): RuntimePreset | undefined {
-  if (!entry.preset || entry.preset.runtime !== entry.runtime) return undefined
+  const active = entry.formula ?? entry.preset
+  if (!active || active.runtime !== entry.runtime) return undefined
   const runtime = entry.runtime
   const drop = new Set(keys.map(k => findKey(runtime, k).jsonName))
-  const preset = entry.preset
-  if (runtime === "mlx" && preset.runtime === "mlx") {
-    const next = { ...preset.mlx } as Record<string, unknown>
+  if (runtime === "mlx" && active.runtime === "mlx") {
+    const next = { ...active.mlx } as Record<string, unknown>
     for (const k of drop) delete next[k]
     if (Object.keys(next).length === 0) return undefined
     return { runtime: "mlx", mlx: next as Partial<MlxConfig> }
   }
-  if (preset.runtime !== "llama.cpp") return undefined
-  const next = { ...preset.llama } as Record<string, unknown>
+  if (active.runtime !== "llama.cpp") return undefined
+  const next = { ...active.llama } as Record<string, unknown>
   for (const k of drop) delete next[k]
   if (Object.keys(next).length === 0) return undefined
   return { runtime: "llama.cpp", llama: next as Partial<LlamaConfig> }
 }
+
+export const unsetPresetFields = unsetFormulaFields
 
 export function validateLlamaSpeculativeConfig(merged: LlamaConfig, entry: ModelEntry): string[] {
   const warnings: string[] = []

@@ -17,8 +17,9 @@ export const PATHS = {
   registry: path.join(CONFIG_BASE, "models.json"),
   state: path.join(CONFIG_BASE, "state.json"),
   logsDir: path.join(CONFIG_BASE, "logs"),
-  // User-defined recipes. Never written by the app — only read. Users
-  // edit this file directly; scan / pull / sync leave it alone.
+  // User-defined formulas and recipes. Users edit this file directly;
+  // scan / pull / sync leave it alone.
+  formulas: path.join(CONFIG_BASE, "formulas.json"),
   recipes: path.join(CONFIG_BASE, "recipes.json"),
   telemetry: path.join(CONFIG_BASE, "telemetry.json")
 }

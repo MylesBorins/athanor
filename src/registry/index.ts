@@ -41,7 +41,16 @@ function readRegistryFromDisk(): Registry {
   if (!Array.isArray((raw as { models?: unknown }).models)) {
     throw new Error("Failed to load registry: expected models to be an array")
   }
-  return { version: 1, models: (raw as { models: ModelEntry[] }).models }
+  const models = (raw as { models: ModelEntry[] }).models.map(m => {
+    if (m.formula === undefined && m.preset !== undefined) {
+      m.formula = m.preset
+    }
+    if (m.preset === undefined && m.formula !== undefined) {
+      m.preset = m.formula
+    }
+    return m
+  })
+  return { version: 1, models }
 }
 
 function parseOrgRepoDir(dirName: string): { org: string; repo: string } | null {
@@ -82,7 +91,10 @@ function pickDuplicatePrimary(a: ModelEntry, b: ModelEntry): [ModelEntry, ModelE
 }
 
 function mergeUserOwnedFields(primary: ModelEntry, donor: ModelEntry): void {
-  if (!primary.preset && donor.preset) primary.preset = donor.preset
+  const donorFormula = donor.formula ?? donor.preset
+  if (!primary.formula && !primary.preset && donorFormula) {
+    primary.formula = donorFormula
+  }
   if (!primary.tags?.length && donor.tags?.length) primary.tags = [...donor.tags]
   if (primary.mlxFlavor === undefined && donor.mlxFlavor !== undefined) {
     primary.mlxFlavor = donor.mlxFlavor
@@ -163,7 +175,19 @@ export function loadRegistry(): Registry {
 
 export function saveRegistry(registry: Registry): void {
   ensureBaseDirs()
-  atomicWrite(PATHS.registry, JSON.stringify(registry, null, 2))
+  // Clean up legacy preset key on write — write formula only
+  const cleanRegistry: Registry = {
+    version: registry.version,
+    models: registry.models.map(m => {
+      const entry = { ...m }
+      if (entry.formula === undefined && entry.preset !== undefined) {
+        entry.formula = entry.preset
+      }
+      delete entry.preset
+      return entry
+    })
+  }
+  atomicWrite(PATHS.registry, JSON.stringify(cleanRegistry, null, 2))
 }
 
 export function listModels(): ModelEntry[] {
@@ -197,6 +221,11 @@ export function updateModel(
   )
   if (idx < 0) return undefined
   const merged: ModelEntry = { ...reg.models[idx]!, ...patch }
+  if (patch.formula !== undefined) {
+    merged.preset = patch.formula
+  } else if (patch.preset !== undefined) {
+    merged.formula = patch.preset
+  }
   reg.models[idx] = merged
   saveRegistry(reg)
   return merged
@@ -213,12 +242,14 @@ export function setModelFlavor(
   return updateModel(idOrSlug, { mlxFlavor })
 }
 
-export function setModelPreset(
+export function setModelFormula(
   idOrSlug: string,
-  preset: ModelEntry["preset"]
+  formula: ModelEntry["formula"]
 ): ModelEntry | undefined {
-  return updateModel(idOrSlug, { preset })
+  return updateModel(idOrSlug, { formula })
 }
+
+export const setModelPreset = setModelFormula
 
 export function touchModelLastUsed(idOrSlug: string, at = Date.now()): ModelEntry | undefined {
   return updateModel(idOrSlug, { lastUsedAt: at })

@@ -368,5 +368,5 @@ export function applyCompoundSelection(
     }
   }
 
-  return entry.preset
+  return entry.formula ?? entry.preset
 }

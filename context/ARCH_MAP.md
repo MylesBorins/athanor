@@ -11,7 +11,7 @@ Compressed, code-driven architecture context for future work.
 - **discovery** — scan HF/local model roots, detect MLX capabilities, ingest into registry, watch for changes
 - **pull** — inspect HF repos, download models, materialize pulled entries
 - **adapters** — runtime-specific command building, merged config resolution, health probes, runtime model ids
-- **presets** — tunable runtime overrides, explicit built-in recipes with context bands, preset editing helpers
+- **presets / formulas** — tunable runtime overrides, smart compound knobs, built-in formulas, custom formula library and editing helpers
 - **supervisor** — detached child lifecycle, policy enforcement, reattach, logs, metrics, inflight drain
 - **sync** — merge athanor providers into pi-agent files and update defaults
 - **router** — optional OpenAI-compatible proxy over published models plus detached lifecycle coordination

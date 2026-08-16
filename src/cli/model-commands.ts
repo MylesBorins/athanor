@@ -270,24 +270,25 @@ export function cmdShow(idOrSlug: string): void {
   console.log(`  ${dim("context")}  ${rec.recommendedContext}  ${dim(rec.recommendedContextNote)}`)
   console.log(`  ${dim("why")}      ${rec.explanation}`)
   if (rec.presetHint) {
-    console.log(`  ${dim("preset")}   ${rec.presetHint}  ${dim(rec.presetHintReason ?? "")}`)
+    console.log(`  ${dim("formula")}   ${rec.presetHint}  ${dim(rec.presetHintReason ?? "")}`)
   }
-  console.log(`  ${dim("next")}     ${dim(`start here, then tune with athanor preset apply ${entry.slug} ${rec.presetHint ?? "balanced"} or athanor preset set ${entry.slug} ...`)}`)
+  console.log(`  ${dim("next")}     ${dim(`start here, then tune with athanor formula apply ${entry.slug} ${rec.presetHint ?? "balanced"} or athanor formula set ${entry.slug} ...`)}`)
   console.log(`  ${dim("confidence")} ${rec.confidence}${entry.metadataSource ? dim(` (${entry.metadataSource})`) : ""}`)
   console.log()
 
   head("effective config")
-  if (entry.preset) {
-    console.log(dim("  preset active"))
+  const activeFormula = entry.formula ?? entry.preset
+  if (activeFormula) {
+    console.log(dim("  formula active"))
   } else {
-    console.log(dim("  no preset — using global defaults"))
+    console.log(dim("  no formula — using global defaults"))
   }
   for (const [k, v] of Object.entries(merged)) {
-    const override = entry.preset
-      && entry.preset.runtime === entry.runtime
-      && (entry.preset.runtime === "mlx"
-          ? (entry.preset.mlx as Record<string, unknown>)[k] !== undefined
-          : (entry.preset.llama as Record<string, unknown>)[k] !== undefined)
+    const override = activeFormula
+      && activeFormula.runtime === entry.runtime
+      && (activeFormula.runtime === "mlx"
+          ? (activeFormula.mlx as Record<string, unknown>)[k] !== undefined
+          : (activeFormula.llama as Record<string, unknown>)[k] !== undefined)
     const marker = override ? style.yellow(" *") : "  "
     console.log(`  ${k.padEnd(20)} ${String(v)}${marker}`)
   }

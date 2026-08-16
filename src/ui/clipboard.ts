@@ -45,11 +45,12 @@ export function formatPresetCopyText(
   ]
 
   let bag: Record<string, unknown> | undefined
-  if (entry.preset) {
-    if (entry.preset.runtime === "mlx" && entry.runtime === "mlx") {
-      bag = entry.preset.mlx
-    } else if (entry.preset.runtime === "llama.cpp" && entry.runtime === "llama.cpp") {
-      bag = entry.preset.llama
+  const active = entry.formula ?? entry.preset
+  if (active) {
+    if (active.runtime === "mlx" && entry.runtime === "mlx") {
+      bag = active.mlx
+    } else if (active.runtime === "llama.cpp" && entry.runtime === "llama.cpp") {
+      bag = active.llama
     }
   }
 

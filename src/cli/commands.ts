@@ -20,6 +20,14 @@ export {
 } from "./model-commands.js"
 
 export {
+  cmdFormulaApply,
+  cmdFormulaClear,
+  cmdFormulaSave,
+  cmdFormulaSet,
+  cmdFormulaShow,
+  cmdFormulaUnset,
+  cmdFormulas,
+  cmdFormulasDelete,
   cmdPresetApply,
   cmdPresetClear,
   cmdPresetSave,
