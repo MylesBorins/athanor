@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import * as path from "path"
-import type { DiscoveredModel, ModelEntry, RuntimeType } from "../types/index.js"
+import type { DiscoveredModel, ModelEntry, RuntimeType, ReasoningEffortCapability } from "../types/index.js"
 import {
   detectGgufMetadata,
   detectGgufMtp,
@@ -33,6 +33,7 @@ export interface RegistryMaterializeInput {
   sizeBytes?: number
   mlxCapabilities?: ModelEntry["mlxCapabilities"]
   capabilities?: ModelEntry["capabilities"]
+  reasoningEffort?: ModelEntry["reasoningEffort"]
   architectureFamily?: ModelEntry["architectureFamily"]
   trainedContextLength?: ModelEntry["trainedContextLength"]
   quantization?: ModelEntry["quantization"]
@@ -52,6 +53,7 @@ export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMateri
     sizeBytes: d.sizeBytes,
     mlxCapabilities: d.runtime === "mlx" ? d.mlxCapabilities : undefined,
     capabilities: d.capabilities,
+    reasoningEffort: d.reasoningEffort,
     architectureFamily: d.architectureFamily,
     trainedContextLength: d.trainedContextLength,
     quantization: d.quantization,
@@ -123,6 +125,7 @@ export function pullToMaterializeInput(
     source,
     sizeBytes,
     capabilities: ggufMeta.capabilities,
+    reasoningEffort: ggufMeta.reasoningEffort,
     architectureFamily: ggufMeta.architectureFamily,
     quantization: ggufMeta.quantization,
     metadataSource: ggufMeta.metadataSource,
@@ -188,6 +191,7 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     ...(input.capabilities && input.capabilities.length > 0
       ? { capabilities: input.capabilities }
       : {}),
+    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.architectureFamily ? { architectureFamily: input.architectureFamily } : {}),
     ...(input.trainedContextLength ? { trainedContextLength: input.trainedContextLength } : {}),
     ...(input.quantization ? { quantization: input.quantization } : {}),
@@ -196,6 +200,20 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     ...(input.activeParams ? { activeParams: input.activeParams } : {}),
     ...(input.metadataSource ? { metadataSource: input.metadataSource } : {})
   }
+
+  // Enforced safe default: if a model's template defaults to an expensive effort
+  // (e.g. xhigh), initialize the formula to athanorDefault (e.g. medium).
+  if (entry.runtime === "llama.cpp" && entry.reasoningEffort) {
+    if (entry.reasoningEffort.templateDefault !== entry.reasoningEffort.athanorDefault) {
+      entry.formula = {
+        runtime: "llama.cpp",
+        llama: {
+          reasoningEffort: entry.reasoningEffort.athanorDefault
+        }
+      }
+    }
+  }
+
   reg.models.push(entry)
   saveRegistry(reg)
   return { entry, created: true, changed: true }
@@ -232,6 +250,12 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
   if (!capsEqual(prevGeneralCaps, nextGeneralCaps)) {
     if (nextGeneralCaps.length > 0) existing.capabilities = nextGeneralCaps
     else delete existing.capabilities
+    changed = true
+  }
+
+  if (!reasoningEffortEqual(existing.reasoningEffort, input.reasoningEffort)) {
+    if (input.reasoningEffort) existing.reasoningEffort = input.reasoningEffort
+    else delete existing.reasoningEffort
     changed = true
   }
 
@@ -308,4 +332,12 @@ function capsEqual(a: readonly string[], b: readonly string[]): boolean {
   const sa = [...a].sort()
   const sb = [...b].sort()
   return sa.every((v, i) => v === sb[i])
+}
+
+function reasoningEffortEqual(a?: ReasoningEffortCapability, b?: ReasoningEffortCapability): boolean {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  return a.templateDefault === b.templateDefault &&
+    a.athanorDefault === b.athanorDefault &&
+    capsEqual(a.enum, b.enum)
 }

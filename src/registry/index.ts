@@ -121,6 +121,8 @@ function mergeDuplicateEntries(primary: ModelEntry, donor: ModelEntry): void {
     if (donor.mlxCapabilities.length > 0) primary.mlxCapabilities = [...donor.mlxCapabilities]
     else delete primary.mlxCapabilities
   }
+  if (donor.capabilities !== undefined) primary.capabilities = [...donor.capabilities]
+  if (donor.reasoningEffort !== undefined) primary.reasoningEffort = { ...donor.reasoningEffort }
   if (donor.architectureFamily !== undefined) primary.architectureFamily = donor.architectureFamily
   if (donor.trainedContextLength !== undefined) primary.trainedContextLength = donor.trainedContextLength
   if (donor.quantization !== undefined) primary.quantization = donor.quantization

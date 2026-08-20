@@ -13,7 +13,7 @@ import { buildCommandFor, mergedConfigFor } from "../adapters/index.js"
 import { detectMachineProfile } from "../machine/profile.js"
 import { buildRecommendation } from "../registry/recommend.js"
 import { getPersistedRouter, pidAlive } from "../supervisor/state.js"
-import { validateLlamaSpeculativeConfig } from "../presets/edit.js"
+import { validateLlamaReasoningConfig, validateLlamaSpeculativeConfig } from "../presets/edit.js"
 import type { LlamaConfig } from "../types/index.js"
 
 async function promptYesNo(prompt: string, defaultYes: boolean): Promise<boolean> {
@@ -255,6 +255,10 @@ export function cmdShow(idOrSlug: string): void {
       const stateStr = active ? style.green("enabled automatically") : style.red("disabled")
       console.log(`  ${dim("hint")}     ${style.green("MTP-capable")} — speculative MTP draft decoding is ${stateStr} (mode=${specMode})`)
     }
+    if (entry.reasoningEffort) {
+      const effortVal = (merged as { reasoningEffort?: string }).reasoningEffort ?? entry.reasoningEffort.athanorDefault
+      console.log(`  ${dim("hint")}     ${style.cyan("reasoning-capable")} — supported: [${entry.reasoningEffort.enum.join(", ")}], active: ${style.bold(effortVal)}`)
+    }
   }
   const status = inst ? `${statusGlyph(inst.status)} ${inst.status}` : `${style.gray(sym.idle)} idle`
   console.log(`  ${dim("status")}   ${status}`)
@@ -295,9 +299,12 @@ export function cmdShow(idOrSlug: string): void {
   console.log()
 
   if (entry.runtime === "llama.cpp") {
-    const warnings = validateLlamaSpeculativeConfig(merged as unknown as LlamaConfig, entry)
+    const warnings = [
+      ...validateLlamaSpeculativeConfig(merged as unknown as LlamaConfig, entry),
+      ...validateLlamaReasoningConfig(merged as unknown as LlamaConfig, entry)
+    ]
     if (warnings.length > 0) {
-      console.log(`  ${style.yellow("speculative validation warnings:")}`)
+      console.log(`  ${style.yellow("validation warnings:")}`)
       for (const w of warnings) {
         console.log(`    ${style.yellow("⚠")} ${dim(w)}`)
       }

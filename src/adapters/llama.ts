@@ -59,6 +59,12 @@ export class LlamaAdapter implements RuntimeAdapter {
     if (merged.flashAttn !== undefined) {
       args.push("--flash-attn", String(merged.flashAttn))
     }
+    if (merged.reasoningEffort !== undefined) {
+      if (!args.includes("--jinja")) {
+        args.push("--jinja")
+      }
+      args.push("--reasoning-effort", String(merged.reasoningEffort))
+    }
 
     const isMtpCapable = entry.capabilities?.includes("mtp") || false
     const specMode = merged.speculativeMode || "auto"

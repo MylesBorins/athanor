@@ -7,7 +7,7 @@ export interface CompoundOption {
 }
 
 export interface CompoundKnob {
-  id: "contextWindow" | "kvCache" | "speculative" | "samplingMode" | "gpuOffload"
+  id: "contextWindow" | "kvCache" | "speculative" | "samplingMode" | "gpuOffload" | "reasoningEffort"
   label: string
   runtimes: RuntimeType[]
   options: CompoundOption[]
@@ -49,6 +49,17 @@ export const COMPOUND_KNOBS: CompoundKnob[] = [
     ]
   },
   {
+    id: "reasoningEffort",
+    label: "Reasoning Effort",
+    runtimes: ["llama.cpp"],
+    options: [
+      { key: "off", label: "off (unset)" },
+      { key: "low", label: "low" },
+      { key: "medium", label: "medium" },
+      { key: "xhigh", label: "xhigh" }
+    ]
+  },
+  {
     id: "samplingMode",
     label: "Sampling Mode",
     runtimes: ["llama.cpp", "mlx"],
@@ -87,7 +98,7 @@ export const CATEGORIES_LLAMA: PresetCategory[] = [
   },
   {
     name: "SAMPLING & PENALTIES",
-    keys: ["temp", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "frequencyPenalty", "repeatLastN"]
+    keys: ["temp", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "frequencyPenalty", "repeatLastN", "reasoningEffort"]
   },
   {
     name: "SPECULATIVE DECODING",
@@ -214,6 +225,11 @@ export function inferCompoundState(
     } else {
       result.gpuOffload = "custom"
     }
+  }
+
+  // 6. Reasoning Effort (llama only)
+  if (entry.runtime === "llama.cpp") {
+    result.reasoningEffort = effective.reasoningEffort ? String(effective.reasoningEffort) : "off"
   }
 
   return result
@@ -366,6 +382,13 @@ export function applyCompoundSelection(
     if (choiceKey === "cpu") {
       return setPresetFields(entry, [["n-gpu-layers", "0"]])
     }
+  }
+
+  if (knobId === "reasoningEffort") {
+    if (choiceKey === "off" || choiceKey === "unset") {
+      return unsetPresetFields(entry, ["reasoningEffort"])
+    }
+    return setPresetFields(entry, [["reasoning-effort", choiceKey]])
   }
 
   return entry.formula ?? entry.preset

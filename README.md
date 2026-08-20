@@ -578,6 +578,26 @@ Available keys:
 
 Athanor performs cross-field validation on these settings during `athanor show <slug>` and alerts you of potential issues (e.g., if you configure draft options without a `spec-type`, or if you specify a draft model for `draft-mtp` where it is ignored).
 
+### Reasoning Effort (llama.cpp only)
+
+Models with thinking/reasoning templates (e.g. Qwen3.8-27B) consume a `reasoning_effort` parameter (`xhigh`, `medium`, `low`). Stock templates default to `xhigh`, which can lead to expensive 20+ minute generations and 20,000+ reasoning tokens.
+
+Athanor provides first-class, model-validated reasoning effort support:
+
+```bash
+# Set reasoning effort via formula
+athanor formula qwen3.8-27b set reasoning-effort=medium
+
+# Or using aliases: reasoningEffort, reasoning_effort, effort
+athanor formula qwen3.8-27b set effort=low
+```
+
+Features:
+- **Write-time validation:** Rejects invalid effort strings or attempts to configure reasoning effort on unsupported models before modifying processes.
+- **Enforced safe default:** When registering models whose templates default to `xhigh`, Athanor automatically sets a formula default of `medium`.
+- **Dynamic proxy handling:** Injects the model's formula default on chat completions when omitted by the client, validates client-supplied overrides against the model's allowed enum (returning 400 Bad Request if invalid), and strips reasoning effort for unsupported models to prevent template crashes in `llama-server`.
+- **TUI integration:** The Preset Editor includes a compound knob for Reasoning Effort on supported models.
+
 ### Environment variables
 
 - `ATHANOR_HOME` — overrides `~/.athanor`. Useful for running multiple profiles side by side or for tests.

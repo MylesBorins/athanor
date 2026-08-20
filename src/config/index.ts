@@ -317,6 +317,11 @@ function sanitizeConfig(config: Config): Config {
     next.llama.speculativeMode = DEFAULT_CONFIG.llama.speculativeMode
   }
 
+  if (next.llama.reasoningEffort !== undefined && (typeof next.llama.reasoningEffort !== "string" || !next.llama.reasoningEffort.trim())) {
+    console.error("Invalid config.llama.reasoningEffort; removing")
+    delete next.llama.reasoningEffort
+  }
+
   // threads was removed in favour of llama-server auto-detection.
   // Purge it from any on-disk config so it does not bleed through
   // deepMerge into the effective config or the `athanor show` display.

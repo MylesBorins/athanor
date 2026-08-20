@@ -222,4 +222,145 @@ describe("startRouter", () => {
     await stopRouter()
     await upstream.close()
   })
+
+  it("handles reasoning_effort in proxy: validates, injects default, and strips for unsupported", async () => {
+    let lastUpstreamBody: any = null
+    const upstream = await new Promise<{ port: number; close: () => Promise<void> }>(resolve => {
+      const server = http.createServer((req, res) => {
+        let body = ""
+        req.on("data", chunk => { body += chunk })
+        req.on("end", () => {
+          try { lastUpstreamBody = JSON.parse(body) } catch {}
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ ok: true }))
+        })
+      })
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as AddressInfo).port
+        resolve({
+          port,
+          close: () => new Promise<void>((resClose, rej) => server.close(err => err ? rej(err) : resClose()))
+        })
+      })
+    })
+
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [
+        {
+          id: "unsloth/Qwen3.8-27B-GGUF:Qwen3.8-27B-Q4_K_M.gguf",
+          slug: "qwen3.8",
+          path: "/models/qwen3.8.gguf",
+          runtime: "llama.cpp",
+          source: { type: "hf", repo: "unsloth/Qwen3.8-27B-GGUF" },
+          port: upstream.port,
+          publish: true,
+          addedAt: 0,
+          capabilities: ["reasoning_effort"],
+          reasoningEffort: {
+            enum: ["xhigh", "medium", "low"],
+            templateDefault: "xhigh",
+            athanorDefault: "medium"
+          },
+          formula: {
+            runtime: "llama.cpp",
+            llama: { reasoningEffort: "medium" }
+          }
+        },
+        {
+          id: "plain-llama",
+          slug: "plain-llama",
+          path: "/models/plain.gguf",
+          runtime: "llama.cpp",
+          source: { type: "local" },
+          port: upstream.port,
+          publish: true,
+          addedAt: 0
+        }
+      ]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => ({ port: upstream.port }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    // 1. Invalid reasoning_effort on Qwen3.8 should return 400 Bad Request
+    const resInvalid = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.8",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "high"
+      })
+    })
+    expect(resInvalid.status).toBe(400)
+    const errBody = await resInvalid.json() as { error: string }
+    expect(errBody.error).toMatch(/invalid reasoning_effort "high"/)
+
+    // 2. Omitted reasoning_effort on Qwen3.8 should have formula default injected
+    lastUpstreamBody = null
+    const resOmitted = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.8",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    })
+    expect(resOmitted.status).toBe(200)
+    expect(lastUpstreamBody?.reasoning_effort).toBe("medium")
+
+    // 3. Valid reasoning_effort on Qwen3.8 should be forwarded
+    lastUpstreamBody = null
+    const resValid = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "qwen3.8",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "low"
+      })
+    })
+    expect(resValid.status).toBe(200)
+    expect(lastUpstreamBody?.reasoning_effort).toBe("low")
+
+    // 4. Unsupported model: client reasoning_effort is stripped
+    lastUpstreamBody = null
+    const resStrip = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "plain-llama",
+        messages: [{ role: "user", content: "hi" }],
+        reasoning_effort: "medium"
+      })
+    })
+    expect(resStrip.status).toBe(200)
+    expect(lastUpstreamBody?.reasoning_effort).toBeUndefined()
+
+    await stopRouter()
+    await upstream.close()
+  })
 })

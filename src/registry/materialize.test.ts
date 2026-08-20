@@ -258,4 +258,68 @@ describe("registry materialization", () => {
     expect(input.sizeBytes).toBeGreaterThan(0)
     expect(input.metadataSource).toBe("mlx_config")
   })
+
+  it("enforces safe default reasoning effort (medium) on new model registration", () => {
+    const input: RegistryMaterializeInput = {
+      id: "unsloth/Qwen3.8-27B-GGUF:Qwen3.8-27B-Q4_K_M.gguf",
+      name: "Qwen3.8-27B",
+      path: "/models/qwen3.8.gguf",
+      runtime: "llama.cpp",
+      source: { type: "hf", repo: "unsloth/Qwen3.8-27B-GGUF", file: "Qwen3.8-27B-Q4_K_M.gguf" },
+      reasoningEffort: {
+        enum: ["xhigh", "medium", "low"],
+        templateDefault: "xhigh",
+        athanorDefault: "medium"
+      }
+    }
+
+    const result = materializeRegistryEntry(input)
+    expect(result.created).toBe(true)
+    expect(result.entry.reasoningEffort).toEqual({
+      enum: ["xhigh", "medium", "low"],
+      templateDefault: "xhigh",
+      athanorDefault: "medium"
+    })
+    expect(result.entry.formula).toEqual({
+      runtime: "llama.cpp",
+      llama: {
+        reasoningEffort: "medium"
+      }
+    })
+  })
+
+  it("preserves user-customized formula across re-scans with reasoningEffort", () => {
+    const input: RegistryMaterializeInput = {
+      id: "unsloth/Qwen3.8-27B-GGUF:Qwen3.8-27B-Q4_K_M.gguf",
+      name: "Qwen3.8-27B",
+      path: "/models/qwen3.8.gguf",
+      runtime: "llama.cpp",
+      source: { type: "hf", repo: "unsloth/Qwen3.8-27B-GGUF", file: "Qwen3.8-27B-Q4_K_M.gguf" },
+      reasoningEffort: {
+        enum: ["xhigh", "medium", "low"],
+        templateDefault: "xhigh",
+        athanorDefault: "medium"
+      }
+    }
+
+    materializeRegistryEntry(input)
+    updateModel("unsloth/Qwen3.8-27B-GGUF:Qwen3.8-27B-Q4_K_M.gguf", {
+      formula: {
+        runtime: "llama.cpp",
+        llama: {
+          reasoningEffort: "xhigh"
+        }
+      }
+    })
+
+    const reScanResult = materializeRegistryEntry(input)
+    expect(reScanResult.created).toBe(false)
+    const entry = listModels()[0]!
+    expect(entry.formula).toEqual({
+      runtime: "llama.cpp",
+      llama: {
+        reasoningEffort: "xhigh"
+      }
+    })
+  })
 })

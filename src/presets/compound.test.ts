@@ -167,5 +167,23 @@ describe("compound presets", () => {
       expect(preset.mlx.topK).toBe(20)
       expect(preset.mlx.minP).toBe(0.0)
     })
+
+    it("applies and unsets reasoning effort selections", () => {
+      const entry = llamaEntry({
+        reasoningEffort: {
+          enum: ["xhigh", "medium", "low"],
+          templateDefault: "xhigh",
+          athanorDefault: "medium"
+        }
+      })
+      const preset = applyCompoundSelection(entry, "reasoningEffort", "medium")
+      if (preset?.runtime !== "llama.cpp") throw new Error()
+      expect(preset.llama.reasoningEffort).toBe("medium")
+
+      const unset = applyCompoundSelection(entry, "reasoningEffort", "off")
+      if (unset && unset.runtime === "llama.cpp") {
+        expect(unset.llama.reasoningEffort).toBeUndefined()
+      }
+    })
   })
 })

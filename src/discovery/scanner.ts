@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import * as path from "path"
-import type { DiscoveredModel, MlxCapability, ModelSource, RuntimeType, ModelCapability } from "../types/index.js"
+import type { DiscoveredModel, MlxCapability, ModelSource, RuntimeType, ModelCapability, ReasoningEffortCapability } from "../types/index.js"
 import { getModelDirs } from "../config/index.js"
 import { normalizeModelPath } from "../registry/index.js"
 
@@ -181,10 +181,105 @@ export function detectGgufMtp(filePath: string): boolean {
   return false
 }
 
+export function extractReasoningEffortFromTemplate(templateStr: string): ReasoningEffortCapability | undefined {
+  if (!templateStr.includes("reasoning_effort")) return undefined
+
+  // Match enum list like: reasoning_effort not in ['xhigh', 'medium', 'low'] or in ['xhigh', 'medium', 'low']
+  const listMatch = templateStr.match(/reasoning_effort\s*(?:not\s+in|in)\s*\[([^\]]+)\]/i)
+  let enumValues: string[] = []
+
+  if (listMatch && listMatch[1]) {
+    enumValues = Array.from(listMatch[1].matchAll(/['"]([a-zA-Z0-9_-]+)['"]/g)).map(m => m[1]!)
+  } else {
+    // Collect equality checks like: reasoning_effort == 'xhigh'
+    const eqMatches = Array.from(templateStr.matchAll(/reasoning_effort\s*==\s*['"]([a-zA-Z0-9_-]+)['"]/g)).map(m => m[1]!)
+    if (eqMatches.length > 0) {
+      enumValues = Array.from(new Set(eqMatches))
+    }
+  }
+
+  if (enumValues.length === 0) {
+    // If reasoning_effort is referenced without an explicit list, use standard fallback
+    enumValues = ["xhigh", "medium", "low"]
+  }
+
+  // Extract template default: reasoning_effort | default('xhigh') or reasoning_effort = 'xhigh'
+  const defMatch = templateStr.match(/reasoning_effort\s*\|\s*default\(\s*['"]([^'"]+)['"]\s*\)/i)
+    || templateStr.match(/set\s+reasoning_effort\s*=\s*['"]([^'"]+)['"]/i)
+  const templateDefault = defMatch ? defMatch[1]! : (enumValues[0] || "xhigh")
+
+  // Determine opinionated safe default: if template defaults to xhigh, recommend medium
+  let athanorDefault = templateDefault
+  if (templateDefault === "xhigh" && enumValues.includes("medium")) {
+    athanorDefault = "medium"
+  } else if (!enumValues.includes(athanorDefault)) {
+    athanorDefault = enumValues.includes("medium") ? "medium" : enumValues[0]!
+  }
+
+  return {
+    enum: enumValues,
+    templateDefault,
+    athanorDefault
+  }
+}
+
+export function detectReasoningEffort(filePath: string, fallbackName?: string): ReasoningEffortCapability | undefined {
+  // 1. Check if filePath is a GGUF file and scan its header for chat_template / reasoning_effort
+  if (filePath.endsWith(".gguf") && fs.existsSync(filePath)) {
+    let fd: number | null = null
+    try {
+      fd = fs.openSync(filePath, "r")
+      const buffer = Buffer.alloc(1024 * 1024) // 1MB header read
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0)
+      const headerStr = buffer.toString("utf8", 0, bytesRead)
+      if (headerStr.includes("reasoning_effort")) {
+        const fromTemplate = extractReasoningEffortFromTemplate(headerStr)
+        if (fromTemplate) return fromTemplate
+      }
+    } catch {
+      // ignore
+    } finally {
+      if (fd !== null) {
+        try { fs.closeSync(fd) } catch {}
+      }
+    }
+  }
+
+  // 2. Check if a tokenizer_config.json exists in directory
+  try {
+    const configPath = fs.statSync(filePath).isDirectory()
+      ? path.join(filePath, "tokenizer_config.json")
+      : path.join(path.dirname(filePath), "tokenizer_config.json")
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>
+      const chatTemplate = typeof data.chat_template === "string" ? data.chat_template : ""
+      if (chatTemplate.includes("reasoning_effort")) {
+        const fromTemplate = extractReasoningEffortFromTemplate(chatTemplate)
+        if (fromTemplate) return fromTemplate
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Fallback: Known model pattern check (e.g. Qwen3.8)
+  const nameToCheck = `${filePath} ${fallbackName ?? ""}`.toLowerCase()
+  if (/qwen[-_]?3\.?8/i.test(nameToCheck)) {
+    return {
+      enum: ["xhigh", "medium", "low"],
+      templateDefault: "xhigh",
+      athanorDefault: "medium"
+    }
+  }
+
+  return undefined
+}
+
 export function detectGgufMetadata(filePath: string, fallbackName?: string): Pick<DiscoveredModel,
   "architectureFamily" |
   "quantization" |
   "capabilities" |
+  "reasoningEffort" |
   "metadataSource"
 > {
   const name = path.basename(filePath, ".gguf")
@@ -195,10 +290,15 @@ export function detectGgufMetadata(filePath: string, fallbackName?: string): Pic
   if (detectGgufMtp(filePath)) {
     capabilities.push("mtp")
   }
+  const reasoningEffort = detectReasoningEffort(filePath, fallbackName ?? name)
+  if (reasoningEffort) {
+    capabilities.push("reasoning_effort")
+  }
   return {
     architectureFamily: detectArchitectureFamily(undefined, fallbackName ?? name),
     quantization,
     capabilities,
+    reasoningEffort,
     metadataSource: quantization ? "gguf_header" : "file_size_only"
   }
 }

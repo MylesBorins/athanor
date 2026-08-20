@@ -120,10 +120,10 @@ function contextWindowFor(entry: ModelEntry): number | undefined {
   return Number.isFinite(raw) && raw > 0 ? raw : undefined
 }
 
-function compatForRuntime(runtime: RuntimeType): Record<string, boolean> {
+function compatForRuntime(runtime: RuntimeType, hasReasoningSupport: boolean = false): Record<string, boolean> {
   return runtime === "mlx"
     ? { supportsDeveloperRole: false, supportsReasoningEffort: false }
-    : { supportsReasoningEffort: false }
+    : { supportsReasoningEffort: hasReasoningSupport }
 }
 
 function inputForEntry(entry: ModelEntry): Array<"text" | "image"> {
@@ -139,7 +139,7 @@ function providerFor(entry: ModelEntry, instance?: ActiveInstance): PiProviderCo
     // Both mlx_lm.server and llama-server accept (and ignore) any token.
     // pi requires the field to be present.
     apiKey: "athanor",
-    compat: compatForRuntime(entry.runtime),
+    compat: compatForRuntime(entry.runtime, Boolean(entry.reasoningEffort)),
     models: [{
       id: modelIdFor(entry),
       name: piDisplayNameFor(entry),
@@ -176,7 +176,7 @@ function runtimeRouterProviderFor(
     baseUrl: routerBaseUrl,
     api: "openai-completions",
     apiKey: "athanor",
-    compat: compatForRuntime(runtime),
+    compat: compatForRuntime(runtime, entries.some(e => Boolean(e.reasoningEffort))),
     models: entries.map(e => ({
       id: modelIdFor(e),
       name: piDisplayNameFor(e),

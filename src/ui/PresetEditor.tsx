@@ -215,7 +215,8 @@ export const CYCLABLE_KEYS = [
   "flashAttn",
   "specDraftCacheTypeK",
   "specDraftCacheTypeV",
-  "speculativeMode"
+  "speculativeMode",
+  "reasoningEffort"
 ]
 
 export const PresetEditor: React.FC<PresetEditorProps> = ({
@@ -246,7 +247,11 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
 
   const compoundKnobs = useMemo(() => {
     if (!entry) return []
-    return COMPOUND_KNOBS.filter(k => k.runtimes.includes(entry.runtime))
+    return COMPOUND_KNOBS.filter(k => {
+      if (!k.runtimes.includes(entry.runtime)) return false
+      if (k.id === "reasoningEffort" && !entry.reasoningEffort) return false
+      return true
+    })
   }, [entry])
 
   const categories = useMemo(() => {
@@ -406,6 +411,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           nextVal = getNextFlashAttn(edit.buffer, dir)
         } else if (edit.jsonName === "speculativeMode") {
           nextVal = getNextSpeculativeMode(edit.buffer, dir)
+        } else if (edit.jsonName === "reasoningEffort") {
+          const options = entry.reasoningEffort?.enum ?? ["xhigh", "medium", "low"]
+          const idx = options.indexOf(edit.buffer)
+          if (idx < 0) {
+            nextVal = dir === "left" ? options[options.length - 1] : options[0]
+          } else {
+            nextVal = dir === "left" ? options[Math.max(0, idx - 1)] : options[Math.min(options.length - 1, idx + 1)]
+          }
         }
 
         if (nextVal !== undefined) {

@@ -97,6 +97,7 @@ export interface LlamaConfig {
   specDraftCacheTypeK?: LlamaCacheType | (string & {})
   specDraftCacheTypeV?: LlamaCacheType | (string & {})
   speculativeMode?: "auto" | "enabled" | "disabled"
+  reasoningEffort?: string
 }
 
 export type RuntimeFormula =
@@ -130,7 +131,13 @@ export type ModelSource = ModelSourceHF | ModelSourceLocal
 
 export type MetadataSource = "gguf_header" | "mlx_config" | "file_size_only"
 
-export type ModelCapability = "vlm" | "mtp"
+export interface ReasoningEffortCapability {
+  enum: string[]
+  templateDefault: string
+  athanorDefault: string
+}
+
+export type ModelCapability = "vlm" | "mtp" | "reasoning_effort"
 
 export interface ModelEntry {
   id: string
@@ -154,8 +161,10 @@ export interface ModelEntry {
   // Detected facts about the model (refreshed by scan/pull). Today
   // only "vlm" — present when config.json has a vision tower.
   mlxCapabilities?: MlxCapability[]
-  // General capabilities detected across runtimes (e.g. "vlm", "mtp")
+  // General capabilities detected across runtimes (e.g. "vlm", "mtp", "reasoning_effort")
   capabilities?: ModelCapability[]
+  // Reasoning effort capability details if supported by the model
+  reasoningEffort?: ReasoningEffortCapability
   // Additional detected metadata used for recommendation guidance.
   // Refreshed by scan/pull when cheaply derivable from local files.
   architectureFamily?: string
@@ -208,6 +217,7 @@ export interface DiscoveredModel {
   sizeBytes?: number
   mlxCapabilities?: MlxCapability[]
   capabilities?: ModelCapability[]
+  reasoningEffort?: ReasoningEffortCapability
   architectureFamily?: string
   trainedContextLength?: number
   quantization?: string

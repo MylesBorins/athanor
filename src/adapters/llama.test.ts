@@ -182,6 +182,29 @@ describe("LlamaAdapter", () => {
     expect(args[args.indexOf("--spec-draft-type-v") + 1]).toBe("q4_0")
   })
 
+  it("includes --reasoning-effort and --jinja when reasoningEffort is configured", () => {
+    const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
+    const reasoningLlama: LlamaConfig = {
+      ...llama,
+      reasoningEffort: "medium"
+    }
+    const { args } = adapter.buildCommand(entry, reasoningLlama)
+    expect(args).toContain("--jinja")
+    expect(args).toContain("--reasoning-effort")
+    expect(args[args.indexOf("--reasoning-effort") + 1]).toBe("medium")
+  })
+
+  it("does not duplicate --jinja when reasoningEffort is configured", () => {
+    const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
+    const reasoningLlama: LlamaConfig = {
+      ...llama,
+      reasoningEffort: "low"
+    }
+    const { args } = adapter.buildCommand(entry, reasoningLlama)
+    const jinjaCount = args.filter(a => a === "--jinja").length
+    expect(jinjaCount).toBe(1)
+  })
+
   it("returns the llama.cpp health url", () => {
     expect(adapter.healthUrl(9000)).toBe("http://127.0.0.1:9000/health")
   })

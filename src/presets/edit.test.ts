@@ -257,3 +257,64 @@ describe("validateLlamaSpeculativeConfig", () => {
     expect(warningsAuto).toEqual([])
   })
 })
+
+describe("reasoningEffort preset validation", () => {
+  it("rejects setting reasoningEffort when model has no reasoning capability", () => {
+    const entry = llamaEntry({ slug: "llama-3-8b" })
+    expect(() => setPresetFields(entry, [["reasoningEffort", "medium"]]))
+      .toThrow(/model "llama-3-8b" has no known reasoning_effort support/)
+  })
+
+  it("rejects setting reasoningEffort when value is not in supported enum", () => {
+    const entry = llamaEntry({
+      slug: "qwen3.8-27b",
+      reasoningEffort: {
+        enum: ["xhigh", "medium", "low"],
+        templateDefault: "xhigh",
+        athanorDefault: "medium"
+      }
+    })
+    expect(() => setPresetFields(entry, [["reasoning-effort", "high"]]))
+      .toThrow(/invalid reasoningEffort "high" for model "qwen3.8-27b". Supported values: xhigh, medium, low/)
+  })
+
+  it("accepts setting valid reasoningEffort values", () => {
+    const entry = llamaEntry({
+      slug: "qwen3.8-27b",
+      reasoningEffort: {
+        enum: ["xhigh", "medium", "low"],
+        templateDefault: "xhigh",
+        athanorDefault: "medium"
+      }
+    })
+    const p = setPresetFields(entry, [["reasoningEffort", "medium"]])
+    if (p.runtime !== "llama.cpp") throw new Error()
+    expect(p.llama.reasoningEffort).toBe("medium")
+
+    const pLow = setPresetFields(entry, [["effort", "low"]])
+    if (pLow.runtime !== "llama.cpp") throw new Error()
+    expect(pLow.llama.reasoningEffort).toBe("low")
+  })
+
+  it("validates reasoningEffort in validateLlamaReasoningConfig", async () => {
+    const { validateLlamaReasoningConfig } = await import("./edit.js")
+    const entryWithCap = llamaEntry({
+      slug: "qwen3.8-27b",
+      reasoningEffort: {
+        enum: ["xhigh", "medium", "low"],
+        templateDefault: "xhigh",
+        athanorDefault: "medium"
+      }
+    })
+
+    const noWarn = validateLlamaReasoningConfig({ ctxSize: 8192, nGpuLayers: 999, batchSize: 512, ubatchSize: 128, parallel: 1, reasoningEffort: "medium" }, entryWithCap)
+    expect(noWarn).toEqual([])
+
+    const warnInvalidEnum = validateLlamaReasoningConfig({ ctxSize: 8192, nGpuLayers: 999, batchSize: 512, ubatchSize: 128, parallel: 1, reasoningEffort: "invalid" }, entryWithCap)
+    expect(warnInvalidEnum[0]).toMatch(/not supported by model "qwen3.8-27b"/)
+
+    const entryWithoutCap = llamaEntry({ slug: "plain-llama" })
+    const warnNoCap = validateLlamaReasoningConfig({ ctxSize: 8192, nGpuLayers: 999, batchSize: 512, ubatchSize: 128, parallel: 1, reasoningEffort: "medium" }, entryWithoutCap)
+    expect(warnNoCap[0]).toMatch(/has no detected reasoning effort support/)
+  })
+})

@@ -194,6 +194,7 @@ function extractFlags(parsed: Record<string, unknown>): Record<string, unknown> 
     "stream", "stream_options", "seed", "echo", "n",
     "frequency_penalty", "presence_penalty", "repetition_penalty",
     "logit_bias", "logprobs", "top_logprobs", "response_format",
+    "reasoning_effort", "reasoningEffort",
     "stop", "tools", "tool_choice", "parallel_tool_calls",
     "function_call", "functions",
   ]
@@ -236,6 +237,37 @@ async function proxy(
     return sendJson(res, 404, { error: `unknown model '${parsed.model}'` })
   }
 
+  const parsedRecord = parsed as Record<string, unknown>
+  const clientEffort = parsedRecord.reasoning_effort ?? parsedRecord.reasoningEffort
+
+  if (clientEffort !== undefined) {
+    const effortStr = String(clientEffort)
+    if (entry.reasoningEffort && entry.reasoningEffort.enum && entry.reasoningEffort.enum.length > 0) {
+      if (!entry.reasoningEffort.enum.includes(effortStr)) {
+        routerLog(`[router] ${req.method} ${req.url ?? ""} invalid reasoning_effort '${effortStr}' for ${entry.slug}`)
+        return sendJson(res, 400, {
+          error: `invalid reasoning_effort "${effortStr}" for ${entry.slug}. Supported values: ${entry.reasoningEffort.enum.join(", ")}`
+        })
+      }
+      parsedRecord.reasoning_effort = effortStr
+      delete parsedRecord.reasoningEffort
+      body = Buffer.from(JSON.stringify(parsedRecord), "utf8")
+    } else if (!entry.reasoningEffort) {
+      delete parsedRecord.reasoning_effort
+      delete parsedRecord.reasoningEffort
+      body = Buffer.from(JSON.stringify(parsedRecord), "utf8")
+    }
+  } else {
+    const mergedConfig = mergedConfigFor(entry)
+    if (entry.runtime === "llama.cpp") {
+      const lcfg = mergedConfig as LlamaConfig
+      if (lcfg.reasoningEffort !== undefined) {
+        parsedRecord.reasoning_effort = lcfg.reasoningEffort
+        body = Buffer.from(JSON.stringify(parsedRecord), "utf8")
+      }
+    }
+  }
+
   clearLiveRouterStats(entry.id)
   startLiveRequest(entry.id)
 
@@ -262,6 +294,9 @@ async function proxy(
     const name = k.toLowerCase()
     if (STRIP_REQ.has(name)) continue
     headers[name] = Array.isArray(v) ? v.join(",") : v
+  }
+  if (body.length > 0) {
+    headers["content-length"] = String(body.byteLength)
   }
 
   const clientAbortCtrl = new AbortController()

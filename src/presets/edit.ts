@@ -166,7 +166,10 @@ const KEYS: KeySpec[] = [
     parse: cacheType, help: "llama: KV cache key data type for draft model" },
   { runtime: "llama.cpp", jsonName: "specDraftCacheTypeV", type: "string",
     aliases: ["specDraftCacheTypeV", "spec-draft-type-v", "cache-type-v-draft", "ctvd"],
-    parse: cacheType, help: "llama: KV cache value data type for draft model" }
+    parse: cacheType, help: "llama: KV cache value data type for draft model" },
+  { runtime: "llama.cpp", jsonName: "reasoningEffort", type: "string",
+    aliases: ["reasoningEffort", "reasoning-effort", "reasoning_effort", "effort"],
+    parse: str, help: "llama: reasoning effort for models with reasoning templates (e.g. low, medium, xhigh)" }
 ]
 
 export function listKeys(runtime: RuntimeType): KeySpec[] {
@@ -210,7 +213,18 @@ export function setFormulaFields(
   const patch: Record<string, string | number> = {}
   for (const [k, v] of kvs) {
     const spec = findKey(runtime, k)
-    patch[spec.jsonName] = spec.parse(v)
+    if (spec.jsonName === "reasoningEffort") {
+      if (!entry.reasoningEffort || !entry.reasoningEffort.enum || entry.reasoningEffort.enum.length === 0) {
+        throw new Error(`model "${entry.slug}" has no known reasoning_effort support`)
+      }
+      const parsedVal = String(spec.parse(v))
+      if (!entry.reasoningEffort.enum.includes(parsedVal)) {
+        throw new Error(`invalid reasoningEffort "${parsedVal}" for model "${entry.slug}". Supported values: ${entry.reasoningEffort.enum.join(", ")}`)
+      }
+      patch[spec.jsonName] = parsedVal
+    } else {
+      patch[spec.jsonName] = spec.parse(v)
+    }
   }
   if (runtime === "mlx") {
     const base = existing && existing.runtime === "mlx" ? existing.mlx : {}
@@ -293,5 +307,17 @@ export function validateLlamaSpeculativeConfig(merged: LlamaConfig, entry: Model
     }
   }
 
+  return warnings
+}
+
+export function validateLlamaReasoningConfig(merged: LlamaConfig, entry: ModelEntry): string[] {
+  const warnings: string[] = []
+  if (merged.reasoningEffort !== undefined) {
+    if (!entry.reasoningEffort || !entry.reasoningEffort.enum || entry.reasoningEffort.enum.length === 0) {
+      warnings.push(`reasoningEffort "${merged.reasoningEffort}" is configured, but model "${entry.slug}" has no detected reasoning effort support.`)
+    } else if (!entry.reasoningEffort.enum.includes(merged.reasoningEffort)) {
+      warnings.push(`reasoningEffort "${merged.reasoningEffort}" is not supported by model "${entry.slug}" (allowed: ${entry.reasoningEffort.enum.join(", ")}).`)
+    }
+  }
   return warnings
 }

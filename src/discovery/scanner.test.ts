@@ -176,4 +176,46 @@ describe("discovery scanner metadata helpers", () => {
     expect(deduped[0]!.source.type).toBe("hf")
     expect(deduped[0]!.id).toBe("author/repo:shared.gguf")
   })
+
+  it("extracts reasoning effort from Jinja template with list enum and default", async () => {
+    const { extractReasoningEffortFromTemplate } = await import("./scanner.js")
+    const template = `
+      {% set reasoning_effort = reasoning_effort | default('xhigh') %}
+      {% if reasoning_effort not in ['xhigh', 'medium', 'low'] %}
+        {{ raise_exception('invalid reasoning_effort') }}
+      {% endif %}
+    `
+    const extracted = extractReasoningEffortFromTemplate(template)
+    expect(extracted).toEqual({
+      enum: ["xhigh", "medium", "low"],
+      templateDefault: "xhigh",
+      athanorDefault: "medium"
+    })
+  })
+
+  it("detects reasoning effort for Qwen3.8 models from filename and assigns safe default", () => {
+    const meta = detectGgufMetadata("/models/Qwen3.8-27B-Instruct-Q4_K_M.gguf", "Qwen3.8-27B-Instruct-Q4_K_M")
+    expect(meta.capabilities).toContain("reasoning_effort")
+    expect(meta.reasoningEffort).toEqual({
+      enum: ["xhigh", "medium", "low"],
+      templateDefault: "xhigh",
+      athanorDefault: "medium"
+    })
+  })
+
+  it("detects reasoning effort from tokenizer_config.json in snapshot directory", async () => {
+    const { detectReasoningEffort } = await import("./scanner.js")
+    const dir = path.join(tmp, "reasoning-model")
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, "tokenizer_config.json"), JSON.stringify({
+      chat_template: "{% set reasoning_effort = reasoning_effort | default('high') %}{% if reasoning_effort in ['low', 'high'] %}{% endif %}"
+    }))
+
+    const detected = detectReasoningEffort(dir)
+    expect(detected).toEqual({
+      enum: ["low", "high"],
+      templateDefault: "high",
+      athanorDefault: "high"
+    })
+  })
 })
