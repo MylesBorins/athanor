@@ -42,6 +42,16 @@ export interface MlxConfig {
   topK: number
   minP: number
   promptConcurrency: number
+  // KV cache quantization (e.g. 8 or 4 bits). Passed as --kv-bits.
+  kvBits?: number
+  // Speculative decoding draft model. Passed as --draft-model.
+  draftModel?: string
+  // Sampling penalties
+  repeatPenalty?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  // Reasoning effort override for reasoning-capable models
+  reasoningEffort?: string
 }
 
 export type LlamaSpecType =

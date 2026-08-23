@@ -94,4 +94,19 @@ describe("MlxAdapter", () => {
     const { cmd } = adapter.buildCommand(entry, mlx)
     expect(cmd).toBe("mlx_lm.server")
   })
+
+  it("passes --kv-bits and --draft-model when configured", () => {
+    const entry = mlxEntry({ port: 8090 })
+    const config: MlxConfig = {
+      ...mlx,
+      kvBits: 8,
+      draftModel: "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
+    }
+    const { cmd, args } = adapter.buildCommand(entry, config)
+    expect(cmd).toBe("mlx_lm.server")
+    expect(args).toContain("--kv-bits")
+    expect(args[args.indexOf("--kv-bits") + 1]).toBe("8")
+    expect(args).toContain("--draft-model")
+    expect(args[args.indexOf("--draft-model") + 1]).toBe("mlx-community/Qwen2.5-0.5B-Instruct-4bit")
+  })
 })

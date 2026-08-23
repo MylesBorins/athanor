@@ -212,6 +212,7 @@ export const CYCLABLE_KEYS = [
   "repeatLastN",
   "cacheTypeK",
   "cacheTypeV",
+  "kvBits",
   "flashAttn",
   "specDraftCacheTypeK",
   "specDraftCacheTypeV",
@@ -407,6 +408,15 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
           nextVal = getNextRepeatLastN(edit.buffer, dir)
         } else if (["cacheTypeK", "cacheTypeV", "specDraftCacheTypeK", "specDraftCacheTypeV"].includes(edit.jsonName)) {
           nextVal = getNextCacheType(edit.buffer, dir)
+        } else if (edit.jsonName === "kvBits") {
+          const kvOptions = [0, 4, 8]
+          const currentNum = parseInt(edit.buffer, 10) || 0
+          const curIdx = kvOptions.indexOf(currentNum)
+          if (curIdx < 0) {
+            nextVal = dir === "left" ? 0 : 8
+          } else {
+            nextVal = dir === "left" ? kvOptions[Math.max(0, curIdx - 1)] : kvOptions[Math.min(kvOptions.length - 1, curIdx + 1)]
+          }
         } else if (edit.jsonName === "flashAttn") {
           nextVal = getNextFlashAttn(edit.buffer, dir)
         } else if (edit.jsonName === "speculativeMode") {
@@ -567,10 +577,14 @@ export const PresetEditor: React.FC<PresetEditorProps> = ({
       } else if (mode === "simple") {
         const knob = compoundKnobs[cursor]
         if (knob?.id === "kvCache") {
-          const formula = unsetFormulaFields(entry, ["cacheTypeK", "cacheTypeV"])
+          const formula = entry.runtime === "mlx"
+            ? unsetFormulaFields(entry, ["kvBits"])
+            : unsetFormulaFields(entry, ["cacheTypeK", "cacheTypeV"])
           persistPreset(formula, "reset KV cache to defaults")
         } else if (knob?.id === "speculative") {
-          const formula = unsetFormulaFields(entry, ["speculativeMode", "specType", "specDraftNgl", "specDraftModel"])
+          const formula = entry.runtime === "mlx"
+            ? unsetFormulaFields(entry, ["draftModel"])
+            : unsetFormulaFields(entry, ["speculativeMode", "specType", "specDraftNgl", "specDraftModel"])
           persistPreset(formula, "reset speculative decoding to defaults")
         }
       }

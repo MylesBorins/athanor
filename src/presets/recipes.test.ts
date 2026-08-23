@@ -157,6 +157,14 @@ describe("formulaToRuntime", () => {
       expect(formula.mlx?.promptCacheSize).toBe(formula.llama?.ctxSize)
     }
   })
+
+  it("produces an mlx runtime formula for q8-kv with kvBits=8", () => {
+    const q8 = findFormula("q8-kv")!
+    const mlxFormula = formulaToRuntime(q8, "mlx")!
+    expect(mlxFormula.runtime).toBe("mlx")
+    if (mlxFormula.runtime !== "mlx") throw new Error()
+    expect(mlxFormula.mlx.kvBits).toBe(8)
+  })
 })
 
 describe("findMatchingFormula and model registry fallback", () => {

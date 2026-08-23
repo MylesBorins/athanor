@@ -57,8 +57,9 @@ describe("compound presets", () => {
     const mlxCats = getCategoriesForRuntime("mlx")
     expect(mlxCats.map(c => c.name)).toEqual([
       "HARDWARE & CONTEXT",
-      "MEMORY & CACHE",
-      "SAMPLING & OUTPUT"
+      "MEMORY & KV CACHE",
+      "SAMPLING & PENALTIES",
+      "SPECULATIVE DECODING"
     ])
   })
 
@@ -184,6 +185,37 @@ describe("compound presets", () => {
       if (unset && unset.runtime === "llama.cpp") {
         expect(unset.llama.reasoningEffort).toBeUndefined()
       }
+    })
+
+    it("applies and unsets kvCache for MLX", () => {
+      const entry = mlxEntry()
+      const q8 = applyCompoundSelection(entry, "kvCache", "q8_0")
+      expect(q8?.runtime).toBe("mlx")
+      if (q8?.runtime !== "mlx") throw new Error()
+      expect(q8.mlx.kvBits).toBe(8)
+
+      // When kvBits was the only preset field, unsetting returns undefined
+      const f16Empty = applyCompoundSelection({ ...entry, preset: q8 }, "kvCache", "f16")
+      expect(f16Empty).toBeUndefined()
+
+      // When other preset fields exist, unsetting removes kvBits while preserving others
+      const withCtx = { runtime: "mlx" as const, mlx: { kvBits: 8, contextWindow: 65536 } }
+      const f16Preserved = applyCompoundSelection({ ...entry, preset: withCtx }, "kvCache", "f16")
+      expect(f16Preserved?.runtime).toBe("mlx")
+      if (f16Preserved?.runtime !== "mlx") throw new Error()
+      expect(f16Preserved.mlx.kvBits).toBeUndefined()
+      expect(f16Preserved.mlx.contextWindow).toBe(65536)
+    })
+
+    it("infers MLX kvCache and speculative state", () => {
+      const entry = mlxEntry()
+      const state1 = inferCompoundState(entry, { kvBits: 8, draftModel: "mlx-community/Qwen2.5-0.5B-Instruct-4bit" })
+      expect(state1.kvCache).toBe("q8_0")
+      expect(state1.speculative).toBe("draft")
+
+      const state2 = inferCompoundState(entry, { kvBits: 0 })
+      expect(state2.kvCache).toBe("f16")
+      expect(state2.speculative).toBe("off")
     })
   })
 })

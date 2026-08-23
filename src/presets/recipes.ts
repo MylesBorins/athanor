@@ -33,27 +33,28 @@ export const BUILTIN_FORMULAS: Formula[] = [
   {
     name: "long-context",
     description: "Maximum context for large documents and long conversations (128K context with Q8_0 KV cache and Flash Attention).",
-    mlx: { prefillStepSize: 2048, promptCacheSize: 131072, decodeConcurrency: 1, contextWindow: 131072, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3 },
+    mlx: { prefillStepSize: 2048, promptCacheSize: 131072, decodeConcurrency: 1, contextWindow: 131072, maxTokens: 8192, promptCacheBytes: 20 * 1024 ** 3, kvBits: 8 },
     llama: { ctxSize: 131072, batchSize: 2048, ubatchSize: 512, parallel: 1, nGpuLayers: 999, cacheTypeK: "q8_0", cacheTypeV: "q8_0", flashAttn: "on" },
     source: "builtin"
   },
   {
     name: "q8-kv",
     description: "Quantized Q8_0 KV cache with Flash Attention to reduce memory footprint at large contexts.",
+    mlx: { kvBits: 8 },
     llama: { cacheTypeK: "q8_0", cacheTypeV: "q8_0", flashAttn: "on" },
     source: "builtin"
   },
   {
     name: "thinking",
     description: "Reasoning/thinking model sampling (Qwen/DeepSeek recommended: temp=1.0, topP=0.95, topK=20).",
-    mlx: { temp: 1.0, topP: 0.95, topK: 20, minP: 0 },
+    mlx: { temp: 1.0, topP: 0.95, topK: 20, minP: 0, presencePenalty: 0.0, repeatPenalty: 1.0 },
     llama: { temp: 1.0, topP: 0.95, topK: 20, minP: 0, presencePenalty: 0.0, repeatPenalty: 1.0 },
     source: "builtin"
   },
   {
     name: "instruct",
     description: "Standard instruct model sampling (temp=0.7, topP=0.80, topK=20, presencePenalty=1.5).",
-    mlx: { temp: 0.7, topP: 0.80, topK: 20, minP: 0 },
+    mlx: { temp: 0.7, topP: 0.80, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1.0 },
     llama: { temp: 0.7, topP: 0.80, topK: 20, minP: 0, presencePenalty: 1.5, repeatPenalty: 1.0 },
     source: "builtin"
   },

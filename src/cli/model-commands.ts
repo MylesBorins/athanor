@@ -248,6 +248,10 @@ export function cmdShow(idOrSlug: string): void {
     if (caps.includes("vlm") && entry.mlxFlavor !== "vlm") {
       console.log(`  ${dim("hint")}     ${style.yellow("vision-capable")} — enable with ${style.bold(`athanor flavor ${entry.slug} vlm`)}`)
     }
+    if (entry.reasoningEffort) {
+      const effortVal = (merged as { reasoningEffort?: string }).reasoningEffort ?? entry.reasoningEffort.athanorDefault
+      console.log(`  ${dim("hint")}     ${style.cyan("reasoning-capable")} — supported: [${entry.reasoningEffort.enum.join(", ")}], active: ${style.bold(effortVal)}`)
+    }
   } else if (entry.runtime === "llama.cpp") {
     if (caps.includes("mtp")) {
       const specMode = (merged as { speculativeMode?: string }).speculativeMode || "auto"

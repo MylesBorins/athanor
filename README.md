@@ -504,11 +504,11 @@ Built-in formulas: `balanced`, `fast`, `long-context`, `q8-kv`, `thinking`, `ins
 
 - `balanced` — recommended default, 64K context
 - `fast` — lower latency, 8K context
-- `long-context` — 128K context for large documents (with Q8_0 KV cache and Flash Attention)
-- `q8-kv` — Q8_0 KV cache quantization with Flash Attention for reduced memory footprint
+- `long-context` — 128K context for large documents (with Q8_0 KV cache on both MLX and llama.cpp)
+- `q8-kv` — Q8_0 KV cache quantization for reduced memory footprint across both MLX and llama.cpp
 - `thinking` — reasoning model sampling (temp=1.0, topP=0.95, topK=20)
 - `instruct` — standard instruct sampling (temp=0.7, topP=0.80, presencePenalty=1.5)
-- `mtp` — Multi-Token Prediction speculative decoding
+- `mtp` — Multi-Token Prediction speculative decoding (requires an MTP-capable GGUF model)
 
 `balanced` is an explicit formula; clearing a formula is a separate action (`athanor formula <slug> clear`). Save your own tuning as custom named formulas via `athanor formula <slug> save <name>` or by editing `~/.athanor/formulas.json` (a plain list or `{ "formulas": [...] }`). User formulas override built-ins of the same name.
 

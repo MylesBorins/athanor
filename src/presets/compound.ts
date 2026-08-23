@@ -30,7 +30,7 @@ export const COMPOUND_KNOBS: CompoundKnob[] = [
   {
     id: "kvCache",
     label: "KV Cache",
-    runtimes: ["llama.cpp"],
+    runtimes: ["llama.cpp", "mlx"],
     options: [
       { key: "f16", label: "f16 (default)" },
       { key: "q8_0", label: "q8_0 (half RAM)" },
@@ -40,7 +40,7 @@ export const COMPOUND_KNOBS: CompoundKnob[] = [
   {
     id: "speculative",
     label: "Speculative",
-    runtimes: ["llama.cpp"],
+    runtimes: ["llama.cpp", "mlx"],
     options: [
       { key: "off", label: "off" },
       { key: "auto", label: "auto" },
@@ -51,7 +51,7 @@ export const COMPOUND_KNOBS: CompoundKnob[] = [
   {
     id: "reasoningEffort",
     label: "Reasoning Effort",
-    runtimes: ["llama.cpp"],
+    runtimes: ["llama.cpp", "mlx"],
     options: [
       { key: "off", label: "off (unset)" },
       { key: "low", label: "low" },
@@ -112,12 +112,16 @@ export const CATEGORIES_MLX: PresetCategory[] = [
     keys: ["contextWindow", "decodeConcurrency", "prefillStepSize", "promptConcurrency"]
   },
   {
-    name: "MEMORY & CACHE",
-    keys: ["promptCacheBytes", "promptCacheSize"]
+    name: "MEMORY & KV CACHE",
+    keys: ["promptCacheBytes", "promptCacheSize", "kvBits"]
   },
   {
-    name: "SAMPLING & OUTPUT",
-    keys: ["temp", "topP", "topK", "minP", "maxTokens"]
+    name: "SAMPLING & PENALTIES",
+    keys: ["temp", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "frequencyPenalty", "maxTokens", "reasoningEffort"]
+  },
+  {
+    name: "SPECULATIVE DECODING",
+    keys: ["draftModel"]
   }
 ]
 
@@ -146,7 +150,7 @@ export function inferCompoundState(
     result.contextWindow = "65536"
   }
 
-  // 2. KV Cache (llama only)
+  // 2. KV Cache
   if (entry.runtime === "llama.cpp") {
     const k = effective.cacheTypeK
     const v = effective.cacheTypeV
@@ -159,9 +163,20 @@ export function inferCompoundState(
     } else {
       result.kvCache = "custom"
     }
+  } else if (entry.runtime === "mlx") {
+    const bits = effective.kvBits
+    if (!bits || bits === 0) {
+      result.kvCache = "f16"
+    } else if (bits === 8) {
+      result.kvCache = "q8_0"
+    } else if (bits === 4) {
+      result.kvCache = "q4_0"
+    } else {
+      result.kvCache = "custom"
+    }
   }
 
-  // 3. Speculative (llama only)
+  // 3. Speculative
   if (entry.runtime === "llama.cpp") {
     const mode = effective.speculativeMode
     const specType = effective.specType
@@ -174,6 +189,8 @@ export function inferCompoundState(
     } else {
       result.speculative = "auto"
     }
+  } else if (entry.runtime === "mlx") {
+    result.speculative = effective.draftModel ? "draft" : "off"
   }
 
   // 4. Sampling Mode
@@ -202,7 +219,7 @@ export function inferCompoundState(
     // MLX
     if (numEqual(temp, 1.0) && numEqual(topP, 0.95) && numEqual(topK, 20) && numEqual(minP, 0.0)) {
       result.samplingMode = "thinking"
-    } else if (numEqual(temp, 0.7) && numEqual(topP, 0.80) && numEqual(topK, 20) && numEqual(minP, 0.0)) {
+    } else if (numEqual(temp, 0.7) && numEqual(topP, 0.80) && numEqual(topK, 20) && numEqual(minP, 0.0) && (pres === undefined || numEqual(pres, 1.5))) {
       result.samplingMode = "instruct"
     } else if (numEqual(temp, 0.8) && numEqual(topP, 0.95) && numEqual(topK, 40) && numEqual(minP, 0.05)) {
       result.samplingMode = "balanced"
@@ -227,10 +244,8 @@ export function inferCompoundState(
     }
   }
 
-  // 6. Reasoning Effort (llama only)
-  if (entry.runtime === "llama.cpp") {
-    result.reasoningEffort = effective.reasoningEffort ? String(effective.reasoningEffort) : "off"
-  }
+  // 6. Reasoning Effort
+  result.reasoningEffort = effective.reasoningEffort ? String(effective.reasoningEffort) : "off"
 
   return result
 }
@@ -246,34 +261,55 @@ export function applyCompoundSelection(
   }
 
   if (knobId === "kvCache") {
-    if (choiceKey === "f16") {
-      return unsetPresetFields(entry, ["cacheTypeK", "cacheTypeV"])
-    }
-    if (choiceKey === "q8_0" || choiceKey === "q4_0") {
-      return setPresetFields(entry, [
-        ["cache-type-k", choiceKey],
-        ["cache-type-v", choiceKey],
-        ["flash-attn", "on"]
-      ])
+    if (entry.runtime === "mlx") {
+      if (choiceKey === "f16") {
+        return unsetPresetFields(entry, ["kvBits"])
+      }
+      if (choiceKey === "q8_0") {
+        return setPresetFields(entry, [["kv-bits", "8"]])
+      }
+      if (choiceKey === "q4_0") {
+        return setPresetFields(entry, [["kv-bits", "4"]])
+      }
+    } else {
+      if (choiceKey === "f16") {
+        return unsetPresetFields(entry, ["cacheTypeK", "cacheTypeV"])
+      }
+      if (choiceKey === "q8_0" || choiceKey === "q4_0") {
+        return setPresetFields(entry, [
+          ["cache-type-k", choiceKey],
+          ["cache-type-v", choiceKey],
+          ["flash-attn", "on"]
+        ])
+      }
     }
   }
 
   if (knobId === "speculative") {
-    if (choiceKey === "off") {
-      return setPresetFields(entry, [["speculative-mode", "disabled"]])
-    }
-    if (choiceKey === "auto") {
-      return setPresetFields(entry, [["speculative-mode", "auto"]])
-    }
-    if (choiceKey === "mtp") {
-      return setPresetFields(entry, [
-        ["speculative-mode", "enabled"],
-        ["spec-type", "draft-mtp"],
-        ["spec-draft-ngl", "999"]
-      ])
-    }
-    if (choiceKey === "draft") {
-      return setPresetFields(entry, [["spec-type", "draft"]])
+    if (entry.runtime === "mlx") {
+      if (choiceKey === "off") {
+        return unsetPresetFields(entry, ["draftModel"])
+      }
+      if (choiceKey === "draft") {
+        return entry.formula ?? entry.preset
+      }
+    } else {
+      if (choiceKey === "off") {
+        return setPresetFields(entry, [["speculative-mode", "disabled"]])
+      }
+      if (choiceKey === "auto") {
+        return setPresetFields(entry, [["speculative-mode", "auto"]])
+      }
+      if (choiceKey === "mtp") {
+        return setPresetFields(entry, [
+          ["speculative-mode", "enabled"],
+          ["spec-type", "draft-mtp"],
+          ["spec-draft-ngl", "999"]
+        ])
+      }
+      if (choiceKey === "draft") {
+        return setPresetFields(entry, [["spec-type", "draft"]])
+      }
     }
   }
 

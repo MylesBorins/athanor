@@ -68,6 +68,10 @@ export class MlxAdapter implements RuntimeAdapter {
     if (merged.topK !== 0) extra.push("--top-k", String(merged.topK))
     if (merged.minP !== 0) extra.push("--min-p", String(merged.minP))
     if (merged.promptConcurrency !== 8) extra.push("--prompt-concurrency", String(merged.promptConcurrency))
+    if (merged.kvBits !== undefined && merged.kvBits > 0) extra.push("--kv-bits", String(merged.kvBits))
+    if (merged.draftModel !== undefined && merged.draftModel.trim().length > 0) {
+      extra.push("--draft-model", merged.draftModel)
+    }
 
     return {
       cmd: mlxBinary(entry),

@@ -357,6 +357,10 @@ function scanMlxModels(baseDir: string): Model[] {
       if (mlxCaps.includes("vlm")) {
         capabilities.push("vlm")
       }
+      const reasoningEffort = detectReasoningEffort(snapshotDir, parsed.repo)
+      if (reasoningEffort) {
+        capabilities.push("reasoning_effort")
+      }
       models.push({
         id: repo,
         name: parsed.repo,
@@ -366,6 +370,7 @@ function scanMlxModels(baseDir: string): Model[] {
         sizeBytes: snapshotSizeBytes(snapshotDir),
         mlxCapabilities: mlxCaps,
         capabilities,
+        reasoningEffort,
         ...metadata
       })
     }

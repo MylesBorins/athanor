@@ -223,6 +223,30 @@ function sanitizeConfig(config: Config): Config {
     console.error("Invalid config.mlx.promptConcurrency; using default")
     next.mlx.promptConcurrency = DEFAULT_CONFIG.mlx.promptConcurrency
   }
+  if (next.mlx.kvBits !== undefined && (!positiveNumber(next.mlx.kvBits) || (next.mlx.kvBits !== 4 && next.mlx.kvBits !== 8))) {
+    console.error("Invalid config.mlx.kvBits; removing")
+    delete next.mlx.kvBits
+  }
+  if (next.mlx.draftModel !== undefined && (typeof next.mlx.draftModel !== "string" || !next.mlx.draftModel.trim())) {
+    console.error("Invalid config.mlx.draftModel; removing")
+    delete next.mlx.draftModel
+  }
+  if (next.mlx.repeatPenalty !== undefined && !nonNegativeNumber(next.mlx.repeatPenalty)) {
+    console.error("Invalid config.mlx.repeatPenalty; removing")
+    delete next.mlx.repeatPenalty
+  }
+  if (next.mlx.presencePenalty !== undefined && !nonNegativeNumber(next.mlx.presencePenalty)) {
+    console.error("Invalid config.mlx.presencePenalty; removing")
+    delete next.mlx.presencePenalty
+  }
+  if (next.mlx.frequencyPenalty !== undefined && !nonNegativeNumber(next.mlx.frequencyPenalty)) {
+    console.error("Invalid config.mlx.frequencyPenalty; removing")
+    delete next.mlx.frequencyPenalty
+  }
+  if (next.mlx.reasoningEffort !== undefined && (typeof next.mlx.reasoningEffort !== "string" || !next.mlx.reasoningEffort.trim())) {
+    console.error("Invalid config.mlx.reasoningEffort; removing")
+    delete next.mlx.reasoningEffort
+  }
 
   if (!nonNegativeNumber(next.llama.nGpuLayers)) {
     console.error("Invalid config.llama.nGpuLayers; using default")

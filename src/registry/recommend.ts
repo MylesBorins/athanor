@@ -79,12 +79,23 @@ export function estimateFootprintGiB(entry: ModelEntry, contextLength: number): 
   const weightsGiB = weightGiB
 
   // 2. KV Cache Size GiB
+  let kvQuantFactor = 1.0
+  const activeFormula = entry.formula ?? entry.preset
+  if (activeFormula?.runtime === "mlx") {
+    if (activeFormula.mlx.kvBits === 8) kvQuantFactor = 0.5
+    else if (activeFormula.mlx.kvBits === 4) kvQuantFactor = 0.25
+  } else if (activeFormula?.runtime === "llama.cpp") {
+    const k = activeFormula.llama.cacheTypeK
+    if (k === "q8_0") kvQuantFactor = 0.5
+    else if (k === "q4_0" || k === "q4_1" || k === "iq4_nl") kvQuantFactor = 0.25
+  }
+
   // Active-params * MoE multiplier gives a reasonable proxy for attention layers
   const paramsB = entry.isMoe
     ? (activeParams / 1e9) * MOE_ATTENTION_PARAM_MULTIPLIER
     : (activeParams / 1e9)
   const ctxK = contextLength / 1024
-  const kvBytes = paramsB * ctxK * KV_BYTES_PER_BPARAM_PER_KCTX
+  const kvBytes = paramsB * ctxK * KV_BYTES_PER_BPARAM_PER_KCTX * kvQuantFactor
   const kvGiB = kvBytes / (1024 ** 3)
 
   // 3. Activation Memory GiB

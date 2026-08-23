@@ -137,6 +137,23 @@ describe("setPresetFields", () => {
     expect(() => setPresetFields(llamaEntry(), [["flash-attn", "invalid_mode"]]))
       .toThrow(/expected on, off, or auto/)
   })
+
+  it("accepts kv-bits, draft-model, and penalties for MLX", () => {
+    const p = setPresetFields(mlxEntry(), [
+      ["kv-bits", "8"],
+      ["draft-model", "mlx-community/Qwen2.5-0.5B-Instruct-4bit"],
+      ["repeat-penalty", "1.1"],
+      ["presence-penalty", "0.2"],
+      ["frequency-penalty", "0.3"]
+    ])
+    expect(p.runtime).toBe("mlx")
+    if (p.runtime !== "mlx") throw new Error()
+    expect(p.mlx.kvBits).toBe(8)
+    expect(p.mlx.draftModel).toBe("mlx-community/Qwen2.5-0.5B-Instruct-4bit")
+    expect(p.mlx.repeatPenalty).toBe(1.1)
+    expect(p.mlx.presencePenalty).toBe(0.2)
+    expect(p.mlx.frequencyPenalty).toBe(0.3)
+  })
 })
 
 describe("unsetPresetFields", () => {

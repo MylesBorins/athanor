@@ -126,4 +126,23 @@ describe("buildRecommendation", () => {
     expect(rec.fitBand).toBe("tight")
     expect(rec.recommendedContext).toBe(131072)
   })
+
+  it("reduces estimated footprint when MLX kvBits=8 is active", () => {
+    const unquantized = buildRecommendation(modelEntry({
+      runtime: "mlx",
+      sizeBytes: 8 * 1024 ** 3,
+      trainedContextLength: 65536,
+      metadataSource: "mlx_config"
+    }), machineProfile(32))
+
+    const quantized = buildRecommendation(modelEntry({
+      runtime: "mlx",
+      sizeBytes: 8 * 1024 ** 3,
+      trainedContextLength: 65536,
+      metadataSource: "mlx_config",
+      formula: { runtime: "mlx", mlx: { kvBits: 8 } }
+    }), machineProfile(32))
+
+    expect(quantized.estimatedFootprintGiB).toBeLessThan(unquantized.estimatedFootprintGiB)
+  })
 })
