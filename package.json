@@ -42,17 +42,17 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.14",
-    "@vitest/coverage-v8": "^4.1.4",
-    "@vitest/ui": "^4.1.4",
+    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/ui": "^5.0.0",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.2",
-    "vitest": "^4.1.4"
+    "vitest": "^5.0.0"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true,
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "esbuild@0.28.2": true
   }
 }
