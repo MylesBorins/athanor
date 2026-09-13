@@ -170,6 +170,7 @@ describe("Config", () => {
     })
 
     it("sanitizes invalid enum/string fields back to defaults", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {})
       fs.writeFileSync(
         PATHS.config,
         JSON.stringify({
@@ -187,6 +188,10 @@ describe("Config", () => {
       expect(loaded.router.host).toBe(DEFAULT_CONFIG.router.host)
       expect(loaded.modelDirs).toEqual(DEFAULT_CONFIG.modelDirs)
       expect(loaded.enablePiSync).toBe(DEFAULT_CONFIG.enablePiSync)
+      expect(spy).toHaveBeenCalledWith("Invalid config.supervisor.policy; using default")
+      expect(spy).toHaveBeenCalledWith("Invalid config.controlApi.host; using default")
+      expect(spy).toHaveBeenCalledWith("Invalid config.router.host; using default")
+      spy.mockRestore()
     })
   })
 })

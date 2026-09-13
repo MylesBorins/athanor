@@ -1,5 +1,5 @@
 import * as fs from "fs"
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import { cmdFlavor } from "./commands.js"
 import { getModel, upsertModel } from "../registry/index.js"
 import { PATHS } from "../config/index.js"
@@ -24,6 +24,11 @@ function mlxEntry(overrides: Partial<ModelEntry> = {}): ModelEntry {
 describe("cmdFlavor", () => {
   beforeEach(() => {
     try { fs.unlinkSync(PATHS.registry) } catch { /* not present */ }
+    vi.spyOn(console, "log").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it("flips mlxFlavor on an mlx entry", () => {

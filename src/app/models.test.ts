@@ -394,4 +394,94 @@ describe("app model service", () => {
       }
     })
   })
+
+  it("removeModelEntry removes model and triggers syncPi", async () => {
+    const removeModel = vi.fn(() => true)
+    const syncPi = vi.fn()
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry(),
+      removeModel
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { removeModelEntry } = await import("./models.js")
+    removeModelEntry("a")
+
+    expect(removeModel).toHaveBeenCalledWith("a")
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
+  })
+
+  it("removeModelEntry throws when model is not found in registry", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => undefined,
+      removeModel: () => false
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+
+    const { removeModelEntry } = await import("./models.js")
+    expect(() => removeModelEntry("nonexistent")).toThrow("unknown model: nonexistent")
+  })
+
+  it("syncPiNow reconciles ingress and syncs pi with activeDefault", async () => {
+    const syncPi = vi.fn()
+    const reconcileIngressForCurrentState = vi.fn(async () => {})
+    vi.doMock("../router/lifecycle.js", () => ({
+      reconcileIngressForCurrentState,
+      ensureIngress: vi.fn(),
+      stopIngressIfIdle: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { syncPiNow } = await import("./models.js")
+    const activeDefault = {
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 123, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+    }
+    await syncPiNow(activeDefault)
+
+    expect(reconcileIngressForCurrentState).toHaveBeenCalled()
+    expect(syncPi).toHaveBeenCalledWith({ activeDefault, instances: [] })
+  })
+
+  it("deleteModelFromDisk throws when model is currently running", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry(),
+      removeModel: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        list: () => [{
+          id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+          pid: 123, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+        }]
+      }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("a")).toThrow("cannot delete model \"a\" while it is running")
+  })
+
+  it("deleteModelFromDisk throws when files cannot be removed", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), path: "/nonexistent/path/for/model" }),
+      removeModel: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("a")).toThrow("could not remove files from disk for a")
+  })
 })
