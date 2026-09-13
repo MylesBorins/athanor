@@ -3,7 +3,6 @@ import * as path from "path"
 import type { DiscoveredModel, ModelEntry, RuntimeType, ReasoningEffortCapability } from "../types/index.js"
 import {
   detectGgufMetadata,
-  detectGgufMtp,
   detectMlxCapabilities,
   detectMlxMetadata,
   snapshotSizeBytes

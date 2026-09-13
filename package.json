@@ -27,11 +27,12 @@
     "start": "tsx src/index.tsx",
     "dev": "node scripts/dev-watch.mjs",
     "build": "tsc && node -e \"const fs=require('fs'); const path=require('path'); const walk=d=>{ for (const entry of fs.readdirSync(d,{withFileTypes:true})) { const p=path.join(d,entry.name); if (entry.isDirectory()) walk(p); else if (/\\.test\\.(js|js\\.map|d\\.ts|d\\.ts\\.map)$/.test(entry.name)) fs.unlinkSync(p); } }; walk('dist'); fs.copyFileSync('src/pull/hf_pull.py','dist/pull/hf_pull.py')\"",
-    "prepublishOnly": "npm run build",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "test": "vitest",
-    "test:run": "vitest run",
+    "prepublishOnly": "npm test && npm run build",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "test": "npm run lint && npm run test:unit",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -39,16 +40,13 @@
     "react": "^19.2.5"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.14",
     "@vitest/coverage-v8": "^5.0.0",
     "@vitest/ui": "^5.0.0",
-    "eslint": "^10.2.1",
-    "eslint-plugin-react-hooks": "^7.1.1",
+    "oxlint": "^1.82.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.58.2",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   },
   "allowScripts": {

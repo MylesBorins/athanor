@@ -9,7 +9,6 @@ import {
   removeModel,
   setModelFlavor,
   setModelFormula,
-  setModelPreset,
   setModelPublish
 } from "../registry/index.js"
 import { loadConfig } from "../config/index.js"
