@@ -201,4 +201,134 @@ describe("useModelActions", () => {
     expect(setModels).toHaveBeenCalledWith(models)
     expect(setMessage).toHaveBeenCalledWith("scan: +2 new")
   })
+
+  it("restart handles no-op when selected is undefined", async () => {
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: undefined,
+      instMap: new Map(),
+      setMessage: vi.fn(),
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.restart()
+    expect(restartModel).not.toHaveBeenCalled()
+  })
+
+  it("restart restarts the selected model and reports ready status", async () => {
+    const setMessage = vi.fn()
+    const setInstances = vi.fn()
+    const inst = instance({ port: 9090 })
+    restartModel.mockResolvedValueOnce({ instance: inst })
+    loadPersistedInstances.mockReturnValue([{ id: "mlx-community/A", pid: 1, port: 9090, startedAt: 0 }])
+    pidAlive.mockReturnValue(true)
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances,
+      setModels: vi.fn()
+    })
+    await actions.restart()
+
+    expect(restartModel).toHaveBeenCalledWith("mlx-community/A", { confirm: true })
+    expect(setMessage).toHaveBeenCalledWith("restarting a…")
+    expect(setMessage).toHaveBeenCalledWith("a ready on :9090")
+    expect(setInstances).toHaveBeenCalled()
+  })
+
+  it("restart reports error when restartModel fails", async () => {
+    const setMessage = vi.fn()
+    restartModel.mockRejectedValueOnce(new Error("preflight rejected"))
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.restart()
+
+    expect(setMessage).toHaveBeenCalledWith("error: preflight rejected")
+  })
+
+  it("deleteEntry handles no-op when selected is undefined", async () => {
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: undefined,
+      instMap: new Map(),
+      setMessage: vi.fn(),
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    actions.deleteEntry()
+    expect(deleteModelFromDisk).not.toHaveBeenCalled()
+  })
+
+  it("deleteEntry reports error when deleteModelFromDisk throws", async () => {
+    const setMessage = vi.fn()
+    const setModels = vi.fn()
+    deleteModelFromDisk.mockImplementationOnce(() => {
+      throw new Error("permission denied")
+    })
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances: vi.fn(),
+      setModels
+    })
+    actions.deleteEntry()
+
+    expect(setMessage).toHaveBeenCalledWith("error: permission denied")
+    expect(setModels).toHaveBeenCalled()
+  })
+
+  it("killSelected handles no-op when selected is missing or not running", async () => {
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: undefined,
+      instMap: new Map(),
+      setMessage: vi.fn(),
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.killSelected()
+    expect(stopModel).not.toHaveBeenCalled()
+
+    const stoppedActions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage: vi.fn(),
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await stoppedActions.killSelected()
+    expect(stopModel).not.toHaveBeenCalled()
+  })
+
+  it("killSelected stops the running instance with drain=false and updates instances", async () => {
+    const setInstances = vi.fn()
+    const runningEntry = entry()
+    const inst = instance()
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: runningEntry,
+      instMap: new Map([[runningEntry.id, inst]]),
+      setMessage: vi.fn(),
+      setInstances,
+      setModels: vi.fn()
+    })
+    await actions.killSelected()
+
+    expect(stopModel).toHaveBeenCalledWith("mlx-community/A", { drain: false })
+    expect(setInstances).toHaveBeenCalled()
+  })
 })

@@ -1,5 +1,18 @@
-import { describe, it, expect } from "vitest"
-import { PullAbortedError, runHfDownload, splitHfChunks } from "./download.js"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import * as fs from "fs"
+import * as path from "path"
+import { EventEmitter } from "events"
+import { PullAbortedError, runHfDownload, resolveMlxSnapshot, splitHfChunks } from "./download.js"
+import { resolvePythonForHf } from "./resolve-python.js"
+import { spawn } from "child_process"
+
+vi.mock("./resolve-python.js", () => ({
+  resolvePythonForHf: vi.fn(() => "/usr/bin/python3")
+}))
+
+vi.mock("child_process", () => ({
+  spawn: vi.fn()
+}))
 
 describe("splitHfChunks", () => {
   it("splits on newlines", () => {
@@ -7,8 +20,6 @@ describe("splitHfChunks", () => {
   })
 
   it("splits on carriage returns (tqdm progress frames)", () => {
-    // hf download emits progress as \r rewrites on a single 'line'.
-    // We want each frame to surface to the callback, not be buffered.
     const chunk =
       "Downloading: 0%\r" +
       "Downloading: 25%\r" +
@@ -44,8 +55,6 @@ describe("splitHfChunks", () => {
   })
 
   it("handles a realistic hf download chunk", () => {
-    // A condensed example of what `hf download` pushes to stderr during
-    // a large MLX pull: tqdm banner + sibling-by-sibling progress frames.
     const chunk =
       "Fetching 12 files:   0%|          | 0/12 [00:00<?, ?it/s]\r" +
       "model-00001-of-00003.safetensors:   0%|          | 0.00/4.96G [00:00<?, ?B/s]\r" +
@@ -59,15 +68,179 @@ describe("splitHfChunks", () => {
   })
 })
 
-describe("runHfDownload abort", () => {
-  it("rejects with PullAbortedError when the signal is already aborted", async () => {
-    // Pre-aborted signal short-circuits before we ever spawn hf, so
-    // this test is hermetic (doesn't require hf to be installed).
-    const ctl = new AbortController()
-    ctl.abort()
-    await expect(
-      runHfDownload({ repo: "example/repo", localDir: "/tmp/athanor-abort-test", signal: ctl.signal })
-    ).rejects.toBeInstanceOf(PullAbortedError)
+describe("resolveMlxSnapshot", () => {
+  const tmpDir = path.join(process.env.ATHANOR_HOME!, "resolve-mlx-test")
+
+  beforeEach(() => {
+    fs.mkdirSync(tmpDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+  })
+
+  it("resolves candidate via refs hash when snapshot directory exists", () => {
+    const modelDir = path.join(tmpDir, "models--mlx-community--test-model")
+    const refDir = path.join(modelDir, "refs")
+    const snapDir = path.join(modelDir, "snapshots", "hash123")
+    fs.mkdirSync(refDir, { recursive: true })
+    fs.mkdirSync(snapDir, { recursive: true })
+    fs.writeFileSync(path.join(refDir, "main"), "hash123\n")
+
+    const resolved = resolveMlxSnapshot(tmpDir, "mlx-community/test-model")
+    expect(resolved).toBe(snapDir)
+  })
+
+  it("resolves via specific revision ref", () => {
+    const modelDir = path.join(tmpDir, "models--mlx-community--test-rev")
+    const refDir = path.join(modelDir, "refs")
+    const snapDir = path.join(modelDir, "snapshots", "revhash456")
+    fs.mkdirSync(refDir, { recursive: true })
+    fs.mkdirSync(snapDir, { recursive: true })
+    fs.writeFileSync(path.join(refDir, "v2"), "revhash456\n")
+
+    const resolved = resolveMlxSnapshot(tmpDir, "mlx-community/test-rev", "v2")
+    expect(resolved).toBe(snapDir)
+  })
+
+  it("resolves direct snapshot directory when named after revision", () => {
+    const modelDir = path.join(tmpDir, "models--mlx-community--direct-snap")
+    const snapDir = path.join(modelDir, "snapshots", "v1.0")
+    fs.mkdirSync(snapDir, { recursive: true })
+
+    const resolved = resolveMlxSnapshot(tmpDir, "mlx-community/direct-snap", "v1.0")
+    expect(resolved).toBe(snapDir)
+  })
+
+  it("returns null when no snapshot exists", () => {
+    const resolved = resolveMlxSnapshot(tmpDir, "mlx-community/nonexistent")
+    expect(resolved).toBeNull()
   })
 })
 
+describe("runHfDownload", () => {
+  const localDir = path.join(process.env.ATHANOR_HOME!, "download-test")
+
+  beforeEach(() => {
+    vi.mocked(resolvePythonForHf).mockReturnValue("/usr/bin/python3")
+  })
+
+  it("rejects with PullAbortedError when the signal is already aborted", async () => {
+    const ctl = new AbortController()
+    ctl.abort()
+    await expect(
+      runHfDownload({ repo: "example/repo", localDir, signal: ctl.signal })
+    ).rejects.toBeInstanceOf(PullAbortedError)
+  })
+
+  it("rejects when no Python interpreter is found", async () => {
+    vi.mocked(resolvePythonForHf).mockReturnValueOnce(null)
+    await expect(
+      runHfDownload({ repo: "example/repo", localDir })
+    ).rejects.toThrow("no Python interpreter found")
+  })
+
+  it("spawns python, parses NDJSON events, and resolves with path on exit 0", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: vi.fn()
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const events: any[] = []
+    const lines: string[] = []
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir,
+      onEvent: ev => events.push(ev),
+      onLine: line => lines.push(line)
+    })
+
+    // Emit valid progress event, non-JSON line, and done event
+    stdout.emit("data", Buffer.from(JSON.stringify({ type: "progress", file: "a.bin", done: 10, total: 100, rate: 5, elapsed: 1, unit: "B" }) + "\n"))
+    stdout.emit("data", Buffer.from("raw unstructured line\n"))
+    stdout.emit("data", Buffer.from(JSON.stringify({ type: "done", path: "/cache/model" }) + "\n"))
+
+    // Emit stderr line
+    stderr.emit("data", Buffer.from("stderr warning\n"))
+
+    // Exit cleanly
+    proc.emit("exit", 0)
+
+    const result = await downloadPromise
+    expect(result).toBe("/cache/model")
+    expect(events).toHaveLength(2)
+    expect(events[0].type).toBe("progress")
+    expect(events[1].type).toBe("done")
+    expect(lines).toContain("raw unstructured line")
+    expect(lines).toContain("stderr warning")
+  })
+
+  it("handles in-flight abort signal by killing process and rejecting with PullAbortedError", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const killFn = vi.fn()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: killFn
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const ctl = new AbortController()
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir,
+      signal: ctl.signal
+    })
+
+    ctl.abort()
+    expect(killFn).toHaveBeenCalledWith("SIGTERM")
+
+    proc.emit("exit", null)
+    await expect(downloadPromise).rejects.toBeInstanceOf(PullAbortedError)
+  })
+
+  it("rejects with last error or stderr fallback on non-zero exit code", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: vi.fn()
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir
+    })
+
+    stdout.emit("data", Buffer.from(JSON.stringify({ type: "error", message: "model repo not found" }) + "\n"))
+    proc.emit("exit", 1)
+
+    await expect(downloadPromise).rejects.toThrow("model repo not found")
+  })
+
+  it("rejects with process error event", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: vi.fn()
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir
+    })
+
+    proc.emit("error", new Error("spawn ENOENT"))
+    await expect(downloadPromise).rejects.toThrow("spawn ENOENT")
+  })
+})
