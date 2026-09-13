@@ -484,4 +484,125 @@ describe("app model service", () => {
     const { deleteModelFromDisk } = await import("./models.js")
     expect(() => deleteModelFromDisk("a")).toThrow("could not remove files from disk for a")
   })
+
+  it("stopModel stops all instances when passed --all or undefined", async () => {
+    const stopAll = vi.fn(async () => true)
+    const syncPi = vi.fn()
+    const stopIngressIfIdle = vi.fn(async () => {})
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { stopAll, stop: vi.fn(), list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+    vi.doMock("../router/lifecycle.js", () => ({ stopIngressIfIdle, ensureIngress: vi.fn() }))
+
+    const { stopModel } = await import("./models.js")
+    const res = await stopModel("--all")
+    expect(res.stoppedAll).toBe(true)
+    expect(res.stopped).toBe(true)
+    expect(stopAll).toHaveBeenCalled()
+    expect(stopIngressIfIdle).toHaveBeenCalled()
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
+  })
+
+  it("stopModel stops a specific model and syncs pi", async () => {
+    const stop = vi.fn(async () => true)
+    const syncPi = vi.fn()
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { stop, stopAll: vi.fn(), list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { stopModel } = await import("./models.js")
+    const res = await stopModel("a")
+    expect(res.stoppedAll).toBe(false)
+    expect(res.stopped).toBe(true)
+    expect(stop).toHaveBeenCalledWith("mlx-community/A", undefined)
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
+  })
+
+  it("stopModel throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => undefined
+    }))
+    const { stopModel } = await import("./models.js")
+    await expect(stopModel("unknown")).rejects.toThrow("unknown model: unknown")
+  })
+
+  it("restartModel throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => undefined
+    }))
+    const { restartModel } = await import("./models.js")
+    await expect(restartModel("unknown")).rejects.toThrow("unknown model: unknown")
+  })
+
+  it("restartModel restarts via supervisor and syncs pi when confirmed", async () => {
+    const restart = vi.fn(async () => ({
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 456, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+    }))
+    const syncPi = vi.fn()
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { restart, list: () => [] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { restartModel } = await import("./models.js")
+    const res = await restartModel("a", { confirm: true })
+    expect(res.entry.slug).toBe("a")
+    expect(res.instance?.pid).toBe(456)
+    expect(syncPi).toHaveBeenCalled()
+  })
+
+  it("deleteModelFromDisk refuses to remove MLX snapshot outside HF cache", async () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "outside-hf-"))
+    const outsideFile = path.join(tmp, "weights.safetensors")
+    fs.writeFileSync(outsideFile, "data")
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), path: outsideFile, runtime: "mlx" as const }),
+      removeModel: vi.fn()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("a")).toThrow("refusing to remove snapshot outside HF cache")
+  })
+
+  it("deleteModelFromDisk removes single-file GGUF and cleans empty snapshot directory", async () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "hf-gguf-"))
+    const snapshotDir = path.join(tmp, "snapshots", "rev1")
+    fs.mkdirSync(snapshotDir, { recursive: true })
+    const ggufFile = path.join(snapshotDir, "model.gguf")
+    fs.writeFileSync(ggufFile, "gguf-data")
+
+    const removeModel = vi.fn(() => true)
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({
+        ...entry(),
+        runtime: "llama.cpp" as const,
+        path: ggufFile,
+        source: { type: "hf" as const, repo: "org/repo", file: "model.gguf" }
+      }),
+      removeModel
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { list: () => [] }
+    }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    const deleted = deleteModelFromDisk("a")
+    expect(deleted.path).toBe(ggufFile)
+    expect(fs.existsSync(ggufFile)).toBe(false)
+    expect(fs.existsSync(snapshotDir)).toBe(false)
+    expect(removeModel).toHaveBeenCalledWith("mlx-community/A")
+  })
 })
