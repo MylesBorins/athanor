@@ -86,9 +86,19 @@ export async function runCli(argv: string[]): Promise<boolean> {
     case "scan":        await cmdScan(); return true
     case "ls":          await cmdList(); return true
     case "status":      await cmdStatus(); return true
-    case "start":       await cmdStart(required(rest[0], "id|slug")); return true
+    case "start": {
+      const yes = rest.includes("-y") || rest.includes("--yes")
+      const target = rest.find(a => a !== "-y" && a !== "--yes")
+      await cmdStart(required(target, "id|slug"), { yes })
+      return true
+    }
     case "stop":        await cmdStop(rest[0]); return true
-    case "restart":     await cmdRestart(required(rest[0], "id|slug")); return true
+    case "restart": {
+      const yes = rest.includes("-y") || rest.includes("--yes")
+      const target = rest.find(a => a !== "-y" && a !== "--yes")
+      await cmdRestart(required(target, "id|slug"), { yes })
+      return true
+    }
     case "logs": {
       const id = required(rest[0], "id|slug")
       const n = Number(getFlag(rest, "-n") ?? 200)
@@ -118,9 +128,21 @@ export async function runCli(argv: string[]): Promise<boolean> {
     }
     case "formula":
     case "preset": {
-      const slug = required(rest[0], "id|slug")
-      const sub = required(rest[1], "show|set|unset|clear|apply|save")
-      const tail = rest.slice(2)
+      const knownSubcommands = new Set(["show", "set", "unset", "clear", "apply", "save", "save-formula", "save-recipe"])
+      let slug: string
+      let sub: string
+      let tail: string[]
+
+      if (knownSubcommands.has(rest[0] ?? "")) {
+        sub = rest[0]!
+        slug = required(rest[1], "id|slug")
+        tail = rest.slice(2)
+      } else {
+        slug = required(rest[0], "id|slug")
+        sub = required(rest[1], "show|set|unset|clear|apply|save")
+        tail = rest.slice(2)
+      }
+
       switch (sub) {
         case "show":   cmdFormulaShow(slug); return true
         case "set":    cmdFormulaSet(slug, tail); return true

@@ -560,6 +560,43 @@ describe("app model service", () => {
     expect(syncPi).toHaveBeenCalled()
   })
 
+  it("restartModel discounts running instance memory in preflight", async () => {
+    const restart = vi.fn(async () => ({
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 456, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+    }))
+    const syncPi = vi.fn()
+    const buildStartPreflightMock = vi.fn(() => ({
+      currentUsedGiB: 5, projectedUsedGiB: 8, machineTotalGiB: 16, estimatedFootprintGiB: 3,
+      shouldWarn: false, shouldStrongWarn: false
+    }))
+    vi.doMock("./preflight.js", () => ({ buildStartPreflight: buildStartPreflightMock }))
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => entry()
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(),
+        restart,
+        list: () => [{ id: "mlx-community/A", pid: 456, status: "running" }]
+      }
+    }))
+    vi.doMock("../supervisor/metrics.js", () => ({
+      sampleProcessStats: () => new Map([[456, { pid: 456, cpuPct: 0, rssBytes: 4 * 1024 ** 3 }]])
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { restartModel } = await import("./models.js")
+    const res = await restartModel("a")
+    expect(res.entry.slug).toBe("a")
+    expect(buildStartPreflightMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { discountBytes: 4 * 1024 ** 3 }
+    )
+    expect(restart).toHaveBeenCalled()
+  })
+
   it("deleteModelFromDisk refuses to remove MLX snapshot outside HF cache", async () => {
     const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "outside-hf-"))
     const outsideFile = path.join(tmp, "weights.safetensors")

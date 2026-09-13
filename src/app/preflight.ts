@@ -12,10 +12,16 @@ export interface StartPreflight {
   shouldStrongWarn: boolean
 }
 
-export function buildStartPreflight(entry: ModelEntry, machine: MachineProfile): StartPreflight {
+export function buildStartPreflight(
+  entry: ModelEntry,
+  machine: MachineProfile,
+  opts?: { discountBytes?: number }
+): StartPreflight {
   const sys = sampleSystemStats()
   const rec = buildRecommendation(entry, machine)
-  const currentUsedGiB = sys.usedMemBytes / (1024 ** 3)
+  const discountBytes = Math.max(0, opts?.discountBytes ?? 0)
+  const effectiveUsedBytes = Math.max(0, sys.usedMemBytes - discountBytes)
+  const currentUsedGiB = effectiveUsedBytes / (1024 ** 3)
   const projectedUsedGiB = currentUsedGiB + rec.estimatedFootprintGiB
   const machineTotalGiB = machine.totalMemoryGiB
 

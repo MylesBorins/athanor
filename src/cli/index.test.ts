@@ -77,13 +77,25 @@ describe("runCli dispatcher", () => {
     expect(mockCommands.cmdStatus).toHaveBeenCalled()
   })
 
-  it("routes start and restart with required model argument", async () => {
+  it("routes start and restart with required model argument and optional confirmation flag", async () => {
     const runCli = await getRunner()
     expect(await runCli(["start", "qwen-7b"])).toBe(true)
-    expect(mockCommands.cmdStart).toHaveBeenCalledWith("qwen-7b")
+    expect(mockCommands.cmdStart).toHaveBeenCalledWith("qwen-7b", { yes: false })
+
+    expect(await runCli(["start", "qwen-7b", "-y"])).toBe(true)
+    expect(mockCommands.cmdStart).toHaveBeenCalledWith("qwen-7b", { yes: true })
+
+    expect(await runCli(["start", "--yes", "qwen-7b"])).toBe(true)
+    expect(mockCommands.cmdStart).toHaveBeenCalledWith("qwen-7b", { yes: true })
 
     expect(await runCli(["restart", "qwen-7b"])).toBe(true)
-    expect(mockCommands.cmdRestart).toHaveBeenCalledWith("qwen-7b")
+    expect(mockCommands.cmdRestart).toHaveBeenCalledWith("qwen-7b", { yes: false })
+
+    expect(await runCli(["restart", "qwen-7b", "-y"])).toBe(true)
+    expect(mockCommands.cmdRestart).toHaveBeenCalledWith("qwen-7b", { yes: true })
+
+    expect(await runCli(["restart", "--yes", "qwen-7b"])).toBe(true)
+    expect(mockCommands.cmdRestart).toHaveBeenCalledWith("qwen-7b", { yes: true })
   })
 
   it("exits with 1 when a required argument is missing", async () => {
@@ -184,6 +196,27 @@ describe("runCli dispatcher", () => {
 
     expect(await runCli(["formula", "qwen", "save", "custom", "my description"])).toBe(true)
     expect(mockCommands.cmdFormulaSave).toHaveBeenCalledWith("qwen", "custom", "my description")
+  })
+
+  it("routes prefix formula/preset subcommands (e.g. formula set <slug>)", async () => {
+    const runCli = await getRunner()
+    expect(await runCli(["formula", "show", "qwen"])).toBe(true)
+    expect(mockCommands.cmdFormulaShow).toHaveBeenCalledWith("qwen")
+
+    expect(await runCli(["formula", "set", "qwen", "temp=0.7"])).toBe(true)
+    expect(mockCommands.cmdFormulaSet).toHaveBeenCalledWith("qwen", ["temp=0.7"])
+
+    expect(await runCli(["formula", "unset", "qwen", "temp"])).toBe(true)
+    expect(mockCommands.cmdFormulaUnset).toHaveBeenCalledWith("qwen", ["temp"])
+
+    expect(await runCli(["formula", "clear", "qwen"])).toBe(true)
+    expect(mockCommands.cmdFormulaClear).toHaveBeenCalledWith("qwen")
+
+    expect(await runCli(["formula", "apply", "qwen", "balanced"])).toBe(true)
+    expect(mockCommands.cmdFormulaApply).toHaveBeenCalledWith("qwen", "balanced")
+
+    expect(await runCli(["formula", "save", "qwen", "custom"])).toBe(true)
+    expect(mockCommands.cmdFormulaSave).toHaveBeenCalledWith("qwen", "custom", undefined)
   })
 
   it("exits with 1 on invalid formula subcommand", async () => {

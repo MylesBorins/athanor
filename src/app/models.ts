@@ -13,6 +13,8 @@ import {
 } from "../registry/index.js"
 import { loadConfig } from "../config/index.js"
 import { supervisor } from "../supervisor/index.js"
+import { sampleProcessStats } from "../supervisor/metrics.js"
+import { decide } from "../supervisor/policies.js"
 import { syncPi } from "../sync/pi.js"
 import { ensureIngress, reconcileIngressForCurrentState, stopIngressIfIdle } from "../router/lifecycle.js"
 import { stopRouter } from "../router/server.js"
@@ -48,7 +50,18 @@ export async function pullModel(opts: PullOptions): Promise<PullResult> {
 export async function startModel(idOrSlug: string, opts?: { confirm?: boolean }): Promise<StartModelResult> {
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const preflight = buildStartPreflight(entry, detectMachineProfile())
+  if (typeof supervisor.ready === "function") await supervisor.ready()
+  const cfg = loadConfig()
+  const decision = decide(cfg.supervisor.policy, cfg.supervisor.maxConcurrent, supervisor.list(), entry)
+  let discountBytes = 0
+  if (decision.stopBeforeStart.length > 0) {
+    const stopping = supervisor.list().filter(i => decision.stopBeforeStart.includes(i.id))
+    const stats = sampleProcessStats(stopping.map(i => i.pid))
+    for (const inst of stopping) {
+      discountBytes += stats.get(inst.pid)?.rssBytes ?? 0
+    }
+  }
+  const preflight = buildStartPreflight(entry, detectMachineProfile(), { discountBytes })
   if ((preflight.shouldWarn || preflight.shouldStrongWarn) && !opts?.confirm) {
     return { entry, preflight, warned: true }
   }
@@ -79,7 +92,14 @@ export async function stopModel(idOrSlug?: string, opts?: { drain?: boolean }): 
 export async function restartModel(idOrSlug: string, opts?: { confirm?: boolean }): Promise<StartModelResult> {
   const entry = getModel(idOrSlug)
   if (!entry) throw new Error(`unknown model: ${idOrSlug}`)
-  const preflight = buildStartPreflight(entry, detectMachineProfile())
+  if (typeof supervisor.ready === "function") await supervisor.ready()
+  let discountBytes = 0
+  const running = supervisor.list().find(i => i.id === entry.id)
+  if (running) {
+    const stats = sampleProcessStats([running.pid])
+    discountBytes = stats.get(running.pid)?.rssBytes ?? 0
+  }
+  const preflight = buildStartPreflight(entry, detectMachineProfile(), { discountBytes })
   if ((preflight.shouldWarn || preflight.shouldStrongWarn) && !opts?.confirm) {
     return { entry, preflight, warned: true }
   }
