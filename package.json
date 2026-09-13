@@ -5,11 +5,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mylesborins/athanor.git"
+    "url": "git+https://github.com/MylesBorins/athanor.git"
   },
-  "homepage": "https://github.com/mylesborins/athanor#readme",
+  "homepage": "https://github.com/MylesBorins/athanor#readme",
   "bugs": {
-    "url": "https://github.com/mylesborins/athanor/issues"
+    "url": "https://github.com/MylesBorins/athanor/issues"
   },
   "main": "dist/index.js",
   "type": "module",
