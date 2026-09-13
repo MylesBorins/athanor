@@ -121,6 +121,17 @@ describe("compound presets", () => {
       expect(state.kvCache).toBe("custom")
       expect(state.samplingMode).toBe("custom")
     })
+
+    it("infers MLX kvCache and speculative state", () => {
+      const entry = mlxEntry()
+      const state1 = inferCompoundState(entry, { kvBits: 8, draftModel: "mlx-community/Qwen2.5-0.5B-Instruct-4bit" })
+      expect(state1.kvCache).toBe("q8_0")
+      expect(state1.speculative).toBe("draft")
+
+      const state2 = inferCompoundState(entry, { kvBits: 0 })
+      expect(state2.kvCache).toBe("f16")
+      expect(state2.speculative).toBe("off")
+    })
   })
 
   describe("applyCompoundSelection", () => {
@@ -214,15 +225,40 @@ describe("compound presets", () => {
       expect(f16Preserved.mlx.contextWindow).toBe(65536)
     })
 
-    it("infers MLX kvCache and speculative state", () => {
-      const entry = mlxEntry()
-      const state1 = inferCompoundState(entry, { kvBits: 8, draftModel: "mlx-community/Qwen2.5-0.5B-Instruct-4bit" })
-      expect(state1.kvCache).toBe("q8_0")
-      expect(state1.speculative).toBe("draft")
+    it("applies gpuOffload for llama.cpp", () => {
+      const entry = llamaEntry()
+      const allGpu = applyCompoundSelection(entry, "gpuOffload", "all")
+      expect(allGpu?.runtime).toBe("llama.cpp")
+      if (allGpu?.runtime !== "llama.cpp") throw new Error()
+      expect(allGpu.llama.nGpuLayers).toBe(999)
 
-      const state2 = inferCompoundState(entry, { kvBits: 0 })
-      expect(state2.kvCache).toBe("f16")
-      expect(state2.speculative).toBe("off")
+      const cpuOnly = applyCompoundSelection(entry, "gpuOffload", "cpu")
+      expect(cpuOnly?.runtime).toBe("llama.cpp")
+      if (cpuOnly?.runtime !== "llama.cpp") throw new Error()
+      expect(cpuOnly.llama.nGpuLayers).toBe(0)
+    })
+
+    it("applies creative samplingMode for both llama.cpp and mlx", () => {
+      const llama = llamaEntry()
+      const llamaCreative = applyCompoundSelection(llama, "samplingMode", "creative")
+      expect(llamaCreative?.runtime).toBe("llama.cpp")
+      if (llamaCreative?.runtime !== "llama.cpp") throw new Error()
+      expect(llamaCreative.llama.temp).toBe(1.1)
+      expect(llamaCreative.llama.topP).toBe(0.95)
+      expect(llamaCreative.llama.presencePenalty).toBe(0.5)
+
+      const mlx = mlxEntry()
+      const mlxCreative = applyCompoundSelection(mlx, "samplingMode", "creative")
+      expect(mlxCreative?.runtime).toBe("mlx")
+      if (mlxCreative?.runtime !== "mlx") throw new Error()
+      expect(mlxCreative.mlx.temp).toBe(1.1)
+      expect(mlxCreative.mlx.topP).toBe(0.95)
+    })
+
+    it("returns existing preset when knob is unknown", () => {
+      const entry = mlxEntry({ preset: { runtime: "mlx", mlx: { maxTokens: 1000 } } })
+      const res = applyCompoundSelection(entry, "unknownKnob" as any, "value")
+      expect(res).toEqual(entry.preset)
     })
   })
 })
