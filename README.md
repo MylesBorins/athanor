@@ -548,6 +548,7 @@ athanor preset qwen-27b apply q8-kv
 Available keys:
 - `cache-type-k` / `cacheTypeK` / `ctk` — KV cache key data type (`f16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1`, `bf16`, `f32`)
 - `cache-type-v` / `cacheTypeV` / `ctv` — KV cache value data type (`f16`, `q8_0`, `q4_0`, etc.)
+- `cache-ram` / `cacheRam` / `cram` — maximum prompt cache memory in MiB (`llama.cpp` defaults to 8192; 2048–4096 recommended on 36 GB Macs to avoid swap thrashing on long jobs)
 - `flash-attn` / `flashAttn` / `fa` — Flash Attention mode (`on`, `off`, `auto`). Required when using quantized KV cache in `llama.cpp`.
 - `spec-draft-type-k` / `specDraftCacheTypeK` / `ctkd` — Draft model KV cache key data type
 - `spec-draft-type-v` / `specDraftCacheTypeV` / `ctvd` — Draft model KV cache value data type

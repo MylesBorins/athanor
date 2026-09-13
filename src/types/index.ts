@@ -96,6 +96,7 @@ export interface LlamaConfig {
   repeatLastN?: number
   cacheTypeK?: LlamaCacheType | (string & {})
   cacheTypeV?: LlamaCacheType | (string & {})
+  cacheRam?: number
   flashAttn?: LlamaFlashAttn | (string & {})
   specType?: LlamaSpecType | (string & {})
   specDraftNMax?: number

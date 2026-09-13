@@ -182,6 +182,17 @@ describe("LlamaAdapter", () => {
     expect(args[args.indexOf("--spec-draft-type-v") + 1]).toBe("q4_0")
   })
 
+  it("includes --cache-ram when cacheRam is configured", () => {
+    const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
+    const cacheRamLlama: LlamaConfig = {
+      ...llama,
+      cacheRam: 4096
+    }
+    const { args } = adapter.buildCommand(entry, cacheRamLlama)
+    expect(args).toContain("--cache-ram")
+    expect(args[args.indexOf("--cache-ram") + 1]).toBe("4096")
+  })
+
   it("includes --reasoning-effort and --jinja when reasoningEffort is configured", () => {
     const entry = llamaEntry({ path: "/models/model.gguf", port: 8091 })
     const reasoningLlama: LlamaConfig = {

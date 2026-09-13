@@ -94,7 +94,7 @@ export const CATEGORIES_LLAMA: PresetCategory[] = [
   },
   {
     name: "MEMORY & KV CACHE",
-    keys: ["cacheTypeK", "cacheTypeV", "flashAttn"]
+    keys: ["cacheRam", "cacheTypeK", "cacheTypeV", "flashAttn"]
   },
   {
     name: "SAMPLING & PENALTIES",

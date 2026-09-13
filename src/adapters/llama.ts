@@ -56,6 +56,9 @@ export class LlamaAdapter implements RuntimeAdapter {
     if (merged.cacheTypeV !== undefined) {
       args.push("--cache-type-v", String(merged.cacheTypeV))
     }
+    if (merged.cacheRam !== undefined) {
+      args.push("--cache-ram", String(merged.cacheRam))
+    }
     if (merged.flashAttn !== undefined) {
       args.push("--flash-attn", String(merged.flashAttn))
     }

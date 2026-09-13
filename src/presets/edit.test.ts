@@ -110,6 +110,7 @@ describe("setPresetFields", () => {
     const p = setPresetFields(llamaEntry(), [
       ["cache-type-k", "q8_0"],
       ["ctv", "q4_0"],
+      ["cache-ram", "4096"],
       ["flash-attn", "on"],
       ["cache-type-k-draft", "q8_0"],
       ["ctvd", "q4_0"]
@@ -118,9 +119,16 @@ describe("setPresetFields", () => {
     if (p.runtime !== "llama.cpp") throw new Error()
     expect(p.llama.cacheTypeK).toBe("q8_0")
     expect(p.llama.cacheTypeV).toBe("q4_0")
+    expect(p.llama.cacheRam).toBe(4096)
     expect(p.llama.flashAttn).toBe("on")
     expect(p.llama.specDraftCacheTypeK).toBe("q8_0")
     expect(p.llama.specDraftCacheTypeV).toBe("q4_0")
+  })
+
+  it("accepts cram alias for cacheRam", () => {
+    const p = setPresetFields(llamaEntry(), [["cram", "2048"]])
+    if (p.runtime !== "llama.cpp") throw new Error()
+    expect(p.llama.cacheRam).toBe(2048)
   })
 
   it("validates and normalizes flash-attn and rejects invalid cache types", () => {
