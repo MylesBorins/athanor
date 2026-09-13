@@ -255,6 +255,101 @@ describe("compound presets", () => {
       expect(mlxCreative.mlx.topP).toBe(0.95)
     })
 
+    it("applies contextWindow for both MLX and llama.cpp", () => {
+      const mlx = mlxEntry()
+      const mlxCtx = applyCompoundSelection(mlx, "contextWindow", "32768")
+      expect(mlxCtx?.runtime).toBe("mlx")
+      if (mlxCtx?.runtime !== "mlx") throw new Error()
+      expect(mlxCtx.mlx.contextWindow).toBe(32768)
+
+      const llama = llamaEntry()
+      const llamaCtx = applyCompoundSelection(llama, "contextWindow", "16384")
+      expect(llamaCtx?.runtime).toBe("llama.cpp")
+      if (llamaCtx?.runtime !== "llama.cpp") throw new Error()
+      expect(llamaCtx.llama.ctxSize).toBe(16384)
+    })
+
+    it("applies q4_0 kvCache for MLX and llama.cpp, and unsets f16 on llama.cpp", () => {
+      const mlx = mlxEntry()
+      const mlxQ4 = applyCompoundSelection(mlx, "kvCache", "q4_0")
+      expect(mlxQ4?.runtime).toBe("mlx")
+      if (mlxQ4?.runtime !== "mlx") throw new Error()
+      expect(mlxQ4.mlx.kvBits).toBe(4)
+
+      const llama = llamaEntry()
+      const llamaQ4 = applyCompoundSelection(llama, "kvCache", "q4_0")
+      expect(llamaQ4?.runtime).toBe("llama.cpp")
+      if (llamaQ4?.runtime !== "llama.cpp") throw new Error()
+      expect(llamaQ4.llama.cacheTypeK).toBe("q4_0")
+      expect(llamaQ4.llama.cacheTypeV).toBe("q4_0")
+      expect(llamaQ4.llama.flashAttn).toBe("on")
+
+      const withCache = { ...llama, preset: llamaQ4 }
+      const llamaF16 = applyCompoundSelection(withCache, "kvCache", "f16")
+      expect(llamaF16?.runtime).toBe("llama.cpp")
+      if (llamaF16?.runtime !== "llama.cpp") throw new Error()
+      expect(llamaF16.llama.cacheTypeK).toBeUndefined()
+      expect(llamaF16.llama.cacheTypeV).toBeUndefined()
+    })
+
+    it("applies speculative modes for MLX and llama.cpp", () => {
+      const mlxSolo = mlxEntry({ preset: { runtime: "mlx", mlx: { draftModel: "mlx-community/draft" } } })
+      const soloOff = applyCompoundSelection(mlxSolo, "speculative", "off")
+      expect(soloOff).toBeUndefined()
+
+      const mlxMulti = mlxEntry({ preset: { runtime: "mlx", mlx: { draftModel: "mlx-community/draft", kvBits: 8 } } })
+      const mlxOff = applyCompoundSelection(mlxMulti, "speculative", "off")
+      expect(mlxOff?.runtime).toBe("mlx")
+      if (mlxOff?.runtime !== "mlx") throw new Error()
+      expect(mlxOff.mlx.draftModel).toBeUndefined()
+      expect(mlxOff.mlx.kvBits).toBe(8)
+
+      const mlxDraft = applyCompoundSelection(mlxMulti, "speculative", "draft")
+      expect(mlxDraft).toEqual(mlxMulti.preset)
+
+      const llama = llamaEntry()
+      const off = applyCompoundSelection(llama, "speculative", "off")
+      expect(off?.runtime).toBe("llama.cpp")
+      if (off?.runtime !== "llama.cpp") throw new Error()
+      expect(off.llama.speculativeMode).toBe("disabled")
+
+      const auto = applyCompoundSelection(llama, "speculative", "auto")
+      expect(auto?.runtime).toBe("llama.cpp")
+      if (auto?.runtime !== "llama.cpp") throw new Error()
+      expect(auto.llama.speculativeMode).toBe("auto")
+
+      const mtp = applyCompoundSelection(llama, "speculative", "mtp")
+      expect(mtp?.runtime).toBe("llama.cpp")
+      if (mtp?.runtime !== "llama.cpp") throw new Error()
+      expect(mtp.llama.speculativeMode).toBe("enabled")
+      expect(mtp.llama.specType).toBe("draft-mtp")
+      expect(mtp.llama.specDraftNgl).toBe(999)
+
+      const draft = applyCompoundSelection(llama, "speculative", "draft")
+      expect(draft?.runtime).toBe("llama.cpp")
+      if (draft?.runtime !== "llama.cpp") throw new Error()
+      expect(draft.llama.specType).toBe("draft")
+    })
+
+    it("applies thinking, instruct, balanced, and deterministic sampling modes", () => {
+      const llama = llamaEntry()
+      const mlx = mlxEntry()
+
+      for (const mode of ["thinking", "instruct", "balanced", "deterministic"] as const) {
+        const lRes = applyCompoundSelection(llama, "samplingMode", mode)
+        expect(lRes?.runtime).toBe("llama.cpp")
+        if (lRes?.runtime !== "llama.cpp") throw new Error()
+        expect(lRes.llama.temp).toBeDefined()
+        expect(lRes.llama.topP).toBeDefined()
+
+        const mRes = applyCompoundSelection(mlx, "samplingMode", mode)
+        expect(mRes?.runtime).toBe("mlx")
+        if (mRes?.runtime !== "mlx") throw new Error()
+        expect(mRes.mlx.temp).toBeDefined()
+        expect(mRes.mlx.topP).toBeDefined()
+      }
+    })
+
     it("returns existing preset when knob is unknown", () => {
       const entry = mlxEntry({ preset: { runtime: "mlx", mlx: { maxTokens: 1000 } } })
       const res = applyCompoundSelection(entry, "unknownKnob" as any, "value")
