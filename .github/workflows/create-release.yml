@@ -4,10 +4,10 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_call:
+  workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release'
+        description: 'Tag to release (e.g. v3.3.1; leave empty to use current ref)'
         required: false
         type: string
 
@@ -51,6 +51,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
       - name: Create Release
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
