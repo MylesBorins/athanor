@@ -1,62 +1,65 @@
-# This is a basic workflow that is manually triggered
-
 name: Bump version
-permissions:
-  contents: read
 
-# Controls when the action will run. Workflow runs when manually triggered using the UI
-# or API.
 on:
   workflow_dispatch:
-    # Inputs the workflow accepts.
     inputs:
       version:
-        # Friendly description to be shown in the UI instead of 'name'
         description: 'Semver type of new version (major / minor / patch)'
-        # Input has to be provided for the workflow to run
         required: true
         type: choice
-        options: 
-        - patch
-        - minor
-        - major
+        options:
+          - patch
+          - minor
+          - major
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  # This workflow contains a single job called "bump-version"
   bump-version:
-    # The type of runner that the job will run on
+    name: Bump version
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-    # Check out the content (source branch). Use a deploy key so that
-    # when we push changes, it will trigger the release workflow
-    # run that runs on: tag. (Using the GitHub token would
-    # not run the workflow to prevent infinite recursion.)
-    - name: Check out source
-      uses: actions/checkout@v7
-      with:
-        ssh-key: ${{ secrets.DEPLOY_KEY }}
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          ref: main
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v7
-      with:
-        node-version: 24
-        cache: 'npm'
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: 'npm'
 
-    - name: Install npm packages
-      run: npm ci
+      - name: Install npm packages
+        run: npm ci
 
-    - name: Setup Git
-      run: |
-        git config user.name 'Myles Borins'
-        git config user.email 'myles.borins@gmail.com'
-        # git config gpg.format ssh
-        # git config user.signingKey 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFtQmrz647zOGumjiqGirj1G9brj/QbwJQ5S3gHRmcfl myles.borins@gmail.com'
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-    - name: bump version
-      run: npm version ${{ github.event.inputs.version }} # --sign-git-tag
+      - name: Bump version
+        id: version
+        run: |
+          NEW_TAG=$(npm version ${{ github.event.inputs.version }})
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
 
-    - name: Push latest version
-      run: git push origin main --follow-tags
+      - name: Push latest version
+        run: git push origin main --follow-tags
+
+  release:
+    name: Release
+    needs: bump-version
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/create-release.yml
+    with:
+      tag: ${{ needs.bump-version.outputs.tag }}
+    secrets: inherit

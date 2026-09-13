@@ -1,12 +1,21 @@
+name: Create Release
+
 on:
   push:
     tags:
       - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to release'
+        required: false
+        type: string
 
-name: Create Release
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -14,22 +23,26 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       id-token: write
     steps:
-    - name: Checkout source
-      uses: actions/checkout@v7
-    - name: Setup node
-      uses: actions/setup-node@v7
-      with:
-        node-version: 24
-        registry-url: 'https://registry.npmjs.org'
-        cache: npm
-    - name: Install latest npm
-      run: npm i -g npm
-    - name: Install dependencies and build
-      run: npm ci
-    - name: Publish package
-      run: npm publish
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish package
+        run: npm publish --provenance
 
   create-github-release:
     name: Create GitHub Release
@@ -38,9 +51,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
       - name: Create Release
-        run: gh release create ${{ github.ref }} --generate-notes
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          gh release create "$TAG" --repo "${{ github.repository }}" --generate-notes --title "$TAG"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
