@@ -1,11 +1,8 @@
 import * as fs from "fs"
 import type {
   Formula,
-  LlamaConfig,
-  MlxConfig,
   ModelEntry,
   RuntimeFormula,
-  RuntimePreset,
   RuntimeType
 } from "../types/index.js"
 import { PATHS } from "../config/index.js"

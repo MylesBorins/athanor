@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { pull } from "../pull/hf.js"
 import { PullAbortedError, type ProgressEvent } from "../pull/download.js"
 
@@ -92,9 +92,11 @@ function randomId(): string {
 
 export function useDownloads(onTaskFinished?: (message: string) => void): DownloadsState {
   const [tasks, setTasks] = useState<InternalTask[]>([])
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
 
   const queueDownload = useCallback((input: QueueDownloadInput): DownloadTask => {
-    const existing = findActiveDuplicate(tasks, input)
+    const existing = findActiveDuplicate(tasksRef.current, input)
     if (existing) return existing
 
     const id = randomId()

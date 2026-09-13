@@ -69,8 +69,8 @@ Context discipline:
 ```bash
 npm install
 npx tsc --noEmit      # typecheck — must be clean
-npm run test:run      # vitest run, one shot
-npm test              # vitest in watch mode
+npm test              # lint + vitest run, one shot
+npm run test:watch    # vitest in watch mode
 npm run build         # tsc -> dist/
 ```
 
@@ -79,7 +79,7 @@ Tests set `ATHANOR_HOME` and `PI_HOME` to a per-run temp directory via `test/set
 Before sending a change:
 
 1. `npx tsc --noEmit` clean.
-2. `npm run test:run` green.
+2. `npm test` green.
 3. If you added a new command or TUI key, update `README.md` (CLI reference / TUI bindings tables) in the same change.
 4. If you touched an invariant above, flag it explicitly in the PR description.
 

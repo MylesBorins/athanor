@@ -726,8 +726,8 @@ Caveats:
 ```bash
 npm install
 npx tsc --noEmit      # typecheck
-npm run test:run      # vitest run (one shot)
-npm test              # vitest (watch)
+npm test              # lint + vitest run (one shot)
+npm run test:watch    # vitest (watch)
 npm run build         # tsc -> dist/
 ```
 

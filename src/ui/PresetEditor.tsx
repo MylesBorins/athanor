@@ -14,8 +14,7 @@ import {
   COMPOUND_KNOBS,
   getCategoriesForRuntime,
   inferCompoundState,
-  applyCompoundSelection,
-  type CompoundKnob
+  applyCompoundSelection
 } from "../presets/compound.js"
 import {
   deleteUserFormula,

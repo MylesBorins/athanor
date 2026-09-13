@@ -7,11 +7,10 @@ describe("detectMachineProfile (real environment)", () => {
     expect(profile.totalMemoryBytes).toBeGreaterThan(0)
     expect(profile.totalMemoryGiB).toBeGreaterThan(0)
     expect(profile.memoryBandwidthGBs).toBe(estimateMemoryBandwidth(profile.chip))
-    if (process.platform === "darwin") {
-      expect(typeof profile.chip === "string" || profile.chip === null).toBe(true)
-    } else {
-      expect(profile.chip).toBeNull()
-    }
+    const validChip = process.platform === "darwin"
+      ? (typeof profile.chip === "string" || profile.chip === null)
+      : profile.chip === null
+    expect(validChip).toBe(true)
   })
 })
 
