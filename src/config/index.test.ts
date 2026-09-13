@@ -131,6 +131,9 @@ describe("Config", () => {
             ctxSize: -10,
             threads: 0,
             nGpuLayers: -1,
+            parallel: 0,
+            batchSize: -1,
+            ubatchSize: -1,
             temp: -1,
             topP: -0.5,
             topK: -5,
@@ -138,9 +141,18 @@ describe("Config", () => {
             repeatPenalty: -1,
             presencePenalty: -1,
             frequencyPenalty: -1,
-            repeatLastN: -5
+            repeatLastN: -5,
+            specType: 123 as any,
+            specDraftNMax: 0,
+            specDraftNMin: -1,
+            specDraftPSplit: -0.5,
+            specDraftPMin: -0.1,
+            specDraftModel: 456 as any,
+            specDraftNgl: -1,
+            speculativeMode: "invalid-mode" as any,
+            reasoningEffort: "   "
           },
-          supervisor: { maxConcurrent: 0, startupTimeoutMs: -1 },
+          supervisor: { maxConcurrent: 0, startupTimeoutMs: -1, healthPollIntervalMs: 0 },
           controlApi: { port: 70000 },
           router: { port: 0, drainTimeoutMs: -5 }
         }),
@@ -151,6 +163,7 @@ describe("Config", () => {
       expect(loaded.mlx.promptCacheSize).toBe(DEFAULT_CONFIG.mlx.promptCacheSize)
       expect(loaded.mlx.decodeConcurrency).toBe(DEFAULT_CONFIG.mlx.decodeConcurrency)
       expect(loaded.llama.ctxSize).toBe(DEFAULT_CONFIG.llama.ctxSize)
+      expect(loaded.llama.parallel).toBe(DEFAULT_CONFIG.llama.parallel)
       expect(loaded.llama.nGpuLayers).toBe(DEFAULT_CONFIG.llama.nGpuLayers)
       expect(loaded.llama.temp).toBeUndefined()
       expect(loaded.llama.topP).toBeUndefined()
@@ -160,8 +173,18 @@ describe("Config", () => {
       expect(loaded.llama.presencePenalty).toBeUndefined()
       expect(loaded.llama.frequencyPenalty).toBeUndefined()
       expect(loaded.llama.repeatLastN).toBeUndefined()
+      expect(loaded.llama.specType).toBeUndefined()
+      expect(loaded.llama.specDraftNMax).toBeUndefined()
+      expect(loaded.llama.specDraftNMin).toBeUndefined()
+      expect(loaded.llama.specDraftPSplit).toBeUndefined()
+      expect(loaded.llama.specDraftPMin).toBeUndefined()
+      expect(loaded.llama.specDraftModel).toBeUndefined()
+      expect(loaded.llama.specDraftNgl).toBeUndefined()
+      expect(loaded.llama.speculativeMode).toBe(DEFAULT_CONFIG.llama.speculativeMode)
+      expect(loaded.llama.reasoningEffort).toBeUndefined()
       expect(loaded.supervisor.maxConcurrent).toBe(DEFAULT_CONFIG.supervisor.maxConcurrent)
       expect(loaded.supervisor.startupTimeoutMs).toBe(DEFAULT_CONFIG.supervisor.startupTimeoutMs)
+      expect(loaded.supervisor.healthPollIntervalMs).toBe(DEFAULT_CONFIG.supervisor.healthPollIntervalMs)
       expect(loaded.controlApi.port).toBe(DEFAULT_CONFIG.controlApi.port)
       expect(loaded.router.port).toBe(DEFAULT_CONFIG.router.port)
       expect(loaded.router.drainTimeoutMs).toBe(DEFAULT_CONFIG.router.drainTimeoutMs)

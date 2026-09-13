@@ -225,4 +225,45 @@ describe("findMatchingFormula and model registry fallback", () => {
     expect(rawSaved.models[0].formula).toBeDefined()
     expect(rawSaved.models[0].preset).toBeUndefined()
   })
+
+  it("findMatchingFormula matches MLX active formula against recipes", () => {
+    const mlxFormula = findFormula("thinking")!
+    const entry: ModelEntry = {
+      id: "mlx-test",
+      slug: "mlx-test",
+      path: "/models/mlx",
+      runtime: "mlx",
+      source: { type: "local" },
+      port: 8083,
+      publish: true,
+      addedAt: 0,
+      formula: {
+        runtime: "mlx",
+        mlx: { ...mlxFormula.mlx }
+      }
+    }
+    const match = findMatchingFormula(entry)
+    expect(match?.name).toBe("thinking")
+  })
+
+  it("saveUserFormula updates existing formula when name matches", () => {
+    saveUserFormula({
+      name: "custom-tune",
+      description: "initial",
+      mlx: { temp: 0.5 }
+    })
+    const first = findFormula("custom-tune")
+    expect(first?.description).toBe("initial")
+
+    saveUserFormula({
+      name: "custom-tune",
+      description: "updated",
+      mlx: { temp: 0.8 }
+    })
+    const second = findFormula("custom-tune")
+    expect(second?.description).toBe("updated")
+    expect(second?.mlx?.temp).toBe(0.8)
+
+    deleteUserFormula("custom-tune")
+  })
 })

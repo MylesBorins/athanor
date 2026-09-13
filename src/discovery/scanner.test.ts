@@ -217,5 +217,42 @@ describe("discovery scanner metadata helpers", () => {
       templateDefault: "high",
       athanorDefault: "high"
     })
+
+    // Sibling tokenizer_config.json for a file path
+    const filePath = path.join(dir, "model.gguf")
+    fs.writeFileSync(filePath, "dummy")
+    const detectedFromFile = detectReasoningEffort(filePath)
+    expect(detectedFromFile).toEqual({
+      enum: ["low", "high"],
+      templateDefault: "high",
+      athanorDefault: "high"
+    })
+  })
+
+  it("detects reasoning effort fallback for Qwen 3.8 models", async () => {
+    const { detectReasoningEffort } = await import("./scanner.js")
+    const detected = detectReasoningEffort("/tmp/qwen3.8-instruct.gguf")
+    expect(detected).toEqual({
+      enum: ["xhigh", "medium", "low"],
+      templateDefault: "xhigh",
+      athanorDefault: "medium"
+    })
+  })
+
+  it("getModelByPath and getRuntimeForModel find scanned model and return its runtime", async () => {
+    const { getModelByPath, getRuntimeForModel } = await import("./scanner.js")
+    const fakeModel = {
+      id: "test",
+      name: "test",
+      path: "/fake/path",
+      runtime: "mlx" as const,
+      sizeBytes: 100,
+      source: { type: "local" as const }
+    }
+    expect(getRuntimeForModel(fakeModel)).toBe("mlx")
+
+    // getModelByPath scans and searches
+    const found = getModelByPath("/nonexistent/model/path")
+    expect(found).toBeUndefined()
   })
 })
