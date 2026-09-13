@@ -144,6 +144,7 @@ describe("Supervisor (integration)", () => {
   }, 15_000)
 
   it("stops a recovered instance whose PID is unknown by evicting it from state", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     saveRegistry({ version: 1, models: [entry(18087)] })
     const server = http.createServer((req, res) => {
       if (req.url === "/health" || req.url === "/v1/models") {
@@ -165,7 +166,11 @@ describe("Supervisor (integration)", () => {
       const result = await sup.stop("faux/model")
       expect(result).toBe(true)
       expect(sup.get("faux/model")).toBeUndefined()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("appears to be serving on :18087 but athanor lost its PID — evicting from state")
+      )
     } finally {
+      errorSpy.mockRestore()
       await new Promise<void>((resolve, reject) => {
         server.close(err => err ? reject(err) : resolve())
       })

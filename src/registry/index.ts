@@ -223,9 +223,9 @@ export function updateModel(
   )
   if (idx < 0) return undefined
   const merged: ModelEntry = { ...reg.models[idx]!, ...patch }
-  if (patch.formula !== undefined) {
+  if ("formula" in patch) {
     merged.preset = patch.formula
-  } else if (patch.preset !== undefined) {
+  } else if ("preset" in patch) {
     merged.formula = patch.preset
   }
   reg.models[idx] = merged

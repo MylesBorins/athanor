@@ -1,6 +1,6 @@
 import * as http from "http"
 import type { AddressInfo } from "net"
-import { describe, it, expect, vi, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 async function startUpstream(): Promise<{ port: number; close: () => Promise<void> }> {
   const server = http.createServer((req, res) => {
@@ -26,7 +26,12 @@ async function startUpstream(): Promise<{ port: number; close: () => Promise<voi
 }
 
 describe("startRouter", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+  })
+
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.resetModules()
     vi.doUnmock("../config/index.js")
     vi.doUnmock("../registry/index.js")

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cmdSearch } from "./system-commands.js"
+import { cmdConfig, cmdDoctor, cmdSearch } from "./system-commands.js"
 
 vi.mock("../search/hf.js", () => ({
   HfSearchRateLimitError: class HfSearchRateLimitError extends Error {
@@ -15,7 +15,49 @@ vi.mock("../search/hf.js", () => ({
   groupByRuntime: vi.fn(() => ({ mlx: [], gguf: [], other: [] }))
 }))
 
+vi.mock("./doctor.js", () => ({
+  which: vi.fn(async (b: string) => (b === "llama-server" ? null : `/mock/bin/${b}`)),
+  binaryVersion: vi.fn(async (b: string) => (b === "mlx_lm.server" ? "0.21.0" : null)),
+  binaryUpdateStatus: vi.fn(async (b: string) => (
+    b === "mlx_lm.server"
+      ? { latest: "0.22.0", outdated: true, hint: "uv tool upgrade mlx-lm" }
+      : null
+  ))
+}))
+
 import { HfSearchRateLimitError, searchModels } from "../search/hf.js"
+
+describe("cmdConfig", () => {
+  it("prints config path and formatted json", () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    cmdConfig()
+    const output = vi.mocked(console.log).mock.calls.map(args => String(args[0])).join("\n")
+    expect(output).toContain("config")
+    expect(output).toContain("portRange")
+  })
+})
+
+describe("cmdDoctor", () => {
+  it("prints binaries table and paths without update checks", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    await cmdDoctor()
+    const output = vi.mocked(console.log).mock.calls.map(args => String(args[0])).join("\n")
+    expect(output).toContain("mlx_lm.server")
+    expect(output).toContain("llama-server")
+    expect(output).toContain("NOT FOUND")
+    expect(output).toContain("0.21.0")
+    expect(output).toContain("paths")
+    expect(output).toContain("logs")
+  })
+
+  it("prints update statuses and hints when checkUpdates is true", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    await cmdDoctor({ checkUpdates: true })
+    const output = vi.mocked(console.log).mock.calls.map(args => String(args[0])).join("\n")
+    expect(output).toContain("update available")
+    expect(output).toContain("hint uv tool upgrade mlx-lm")
+  })
+})
 
 describe("cmdSearch", () => {
   afterEach(() => {

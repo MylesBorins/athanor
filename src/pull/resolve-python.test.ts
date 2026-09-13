@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
-import { parseShebang, resolvePythonFromShim } from "./resolve-python.js"
+import { parseShebang, resolvePythonFromShim, resolvePythonForHf, _resetResolvePythonCache } from "./resolve-python.js"
 
 describe("parseShebang", () => {
   it("returns null for non-shebang input", () => {
@@ -69,5 +69,33 @@ describe("resolvePythonFromShim", () => {
     fs.writeFileSync(shim, "print('hi')\n", "utf8")
     expect(resolvePythonFromShim(shim)).toBeNull()
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("resolves binary name via which for env shebang", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-shim-"))
+    const shim = path.join(tmp, "env-sh-shim")
+    fs.writeFileSync(shim, "#!/usr/bin/env sh\n", "utf8")
+    const resolved = resolvePythonFromShim(shim)
+    expect(resolved).toBeTruthy()
+    expect(fs.existsSync(resolved!)).toBe(true)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("returns null for env shebang pointing to non-existent binary", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-shim-"))
+    const shim = path.join(tmp, "env-fake-shim")
+    fs.writeFileSync(shim, "#!/usr/bin/env totally-nonexistent-binary-xyz-123\n", "utf8")
+    expect(resolvePythonFromShim(shim)).toBeNull()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+})
+
+describe("resolvePythonForHf", () => {
+  it("resolves a python interpreter and caches the result", () => {
+    _resetResolvePythonCache()
+    const first = resolvePythonForHf()
+    const second = resolvePythonForHf()
+    expect(first).toBe(second)
+    _resetResolvePythonCache()
   })
 })
