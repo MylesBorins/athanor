@@ -358,9 +358,12 @@ athanor ls                       list registry entries (with live status)
 athanor status                   list running instances
 athanor show     <id|slug>       inspect a model: runtime, effective config, launch command
 athanor snippet  <id|slug>       generate OpenAI API and pi-agent integration code snippets
-athanor start    <id|slug>       start a model
-athanor stop     [<id|slug>|--all]stop one or all
-athanor restart  <id|slug>       stop + start
+athanor start    <id|slug> [-y|--yes]
+                                 start a model (bypassing confirmation with -y)
+athanor stop     [<id|slug>|--all]
+                                 stop one or all
+athanor restart  <id|slug> [-y|--yes]
+                                 stop + start (bypassing confirmation with -y)
 athanor logs     <id|slug> [-n N] tail last N lines of a running model's log
 athanor pull     <repo> [--file F] [--revision R]
                                  download from HuggingFace and register
@@ -368,8 +371,8 @@ athanor search   [q] [--mlx|--gguf|--any] [--author A] [--sort S] [--limit N]
                                  search the HuggingFace Hub
 athanor trending [--mlx|--gguf] [--limit N]
                                  top trending MLX/GGUF models
-athanor formula  <slug> show|set k=v...|unset k...|clear|apply <name>|save <name>
-                                 view or modify a model's formula
+athanor formula  [show|set|unset|clear|apply|save] [<slug>] [k=v...]
+                                 view or modify a model's formula (accepts either slug-first or subcommand-first)
 athanor formulas [delete <name>] list or manage formulas in library
 athanor flavor   <slug> lm|vlm   force MLX runtime flavor (lm = mlx_lm, vlm = mlx_vlm)
 athanor expose    <id|slug>      include in pi-agent catalog

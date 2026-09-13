@@ -211,6 +211,17 @@ describe("model-commands", () => {
       expect(output).toContain("pid=2468")
     })
 
+    it("passes confirm: true when yes option is enabled", async () => {
+      vi.mocked(startModel).mockResolvedValueOnce({
+        entry: makeModel(),
+        instance: makeInstance({ pid: 2468 }),
+        warned: false
+      })
+
+      await cmdStart("qwen2-5-7b", { yes: true })
+      expect(startModel).toHaveBeenCalledWith("qwen2-5-7b", { confirm: true })
+    })
+
     it("throws when starting returns no instance", async () => {
       vi.mocked(startModel).mockResolvedValueOnce({
         entry: makeModel(),
@@ -271,6 +282,17 @@ describe("model-commands", () => {
       const output = logCalls.join("\n")
       expect(output).toContain("restarted qwen2-5-7b")
       expect(output).toContain("pid=5678")
+    })
+
+    it("passes confirm: true when yes option is enabled", async () => {
+      vi.mocked(restartModel).mockResolvedValueOnce({
+        entry: makeModel(),
+        instance: makeInstance({ pid: 5678 }),
+        warned: false
+      })
+
+      await cmdRestart("qwen2-5-7b", { yes: true })
+      expect(restartModel).toHaveBeenCalledWith("qwen2-5-7b", { confirm: true })
     })
   })
 

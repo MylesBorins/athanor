@@ -113,8 +113,8 @@ export async function cmdStatus(): Promise<void> {
   }
 }
 
-export async function cmdStart(idOrSlug: string): Promise<void> {
-  let res = await startModel(idOrSlug)
+export async function cmdStart(idOrSlug: string, opts?: { yes?: boolean }): Promise<void> {
+  let res = await startModel(idOrSlug, { confirm: opts?.yes })
   if (res.warned && res.preflight) {
     const level = res.preflight.shouldStrongWarn ? style.red("strong warning") : style.yellow("warning")
     console.log(`${level} ${dim(`current snapshot: ~${res.preflight.currentUsedGiB.toFixed(1)} GiB used / ${res.preflight.machineTotalGiB.toFixed(0)} GiB`)}`)
@@ -148,8 +148,8 @@ export async function cmdStop(idOrSlug?: string): Promise<void> {
   ok(`stopped ${style.bold(res.entry!.slug)}`)
 }
 
-export async function cmdRestart(idOrSlug: string): Promise<void> {
-  let res = await restartModel(idOrSlug)
+export async function cmdRestart(idOrSlug: string, opts?: { yes?: boolean }): Promise<void> {
+  let res = await restartModel(idOrSlug, { confirm: opts?.yes })
   if (res.warned && res.preflight) {
     const level = res.preflight.shouldStrongWarn ? style.red("strong warning") : style.yellow("warning")
     console.log(`${level} ${dim(`current snapshot: ~${res.preflight.currentUsedGiB.toFixed(1)} GiB used / ${res.preflight.machineTotalGiB.toFixed(0)} GiB`)}`)

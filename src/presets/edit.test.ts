@@ -26,8 +26,17 @@ describe("parseKvTokens", () => {
   it("tolerates values containing additional equal signs", () => {
     expect(parseKvTokens(["x=a=b=c"])).toEqual([["x", "a=b=c"]])
   })
-  it("throws on tokens without =", () => {
-    expect(() => parseKvTokens(["bare"])).toThrow(/expected key=value/)
+  it("parses space-separated key value pairs", () => {
+    expect(parseKvTokens(["ctx-size", "32768", "n-gpu-layers", "48"]))
+      .toEqual([["ctx-size", "32768"], ["n-gpu-layers", "48"]])
+  })
+  it("parses mixed key=value and space-separated pairs", () => {
+    expect(parseKvTokens(["ctx-size=32768", "temp", "0.7"]))
+      .toEqual([["ctx-size", "32768"], ["temp", "0.7"]])
+  })
+  it("throws when a space-separated key has no value", () => {
+    expect(() => parseKvTokens(["bare"])).toThrow(/expected value after "bare"/)
+    expect(() => parseKvTokens(["ctx-size", "32768", "trailing"])).toThrow(/expected value after "trailing"/)
   })
 })
 

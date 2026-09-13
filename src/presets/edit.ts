@@ -206,14 +206,24 @@ function findKey(runtime: RuntimeType, raw: string): KeySpec {
   return spec
 }
 
-// Parses tokens like "ctx-size=32768". Each token must have exactly
-// one "=".
+// Parses tokens like "ctx-size=32768" or space-separated pairs like "ctx-size", "32768".
 export function parseKvTokens(tokens: string[]): Array<[string, string]> {
   const out: Array<[string, string]> = []
-  for (const t of tokens) {
-    const i = t.indexOf("=")
-    if (i < 0) throw new Error(`expected key=value, got "${t}"`)
-    out.push([t.slice(0, i).trim(), t.slice(i + 1).trim()])
+  let i = 0
+  while (i < tokens.length) {
+    const t = tokens[i]!
+    const eqIdx = t.indexOf("=")
+    if (eqIdx >= 0) {
+      out.push([t.slice(0, eqIdx).trim(), t.slice(eqIdx + 1).trim()])
+      i++
+    } else {
+      const next = tokens[i + 1]
+      if (next === undefined) {
+        throw new Error(`expected value after "${t}" (use key=value or key value)`)
+      }
+      out.push([t.trim(), next.trim()])
+      i += 2
+    }
   }
   return out
 }
