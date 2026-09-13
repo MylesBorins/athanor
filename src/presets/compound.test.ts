@@ -181,10 +181,17 @@ describe("compound presets", () => {
       if (preset?.runtime !== "llama.cpp") throw new Error()
       expect(preset.llama.reasoningEffort).toBe("medium")
 
-      const unset = applyCompoundSelection(entry, "reasoningEffort", "off")
-      if (unset && unset.runtime === "llama.cpp") {
-        expect(unset.llama.reasoningEffort).toBeUndefined()
-      }
+      // When reasoningEffort was the only preset field, unsetting returns undefined
+      const unsetEmpty = applyCompoundSelection({ ...entry, preset }, "reasoningEffort", "off")
+      expect(unsetEmpty).toBeUndefined()
+
+      // When other preset fields exist, unsetting removes reasoningEffort while preserving others
+      const withCtx = { runtime: "llama.cpp" as const, llama: { reasoningEffort: "medium", ctxSize: 8192 } }
+      const preserved = applyCompoundSelection({ ...entry, preset: withCtx }, "reasoningEffort", "off")
+      expect(preserved?.runtime).toBe("llama.cpp")
+      if (preserved?.runtime !== "llama.cpp") throw new Error()
+      expect(preserved.llama.reasoningEffort).toBeUndefined()
+      expect(preserved.llama.ctxSize).toBe(8192)
     })
 
     it("applies and unsets kvCache for MLX", () => {
