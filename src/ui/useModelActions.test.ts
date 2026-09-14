@@ -137,6 +137,20 @@ describe("useModelActions", () => {
     expect(setPublished).toHaveBeenCalledWith("mlx-community/A", false)
     expect(setModels).toHaveBeenCalledWith(models)
     expect(setMessage).toHaveBeenCalledWith("a hidden")
+
+    // From unpublished to published
+    actions.toggleExpose()
+    expect(setPublished).toHaveBeenCalledWith("mlx-community/A", false)
+    const exposeActions = useModelActions({
+      selected: entry({ publish: false }),
+      instMap: new Map(),
+      setMessage,
+      setInstances,
+      setModels
+    })
+    exposeActions.toggleExpose()
+    expect(setPublished).toHaveBeenCalledWith("mlx-community/A", true)
+    expect(setMessage).toHaveBeenCalledWith("a exposed")
   })
 
   it("deleteEntry refuses to remove a running model", async () => {
@@ -330,5 +344,59 @@ describe("useModelActions", () => {
 
     expect(stopModel).toHaveBeenCalledWith("mlx-community/A", { drain: false })
     expect(setInstances).toHaveBeenCalled()
+  })
+
+  it("toggleStartStop and toggleExpose do nothing when selected is undefined", async () => {
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: undefined,
+      instMap: new Map(),
+      setMessage: vi.fn(),
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.toggleStartStop()
+    expect(startModel).not.toHaveBeenCalled()
+    expect(stopModel).not.toHaveBeenCalled()
+
+    actions.toggleExpose()
+    expect(setPublished).not.toHaveBeenCalled()
+  })
+
+  it("toggleStartStop handles failed start without instance and non-Error rejections", async () => {
+    const setMessage = vi.fn()
+    startModel.mockResolvedValueOnce({ instance: undefined })
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.toggleStartStop()
+    expect(setMessage).toHaveBeenCalledWith("error: failed to start a")
+
+    // Non-Error exception
+    startModel.mockRejectedValueOnce("raw string failure")
+    await actions.toggleStartStop()
+    expect(setMessage).toHaveBeenCalledWith("error: raw string failure")
+  })
+
+  it("restart handles restart without instance", async () => {
+    const setMessage = vi.fn()
+    restartModel.mockResolvedValueOnce({ instance: undefined })
+
+    const { useModelActions } = await import("./useModelActions.js")
+    const actions = useModelActions({
+      selected: entry(),
+      instMap: new Map(),
+      setMessage,
+      setInstances: vi.fn(),
+      setModels: vi.fn()
+    })
+    await actions.restart()
+    expect(setMessage).toHaveBeenCalledWith("error: failed to restart a")
   })
 })

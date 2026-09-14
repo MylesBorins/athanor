@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
 import type { ModelEntry } from "../types/index.js"
 import { PATHS } from "../config/index.js"
 import { saveRegistry } from "../registry/index.js"
+import { pidAlive } from "./state.js"
 
 function fauxServer(port: number, id: string): string {
   return `
@@ -33,7 +34,13 @@ function resetState(): void {
   try { fs.unlinkSync(PATHS.registry) } catch { /* not present */ }
 }
 
-async function loadSupervisor(customCmd?: { cmd: string; args: string[] }) {
+async function loadSupervisor(opts?: { cmd: string; args: string[] } | {
+  customCmd?: { cmd: string; args: string[] }
+  config?: { startupTimeoutMs?: number; healthPollIntervalMs?: number; drainTimeoutMs?: number }
+}) {
+  const customCmd = opts && "cmd" in opts ? opts : opts?.customCmd
+  const config = opts && "config" in opts ? opts.config : undefined
+
   vi.doMock("../adapters/index.js", async () => {
     const real: any = await vi.importActual("../adapters/index.js")
     return {
@@ -52,7 +59,12 @@ async function loadSupervisor(customCmd?: { cmd: string; args: string[] }) {
         ...real.DEFAULT_CONFIG,
         supervisor: {
           policy: "single-active", maxConcurrent: 1,
-          startupTimeoutMs: 5000, healthPollIntervalMs: 100
+          startupTimeoutMs: config?.startupTimeoutMs ?? 5000,
+          healthPollIntervalMs: config?.healthPollIntervalMs ?? 100
+        },
+        router: {
+          ...real.DEFAULT_CONFIG.router,
+          drainTimeoutMs: config?.drainTimeoutMs ?? 0
         }
       })
     }
@@ -218,5 +230,157 @@ describe("Supervisor (integration)", () => {
 
     await sup.stop(e.id)
   }, 15_000)
+
+  it("aborts in-flight start when stop is called and cleans up", async () => {
+    const slowServerCmd = {
+      cmd: process.execPath,
+      args: ["-e", `
+const http = require("http")
+setTimeout(() => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, {"Content-Type": "application/json"})
+    res.end(JSON.stringify({status: "ok", data: [{id: "slow"}]}))
+  })
+  server.listen(18091, "127.0.0.1")
+  process.on("SIGTERM", () => server.close(() => process.exit(0)))
+}, 2000)
+`]
+    }
+    const sup = await loadSupervisor({
+      customCmd: slowServerCmd,
+      config: { startupTimeoutMs: 3000, healthPollIntervalMs: 50 }
+    })
+    const e = entry(18091, "slow/model")
+    let startErr: any
+    const startPromise = sup.start(e).catch(err => {
+      startErr = err
+      return null
+    })
+
+    // Allow process to spawn and register as starting
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(sup.get("slow/model")?.status).toBe("starting")
+
+    // Stop while starting
+    const stopResult = await sup.stop("slow/model")
+    expect(stopResult).toBe(true)
+
+    // The start promise should be aborted
+    await startPromise
+    expect(startErr).toBeDefined()
+    expect(startErr.message).toMatch(/aborted/)
+    expect(sup.get("slow/model")).toBeUndefined()
+  }, 10_000)
+
+  it("marks instance status as error and cleans up process when startup times out", async () => {
+    const deadCmd = {
+      cmd: process.execPath,
+      args: ["-e", `
+const t = setTimeout(() => {}, 5000)
+process.on("SIGTERM", () => { clearTimeout(t); process.exit(0) })
+`]
+    }
+    const sup = await loadSupervisor({
+      customCmd: deadCmd,
+      config: { startupTimeoutMs: 250, healthPollIntervalMs: 50 }
+    })
+    const e = entry(18092, "dead/model")
+    await expect(sup.start(e)).rejects.toThrow(/did not become healthy/)
+  }, 10_000)
+
+  it("refuses to start if port is already in use by an external process", async () => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ status: "ok", data: [] }))
+    })
+    await new Promise<void>(resolve => server.listen(18093, "127.0.0.1", resolve))
+    try {
+      const sup = await loadSupervisor()
+      await expect(sup.start(entry(18093))).rejects.toThrow(/Port 18093 already in use/)
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()))
+    }
+  }, 10_000)
+
+  it("rejects start if active instance has dead PID but port is still serving", async () => {
+    const sup = await loadSupervisor()
+    const e = entry(18094, "ghost/model")
+    const inst = await sup.start(e)
+
+    // Kill process externally with SIGKILL
+    process.kill(inst.pid, "SIGKILL")
+    while (pidAlive(inst.pid)) {
+      await new Promise(r => setTimeout(r, 20))
+    }
+
+    // Now start a foreign server on the exact same port
+    const foreignServer = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ status: "ok", data: [{ id: "ghost" }] }))
+    })
+    await new Promise<void>(resolve => foreignServer.listen(18094, "127.0.0.1", resolve))
+
+    try {
+      await expect(sup.start(e)).rejects.toThrow(
+        /cannot manage ghost-model: model is serving on :18094 but athanor does not know its PID/
+      )
+    } finally {
+      await new Promise<void>((resolve, reject) => foreignServer.close(err => err ? reject(err) : resolve()))
+    }
+  }, 10_000)
+
+  it("cleans up dead instance when port is not serving and allows fresh start", async () => {
+    const sup = await loadSupervisor()
+    const e = entry(18095, "stale/model")
+    const inst1 = await sup.start(e)
+
+    // Kill process externally with SIGKILL
+    process.kill(inst1.pid, "SIGKILL")
+    while (pidAlive(inst1.pid)) {
+      await new Promise(r => setTimeout(r, 20))
+    }
+
+    // Port is not serving, so ensureStartable cleans up stale instance and starts a new one
+    const inst2 = await sup.start(e)
+    try {
+      expect(inst2.status).toBe("running")
+      expect(inst2.pid).not.toBe(inst1.pid)
+    } finally {
+      await sup.stop("stale/model")
+    }
+  }, 15_000)
+
+  it("stop returns true when instance PID is dead and port is not serving", async () => {
+    const sup = await loadSupervisor()
+    const e = entry(18096, "dead2/model")
+    const inst = await sup.start(e)
+
+    // Kill process externally with SIGKILL
+    process.kill(inst.pid, "SIGKILL")
+    while (pidAlive(inst.pid)) {
+      await new Promise(r => setTimeout(r, 20))
+    }
+
+    const stopped = await sup.stop("dead2/model")
+    expect(stopped).toBe(true)
+    expect(sup.get("dead2/model")).toBeUndefined()
+  }, 15_000)
+
+  it("stop returns false for non-existent model id", async () => {
+    const sup = await loadSupervisor()
+    await sup.ready()
+    expect(await sup.stop("does/not-exist")).toBe(false)
+  })
+
+  it("drains in-flight requests when router drainTimeoutMs > 0", async () => {
+    const sup = await loadSupervisor({
+      config: { drainTimeoutMs: 10 }
+    })
+    const e = entry(18097, "drain/model")
+    await sup.start(e)
+    const res = await sup.stop("drain/model", { drain: true })
+    expect(res).toBe(true)
+    expect(sup.get("drain/model")).toBeUndefined()
+  }, 10_000)
 })
 

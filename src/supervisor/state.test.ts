@@ -39,6 +39,8 @@ describe("loadPersistedInstances", () => {
     expect(loadPersistedInstances()).toEqual([])
     fs.writeFileSync(PATHS.state, JSON.stringify({ version: 1, instances: "oops" }))
     expect(loadPersistedInstances()).toEqual([])
+    fs.writeFileSync(PATHS.state, JSON.stringify(123))
+    expect(loadPersistedInstances()).toEqual([])
   })
 })
 
@@ -58,6 +60,17 @@ describe("persisted router state", () => {
     clearPersistedRouter()
     expect(getPersistedRouter()).toBeUndefined()
     expect(loadPersistedInstances()).toHaveLength(1)
+  })
+
+  it("returns undefined when router is not an object or state is malformed", () => {
+    fs.writeFileSync(PATHS.state, JSON.stringify({ version: 1, router: "invalid-string" }))
+    expect(getPersistedRouter()).toBeUndefined()
+
+    fs.writeFileSync(PATHS.state, JSON.stringify({ version: 1, router: null }))
+    expect(getPersistedRouter()).toBeUndefined()
+
+    fs.writeFileSync(PATHS.state, "not-valid-json")
+    expect(getPersistedRouter()).toBeUndefined()
   })
 })
 

@@ -243,4 +243,76 @@ describe("runHfDownload", () => {
     proc.emit("error", new Error("spawn ENOENT"))
     await expect(downloadPromise).rejects.toThrow("spawn ENOENT")
   })
+
+  it("rejects with stderr fallback on non-zero exit when no structured error was emitted", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: vi.fn()
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir
+    })
+
+    stderr.emit("data", Buffer.from("network connection reset\n"))
+    proc.emit("exit", 1)
+
+    await expect(downloadPromise).rejects.toThrow("network connection reset")
+  })
+
+  it("rejects with exit code fallback when no error event and no stderr output", async () => {
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: vi.fn()
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir
+    })
+
+    proc.emit("exit", 137)
+
+    await expect(downloadPromise).rejects.toThrow("hf_pull exited with code 137")
+  })
+
+  it("sends SIGKILL when process does not terminate within abort timeout", async () => {
+    vi.useFakeTimers()
+    const stdout = new EventEmitter()
+    const stderr = new EventEmitter()
+    const killFn = vi.fn()
+    const proc = Object.assign(new EventEmitter(), {
+      stdout,
+      stderr,
+      kill: killFn
+    })
+    vi.mocked(spawn).mockReturnValueOnce(proc as any)
+
+    const ctl = new AbortController()
+    const downloadPromise = runHfDownload({
+      repo: "mlx-community/Qwen",
+      localDir,
+      signal: ctl.signal
+    })
+
+    ctl.abort()
+    expect(killFn).toHaveBeenCalledWith("SIGTERM")
+
+    // Advance past the 3000ms kill timer
+    vi.advanceTimersByTime(3000)
+    expect(killFn).toHaveBeenCalledWith("SIGKILL")
+
+    proc.emit("exit", null)
+    await expect(downloadPromise).rejects.toBeInstanceOf(PullAbortedError)
+    vi.useRealTimers()
+  })
 })

@@ -381,6 +381,7 @@ describe("useAppInput", () => {
 
   it("exits filter mode to lastBaseMode when escape or return is pressed", async () => {
     const setMode = vi.fn()
+    const setFilter = vi.fn()
     const { useAppInput } = await import("./useAppInput.js")
     useAppInput({
       mode: "filter",
@@ -393,7 +394,7 @@ describe("useAppInput", () => {
       suggIdx: 0,
       lastMouseAtRef: { current: 0 },
       setMode,
-      setFilter: vi.fn(),
+      setFilter,
       setSelectedIdx: vi.fn(),
       setLogScroll: vi.fn(),
       setSuggIdx: vi.fn(),
@@ -410,6 +411,294 @@ describe("useAppInput", () => {
     const handler = useInput.mock.calls[0][0]
     handler("", { escape: true })
     expect(setMode).toHaveBeenCalledWith("logs")
+
+    handler("", { return: true })
+    expect(setMode).toHaveBeenCalledWith("logs")
+
+    handler("", { backspace: true })
+    expect(setFilter).toHaveBeenCalled()
+    const delUpdater = setFilter.mock.calls[0][0]
+    expect(delUpdater("abc")).toBe("ab")
+
+    handler("", { delete: true })
+    expect(setFilter).toHaveBeenCalled()
+  })
+
+  it("suppresses keyboard input during modal overlays and mouse events", async () => {
+    const exit = vi.fn()
+    const { useAppInput } = await import("./useAppInput.js")
+
+    // Overlay modes
+    for (const mode of ["pull", "downloads", "preset", "search", "confirm-delete", "telemetry"] as const) {
+      vi.clearAllMocks()
+      useAppInput({
+        mode,
+        dims: { cols: 100, rows: 30 },
+        models: [{ id: "a", slug: "a" } as any],
+        filtered: [{ id: "a", slug: "a" } as any],
+        selected: { id: "a", slug: "a" } as any,
+        selectedInst: undefined,
+        suggIdx: 0,
+        lastMouseAtRef: { current: 0 },
+        setMode: vi.fn(),
+        setFilter: vi.fn(),
+        setSelectedIdx: vi.fn(),
+        setLogScroll: vi.fn(),
+        setSuggIdx: vi.fn(),
+        setPullPrefill: vi.fn(),
+        exit,
+        toggleStartStop: vi.fn(async () => {}),
+        restart: vi.fn(async () => {}),
+        killSelected: vi.fn(async () => {}),
+        toggleExpose: vi.fn(),
+        deleteEntry: vi.fn(),
+        rescan: vi.fn()
+      })
+      const handler = useInput.mock.calls[0][0]
+      handler("q", {})
+      expect(exit).not.toHaveBeenCalled()
+    }
+
+    // Recent mouse event suppression
+    vi.clearAllMocks()
+    useAppInput({
+      mode: "list",
+      dims: { cols: 100, rows: 30 },
+      models: [{ id: "a", slug: "a" } as any],
+      filtered: [{ id: "a", slug: "a" } as any],
+      selected: { id: "a", slug: "a" } as any,
+      selectedInst: undefined,
+      suggIdx: 0,
+      lastMouseAtRef: { current: Date.now() }, // within 20ms
+      setMode: vi.fn(),
+      setFilter: vi.fn(),
+      setSelectedIdx: vi.fn(),
+      setLogScroll: vi.fn(),
+      setSuggIdx: vi.fn(),
+      setPullPrefill: vi.fn(),
+      exit,
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected: vi.fn(async () => {}),
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+    let handler = useInput.mock.calls[0][0]
+    handler("q", {})
+    expect(exit).not.toHaveBeenCalled()
+
+    // SGR mouse prefix suppression
+    vi.clearAllMocks()
+    useAppInput({
+      mode: "list",
+      dims: { cols: 100, rows: 30 },
+      models: [{ id: "a", slug: "a" } as any],
+      filtered: [{ id: "a", slug: "a" } as any],
+      selected: { id: "a", slug: "a" } as any,
+      selectedInst: undefined,
+      suggIdx: 0,
+      lastMouseAtRef: { current: 0 },
+      setMode: vi.fn(),
+      setFilter: vi.fn(),
+      setSelectedIdx: vi.fn(),
+      setLogScroll: vi.fn(),
+      setSuggIdx: vi.fn(),
+      setPullPrefill: vi.fn(),
+      exit,
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected: vi.fn(async () => {}),
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+    handler = useInput.mock.calls[0][0]
+    handler("[<35;10;20M", {})
+    handler("\x1b[<35;10;20M", {})
+    expect(exit).not.toHaveBeenCalled()
+  })
+
+  it("handles logs mode page navigation, home, end, g, and G", async () => {
+    const setLogScroll = vi.fn()
+    const { useAppInput } = await import("./useAppInput.js")
+
+    useAppInput({
+      mode: "logs",
+      dims: { cols: 100, rows: 40 },
+      models: [{ id: "a", slug: "a" } as any],
+      filtered: [{ id: "a", slug: "a" } as any],
+      selected: { id: "a", slug: "a" } as any,
+      selectedInst: undefined,
+      suggIdx: 0,
+      lastMouseAtRef: { current: 0 },
+      setMode: vi.fn(),
+      setFilter: vi.fn(),
+      setSelectedIdx: vi.fn(),
+      setLogScroll,
+      setSuggIdx: vi.fn(),
+      setPullPrefill: vi.fn(),
+      exit: vi.fn(),
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected: vi.fn(async () => {}),
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+
+    const handler = useInput.mock.calls[0][0]
+    handler("", { upArrow: true })
+    expect(setLogScroll).toHaveBeenCalled()
+    const upUpdater = setLogScroll.mock.calls[0][0]
+    expect(upUpdater(5)).toBe(6)
+
+    handler("", { downArrow: true })
+    const downUpdater = setLogScroll.mock.calls[1][0]
+    expect(downUpdater(5)).toBe(4)
+    expect(downUpdater(0)).toBe(0)
+
+    handler("", { pageUp: true })
+    const pageUpUpdater = setLogScroll.mock.calls[2][0]
+    expect(pageUpUpdater(0)).toBe(20)
+
+    handler("", { pageDown: true })
+    const pageDownUpdater = setLogScroll.mock.calls[3][0]
+    expect(pageDownUpdater(30)).toBe(10)
+    expect(pageDownUpdater(5)).toBe(0)
+
+    handler("G", {})
+    expect(setLogScroll).toHaveBeenCalledWith(0)
+
+    handler("", { end: true })
+    expect(setLogScroll).toHaveBeenCalledWith(0)
+
+    handler("g", {})
+    expect(setLogScroll).toHaveBeenCalledWith(1e9)
+
+    handler("", { home: true })
+    expect(setLogScroll).toHaveBeenCalledWith(1e9)
+  })
+
+  it("handles model actions: killSelected, preset, search, telemetry, downloads, and quit", async () => {
+    const setMode = vi.fn()
+    const setPullPrefill = vi.fn()
+    const killSelected = vi.fn(async () => {})
+    const exit = vi.fn()
+    const setSelectedIdx = vi.fn()
+
+    const { useAppInput } = await import("./useAppInput.js")
+
+    useAppInput({
+      mode: "list",
+      dims: { cols: 100, rows: 30 },
+      models: [{ id: "a", slug: "a" } as any, { id: "b", slug: "b" } as any],
+      filtered: [{ id: "a", slug: "a" } as any, { id: "b", slug: "b" } as any],
+      selected: { id: "a", slug: "a" } as any,
+      selectedInst: { id: "a", pid: 1234 } as any,
+      suggIdx: 0,
+      lastMouseAtRef: { current: 0 },
+      setMode,
+      setFilter: vi.fn(),
+      setSelectedIdx,
+      setLogScroll: vi.fn(),
+      setSuggIdx: vi.fn(),
+      setPullPrefill,
+      exit,
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected,
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+
+    const handler = useInput.mock.calls[0][0]
+
+    // Navigation down and up
+    handler("", { downArrow: true })
+    expect(setSelectedIdx).toHaveBeenCalled()
+    const downIdx = setSelectedIdx.mock.calls[0][0]
+    expect(downIdx(0)).toBe(1)
+    expect(downIdx(1)).toBe(1)
+
+    handler("", { upArrow: true })
+    const upIdx = setSelectedIdx.mock.calls[1][0]
+    expect(upIdx(1)).toBe(0)
+    expect(upIdx(0)).toBe(0)
+
+    // Kill running model
+    handler("k", {})
+    expect(killSelected).toHaveBeenCalled()
+
+    // Open preset/formula editor
+    handler("e", {})
+    expect(setMode).toHaveBeenCalledWith("preset")
+
+    // Open telemetry
+    handler("t", {})
+    expect(setMode).toHaveBeenCalledWith("telemetry")
+
+    // Open downloads
+    handler("D", {})
+    expect(setMode).toHaveBeenCalledWith("downloads")
+
+    // Open search
+    handler("S", {})
+    expect(setMode).toHaveBeenCalledWith("search")
+
+    // Open pull
+    handler("p", {})
+    expect(setPullPrefill).toHaveBeenCalledWith(undefined)
+    expect(setMode).toHaveBeenCalledWith("pull")
+
+    // Confirm delete
+    handler("d", {})
+    expect(setMode).toHaveBeenCalledWith("confirm-delete")
+
+    // Quit
+    handler("q", {})
+    expect(exit).toHaveBeenCalled()
+  })
+
+  it("safely ignores k, e, t, d when selected or selectedInst are undefined", async () => {
+    const setMode = vi.fn()
+    const killSelected = vi.fn(async () => {})
+    const { useAppInput } = await import("./useAppInput.js")
+
+    useAppInput({
+      mode: "list",
+      dims: { cols: 100, rows: 30 },
+      models: [{ id: "a", slug: "a" } as any],
+      filtered: [{ id: "a", slug: "a" } as any],
+      selected: undefined,
+      selectedInst: undefined,
+      suggIdx: 0,
+      lastMouseAtRef: { current: 0 },
+      setMode,
+      setFilter: vi.fn(),
+      setSelectedIdx: vi.fn(),
+      setLogScroll: vi.fn(),
+      setSuggIdx: vi.fn(),
+      setPullPrefill: vi.fn(),
+      exit: vi.fn(),
+      toggleStartStop: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+      killSelected,
+      toggleExpose: vi.fn(),
+      deleteEntry: vi.fn(),
+      rescan: vi.fn()
+    })
+
+    const handler = useInput.mock.calls[0][0]
+    handler("k", {})
+    expect(killSelected).not.toHaveBeenCalled()
+
+    handler("e", {})
+    handler("t", {})
+    handler("d", {})
+    expect(setMode).not.toHaveBeenCalled()
   })
 })
+
 
