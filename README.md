@@ -19,7 +19,7 @@
 ### Prerequisites
 
 - **Hardware**: macOS on Apple Silicon (M1/M2/M3/M4)
-- **Runtime**: Node.js ≥ 18
+- **Runtime**: Node.js ≥ 22
 - **External Binaries**: `mlx_lm.server`, `llama-server`, `hf`
 
 ### 1-Minute Setup

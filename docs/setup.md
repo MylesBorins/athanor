@@ -8,7 +8,7 @@ This guide covers installing and verifying the external runtime binaries require
 
 - **Hardware**: Apple Silicon Mac (M1/M2/M3/M4, Pro/Max/Ultra or base)
 - **OS**: macOS 13.5+ (Ventura, Sonoma, Sequoia or later)
-- **Node.js**: Node.js ≥ 18
+- **Node.js**: Node.js ≥ 22
 
 ---
 

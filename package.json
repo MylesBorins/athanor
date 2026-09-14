@@ -16,6 +16,9 @@
   "bin": {
     "athanor": "./bin/athanor"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "files": [
     "dist",
     "bin",
