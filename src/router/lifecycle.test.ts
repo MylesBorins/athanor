@@ -90,6 +90,7 @@ describe("ingress lifecycle", () => {
     const fetchMock = vi.fn()
     fetchMock
       .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValueOnce({ ok: false })
       .mockResolvedValue({ ok: true })
     vi.stubGlobal("fetch", fetchMock)
     const spawn = vi.fn(() => ({ pid: 4321, unref: vi.fn() }))
@@ -255,5 +256,86 @@ describe("ingress lifecycle", () => {
     await reconcileIngressForCurrentState()
     expect(kill).toHaveBeenCalledWith(555, "SIGTERM")
     expect(clearPersistedRouter).toHaveBeenCalled()
+  })
+
+  it("handles fetch network errors in routerHealthy when checking current router process", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("ECONNREFUSED")
+    }))
+    const clearPersistedRouter = vi.fn()
+    const stopInProcess = vi.fn(async () => {})
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 40879 } })
+    }))
+    vi.doMock("../registry/index.js", async () => ({ listModels: () => [] }))
+    vi.doMock("../supervisor/reconcile.js", async () => ({ recoverLiveInstances: async () => [] }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => ({ pid: 111, host: "127.0.0.1", port: 40879, startedAt: 1 }),
+      pidAlive: () => true,
+      clearPersistedRouter,
+      savePersistedRouter: vi.fn()
+    }))
+
+    const { stopIngressIfIdle } = await import("./lifecycle.js")
+    await stopIngressIfIdle(stopInProcess)
+    expect(clearPersistedRouter).toHaveBeenCalled()
+    expect(stopInProcess).toHaveBeenCalled()
+  })
+
+  it("throws when detached router spawn fails to produce a pid", async () => {
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 40879 } })
+    }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => undefined,
+      pidAlive: () => false,
+      clearPersistedRouter: vi.fn(),
+      savePersistedRouter: vi.fn()
+    }))
+    vi.doMock("child_process", async (importOriginal) => ({ ...await importOriginal() as object,
+      spawn: vi.fn(() => ({ pid: undefined, unref: vi.fn() }))
+    }))
+
+    const { ensureIngress } = await import("./lifecycle.js")
+    await expect(ensureIngress()).rejects.toThrow("failed to start detached router service")
+  })
+
+  it("does not stop idle ingress when TUI is active", async () => {
+    const orig = process.env.ATHANOR_TUI_ACTIVE
+    process.env.ATHANOR_TUI_ACTIVE = "1"
+    try {
+      const stopInProcess = vi.fn(async () => {})
+      vi.doMock("../config/index.js", async () => ({
+        DEFAULT_CONFIG: {},
+        loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 40879 } })
+      }))
+
+      const { stopIngressIfIdle } = await import("./lifecycle.js")
+      await stopIngressIfIdle(stopInProcess)
+      expect(stopInProcess).not.toHaveBeenCalled()
+    } finally {
+      if (orig === undefined) delete process.env.ATHANOR_TUI_ACTIVE
+      else process.env.ATHANOR_TUI_ACTIVE = orig
+    }
+  })
+
+  it("calls stopInProcess when idle and no persisted detached router exists", async () => {
+    const stopInProcess = vi.fn(async () => {})
+    vi.doMock("../config/index.js", async () => ({
+      DEFAULT_CONFIG: {},
+      loadConfig: () => ({ router: { enabled: true, host: "127.0.0.1", port: 40879 } })
+    }))
+    vi.doMock("../registry/index.js", async () => ({ listModels: () => [] }))
+    vi.doMock("../supervisor/reconcile.js", async () => ({ recoverLiveInstances: async () => [] }))
+    vi.doMock("../supervisor/state.js", async () => ({
+      getPersistedRouter: () => undefined,
+      clearPersistedRouter: vi.fn()
+    }))
+
+    const { stopIngressIfIdle } = await import("./lifecycle.js")
+    await stopIngressIfIdle(stopInProcess)
+    expect(stopInProcess).toHaveBeenCalled()
   })
 })

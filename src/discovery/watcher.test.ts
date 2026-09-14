@@ -12,22 +12,27 @@ import type { WatchFactory } from "./watcher.js"
 function makeFakeWatch(): {
   factory: WatchFactory
   fireOn(dir: string): void
+  fireError(dir: string, err: Error): void
   watched(): string[]
   closed(): string[]
 } {
   const listeners = new Map<string, () => void>()
+  const errorListeners = new Map<string, (err: Error) => void>()
   const closed: string[] = []
   const factory: WatchFactory = (dir, listener) => {
     listeners.set(dir, listener)
-    const noop = (): void => { /* no-op */ }
     return {
       close: () => { closed.push(dir); listeners.delete(dir) },
-      on: noop, off: noop, unref: noop, ref: noop
+      on: (event: string, cb: any) => {
+        if (event === "error") errorListeners.set(dir, cb)
+      },
+      off: () => {}, unref: () => {}, ref: () => {}
     } as unknown as fs.FSWatcher
   }
   return {
     factory,
     fireOn: dir => listeners.get(dir)?.(),
+    fireError: (dir, err) => errorListeners.get(dir)?.(err),
     watched: () => [...listeners.keys()],
     closed: () => closed
   }
@@ -104,6 +109,8 @@ describe("startCacheWatcher", () => {
     fake.fireOn(hub)
     w.stop()
     expect(fake.closed()).toEqual([hub])
+    // Fire after stop to exercise if (stopped) return in schedule
+    fake.fireOn(hub)
     await vi.advanceTimersByTimeAsync(1000)
     expect(ingest).not.toHaveBeenCalled()
     expect(onAdded).not.toHaveBeenCalled()
@@ -152,5 +159,77 @@ describe("startCacheWatcher", () => {
     expect(onAdded).toHaveBeenCalledTimes(1)
     err.mockRestore()
     w.stop()
+  })
+
+  it("handles watcher error events and invokes default and custom onError", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const start = await loadWatcher({ mlx: hub, llama: hub })
+    const fake = makeFakeWatch()
+    const w = start(() => {}, {
+      watchFactory: fake.factory
+    })
+    fake.fireError(hub, new Error("EACCES permission denied"))
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("cache watcher could not attach to")
+    )
+    errorSpy.mockRestore()
+    w.stop()
+
+    // With custom onError
+    const customOnError = vi.fn()
+    const fake2 = makeFakeWatch()
+    const w2 = start(() => {}, {
+      watchFactory: fake2.factory,
+      onError: customOnError
+    })
+    fake2.fireError(hub, new Error("custom error"))
+    expect(customOnError).toHaveBeenCalledWith(hub, expect.objectContaining({ message: "custom error" }))
+    w2.stop()
+  })
+
+  it("handles synchronous throws from watchFactory", async () => {
+    const start = await loadWatcher({ mlx: hub, llama: hub })
+    const onError = vi.fn()
+    const failingFactory: WatchFactory = () => {
+      throw new Error("sync watch failure")
+    }
+    const w = start(() => {}, {
+      watchFactory: failingFactory,
+      onError
+    })
+    expect(onError).toHaveBeenCalledWith(hub, expect.objectContaining({ message: "sync watch failure" }))
+    w.stop()
+  })
+
+  it("logs non-Error exceptions in ingest scanner gracefully", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    const start = await loadWatcher({ mlx: hub, llama: hub })
+    const fake = makeFakeWatch()
+    const ingest = vi.fn(() => {
+      throw "string-error-message"
+    })
+    const w = start(() => {}, {
+      ingest: ingest as any,
+      watchFactory: fake.factory,
+      debounceMs: 50
+    })
+    fake.fireOn(hub)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("athanor: watcher scan failed: string-error-message")
+    )
+    errorSpy.mockRestore()
+    w.stop()
+  })
+
+  it("uses real fs.watch by default when watchFactory is omitted", async () => {
+    const start = await loadWatcher({ mlx: hub, llama: hub })
+    const ingest = vi.fn(() => ({ added: [], updatedPath: [], unchanged: 0 }))
+    const w = start(() => {}, {
+      ingest,
+      debounceMs: 100
+    })
+    // Ensure stop works cleanly on real fs.watch instances
+    expect(() => w.stop()).not.toThrow()
   })
 })

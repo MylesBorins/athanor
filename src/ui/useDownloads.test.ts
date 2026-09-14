@@ -84,6 +84,7 @@ describe("useDownloads helpers", () => {
 
 describe("useDownloads hook lifecycle", () => {
   it("queues downloads, deduplicates, updates on events, and cancels", async () => {
+    vi.resetModules()
     const React = await import("react")
     const ink = await import("ink")
     const { PassThrough } = await import("node:stream")
@@ -103,7 +104,11 @@ describe("useDownloads hook lifecycle", () => {
     const hookRef = { current: null as any }
     function TestComponent() {
       hookRef.current = useDownloads()
-      return React.createElement(ink.Text, null, `active: ${hookRef.current.activeCount}`)
+      return React.createElement(
+        ink.Text,
+        null,
+        `active: ${hookRef.current.activeCount}, tasks: ${hookRef.current.tasks.map((t: any) => `${t.id}:${t.stageLabel}:${t.currentFile}`).join(",")}`
+      )
     }
 
     const stream = new PassThrough()
@@ -119,10 +124,18 @@ describe("useDownloads hook lifecycle", () => {
     const tDuplicate = hookRef.current.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
     expect(tDuplicate.id).toBe(t1.id)
 
+    // Queue second download to test task.id !== id branches
+    const t2 = hookRef.current.queueDownload({ repo: "mlx-community/Second" })
+    expect(t2.id).not.toBe(t1.id)
+
     // Trigger events
+    expect(capturedOnEvent).not.toBeNull()
     if (capturedOnEvent) {
+      capturedOnEvent({ type: "start", unit: "items", file: "manifest.json" })
+      capturedOnEvent({ type: "start", unit: "B", file: "model.safetensors", total: 1000 })
       capturedOnEvent({ type: "resolving", elapsed: 100 })
-      capturedOnEvent({ type: "progress", unit: "B", file: "model.safetensors", done: 500, total: 1000, elapsed: 10, rate: 1024 })
+      // Omit total to exercise existing.total fallback
+      capturedOnEvent({ type: "progress", unit: "B", file: "model.safetensors", done: 500, elapsed: 10, rate: 1024 })
       capturedOnEvent({ type: "error", message: "fail" })
       capturedOnEvent({ type: "done", elapsed: 200, path: "/tmp/snap" })
     }
@@ -131,25 +144,41 @@ describe("useDownloads hook lifecycle", () => {
     const onLineCb = mockPull.mock.calls[0]?.[0]?.onLine
     if (onLineCb) onLineCb("progress line update")
 
+    // Force render pass to flush state updaters
+    app.rerender(React.createElement(TestComponent))
+    await new Promise(r => setTimeout(r, 60))
+
     // Cancel download
     hookRef.current.cancelDownload(t1.id)
+    hookRef.current.cancelDownload("non-existent-id")
+    app.rerender(React.createElement(TestComponent))
+    await new Promise(r => setTimeout(r, 60))
 
     // Clear finished
     hookRef.current.clearFinished()
+    app.rerender(React.createElement(TestComponent))
+    await new Promise(r => setTimeout(r, 60))
 
     app.unmount()
   })
 
-  it("handles pull success and failure callbacks", async () => {
+  it("handles pull success, abort, and failure callbacks", async () => {
     vi.resetModules()
+    const { PullAbortedError: AbortedErr } = await import("../pull/download.js")
     const React = await import("react")
     const ink = await import("ink")
     const { PassThrough } = await import("node:stream")
 
-    let shouldSucceed = true
+    let outcome: "success" | "abort" | "error" | "string-error" = "success"
     const mockPull = vi.fn(async () => {
-      if (shouldSucceed) {
+      if (outcome === "success") {
         return { entry: { slug: "success-slug", port: 8085 } }
+      }
+      if (outcome === "abort") {
+        throw new AbortedErr()
+      }
+      if (outcome === "string-error") {
+        throw "raw failure string"
       }
       throw new Error("failed download")
     })
@@ -170,15 +199,28 @@ describe("useDownloads hook lifecycle", () => {
     const stream = new PassThrough()
     const app = ink.render(React.createElement(TestComponent), { stdout: stream as any, stderr: stream as any, patchConsole: false })
 
+    // Success case
     hookRef.current.queueDownload({ repo: "mlx-community/A" })
     await new Promise(r => setTimeout(r, 60))
     expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pulled success-slug"))
 
-    // Failure case
-    shouldSucceed = false
+    // Abort case
+    outcome = "abort"
     hookRef.current.queueDownload({ repo: "mlx-community/B" })
     await new Promise(r => setTimeout(r, 60))
+    expect(onFinished).toHaveBeenCalledWith("pull cancelled")
+
+    // Failure case with Error instance
+    outcome = "error"
+    hookRef.current.queueDownload({ repo: "mlx-community/C" })
+    await new Promise(r => setTimeout(r, 60))
     expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pull failed: failed download"))
+
+    // Failure case with string error
+    outcome = "string-error"
+    hookRef.current.queueDownload({ repo: "mlx-community/D" })
+    await new Promise(r => setTimeout(r, 60))
+    expect(onFinished).toHaveBeenCalledWith("pull failed: raw failure string")
 
     app.unmount()
   })

@@ -642,4 +642,227 @@ describe("app model service", () => {
     expect(fs.existsSync(snapshotDir)).toBe(false)
     expect(removeModel).toHaveBeenCalledWith("mlx-community/A")
   })
+
+  it("scanModelsAndReport delegates to ingestDiscovered", async () => {
+    const ingestDiscovered = vi.fn(() => ({ discovered: 2, registered: 1, removed: 0 }))
+    vi.doMock("../discovery/ingest.js", () => ({ ingestDiscovered }))
+    const { scanModelsAndReport } = await import("./models.js")
+    expect(scanModelsAndReport()).toEqual({ discovered: 2, registered: 1, removed: 0 })
+    expect(ingestDiscovered).toHaveBeenCalled()
+  })
+
+  it("pullModel delegates to pull", async () => {
+    const pull = vi.fn(async () => ({ success: true, repo: "test/repo" }))
+    vi.doMock("../pull/hf.js", () => ({ pull }))
+    const { pullModel } = await import("./models.js")
+    const res = await pullModel({ repo: "test/repo" } as any)
+    expect(res).toEqual({ success: true, repo: "test/repo" })
+    expect(pull).toHaveBeenCalledWith({ repo: "test/repo" })
+  })
+
+  it("startModel throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({ getModel: () => undefined }))
+    const { startModel } = await import("./models.js")
+    await expect(startModel("missing")).rejects.toThrow("unknown model: missing")
+  })
+
+  it("startModel calculates discountBytes when policy evicts existing running models", async () => {
+    const start = vi.fn(async () => ({
+      id: "mlx-community/A", slug: "a", runtime: "mlx" as const, port: 8081,
+      pid: 123, startedAt: 0, status: "running" as const, logFile: "/tmp/a.log"
+    }))
+    const runningInst = {
+      id: "mlx-community/B", slug: "b", runtime: "mlx" as const, port: 8082,
+      pid: 456, startedAt: 0, status: "running" as const, logFile: "/tmp/b.log"
+    }
+    const buildStartPreflightMock = vi.fn(() => ({
+      currentUsedGiB: 8, projectedUsedGiB: 10, machineTotalGiB: 16, estimatedFootprintGiB: 4,
+      shouldWarn: false, shouldStrongWarn: false
+    }))
+    vi.doMock("./preflight.js", () => ({ buildStartPreflight: buildStartPreflightMock }))
+    vi.doMock("../supervisor/policies.js", () => ({
+      decide: () => ({ stopBeforeStart: ["mlx-community/B"], allow: true })
+    }))
+    vi.doMock("../supervisor/metrics.js", () => ({
+      sampleProcessStats: () => new Map([[456, { pid: 456, cpuPct: 0, rssBytes: 2 * 1024 ** 3 }]])
+    }))
+    vi.doMock("../registry/index.js", () => ({ getModel: () => entry() }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { start, stop: vi.fn(), stopAll: vi.fn(), list: () => [runningInst] }
+    }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+
+    const { startModel } = await import("./models.js")
+    const res = await startModel("a")
+    expect(buildStartPreflightMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { discountBytes: 2 * 1024 ** 3 }
+    )
+    expect(res.instance?.pid).toBe(123)
+  })
+
+  it("startModel returns warned when preflight warns and confirm is false", async () => {
+    const start = vi.fn()
+    vi.doMock("./preflight.js", () => ({
+      buildStartPreflight: () => ({
+        currentUsedGiB: 14, projectedUsedGiB: 16, machineTotalGiB: 16, estimatedFootprintGiB: 4,
+        shouldWarn: true, shouldStrongWarn: false
+      })
+    }))
+    vi.doMock("../registry/index.js", () => ({ getModel: () => entry() }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { start, list: () => [] }
+    }))
+
+    const { startModel } = await import("./models.js")
+    const res = await startModel("a")
+    expect(res.warned).toBe(true)
+    expect(res.instance).toBeUndefined()
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it("restartModel returns warned when preflight warns and confirm is false", async () => {
+    const restart = vi.fn()
+    vi.doMock("./preflight.js", () => ({
+      buildStartPreflight: () => ({
+        currentUsedGiB: 14, projectedUsedGiB: 16, machineTotalGiB: 16, estimatedFootprintGiB: 4,
+        shouldWarn: true, shouldStrongWarn: false
+      })
+    }))
+    vi.doMock("../registry/index.js", () => ({ getModel: () => entry() }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: { restart, list: () => [] }
+    }))
+
+    const { restartModel } = await import("./models.js")
+    const res = await restartModel("a")
+    expect(res.warned).toBe(true)
+    expect(res.instance).toBeUndefined()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it("setPublished throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({ setModelPublish: () => null }))
+    const { setPublished } = await import("./models.js")
+    expect(() => setPublished("missing", true)).toThrow("unknown model: missing")
+  })
+
+  it("setFlavor updates flavor and syncs pi", async () => {
+    const setModelFlavor = vi.fn((_id: string, flavor: any) => ({ ...entry(), mlxFlavor: flavor }))
+    const syncPi = vi.fn()
+    vi.doMock("../registry/index.js", () => ({ setModelFlavor }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { list: () => [] } }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi }))
+
+    const { setFlavor } = await import("./models.js")
+    const updated = setFlavor("a", "vlm")
+    expect(updated.mlxFlavor).toBe("vlm")
+    expect(setModelFlavor).toHaveBeenCalledWith("a", "vlm")
+    expect(syncPi).toHaveBeenCalledWith({ instances: [] })
+  })
+
+  it("setFlavor throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({ setModelFlavor: () => null }))
+    const { setFlavor } = await import("./models.js")
+    expect(() => setFlavor("missing", "lm")).toThrow("unknown model: missing")
+  })
+
+  it("setFormula throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({ setModelFormula: () => null }))
+    const { setFormula } = await import("./models.js")
+    expect(() => setFormula("missing", undefined)).toThrow("unknown model: missing")
+  })
+
+  it("deleteModelFromDisk throws when model is unknown", async () => {
+    vi.doMock("../registry/index.js", () => ({ getModel: () => null }))
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("missing")).toThrow("unknown model: missing")
+  })
+
+  it("deleteModelFromDisk throws when removeModel fails", async () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "delete-fail-"))
+    const file = path.join(tmp, "m.gguf")
+    fs.writeFileSync(file, "content")
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), path: file, source: { type: "local" as const } }),
+      removeModel: () => false
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { list: () => [] } }))
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("a")).toThrow("unknown model: mlx-community/A")
+  })
+
+  it("deleteModelFromDisk handles MLX path in HF hub that does not start with models--", async () => {
+    const hubDir = path.join(os.homedir(), ".cache", "huggingface", "hub")
+    const directDir = path.join(hubDir, "custom-mlx-dir")
+    fs.mkdirSync(directDir, { recursive: true })
+    fs.writeFileSync(path.join(directDir, "config.json"), "{}")
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({ ...entry(), path: directDir }),
+      removeModel: () => true
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { list: () => [] } }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+    vi.doUnmock("../config/index.js")
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    const deleted = deleteModelFromDisk("a")
+    expect(deleted.path).toBe(directDir)
+    expect(fs.existsSync(directDir)).toBe(false)
+  })
+
+  it("deleteModelFromDisk handles symlinked GGUF files in HF cache", async () => {
+    const hubDir = path.join(os.homedir(), ".cache", "huggingface", "hub")
+    const blobDir = path.join(hubDir, "test-blobs")
+    const snapDir = path.join(hubDir, "test-snaps")
+    fs.mkdirSync(blobDir, { recursive: true })
+    fs.mkdirSync(snapDir, { recursive: true })
+    const realBlob = path.join(blobDir, "blob123")
+    fs.writeFileSync(realBlob, "binary-data")
+    const symlinkFile = path.join(snapDir, "model.gguf")
+    try {
+      fs.symlinkSync(realBlob, symlinkFile)
+    } catch {
+      fs.writeFileSync(symlinkFile, "binary-data")
+    }
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({
+        ...entry(),
+        runtime: "llama.cpp" as const,
+        path: symlinkFile,
+        source: { type: "hf" as const, repo: "org/repo", file: "model.gguf" }
+      }),
+      removeModel: () => true
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { list: () => [] } }))
+    vi.doMock("../sync/pi.js", () => ({ syncPi: vi.fn() }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    deleteModelFromDisk("a")
+    expect(fs.existsSync(symlinkFile)).toBe(false)
+    expect(fs.existsSync(realBlob)).toBe(false)
+  })
+
+  it("deleteModelFromDisk throws when HF entry has no file and is not MLX", async () => {
+    const tmp = fs.mkdtempSync(path.join(process.env.ATHANOR_HOME!, "hf-nofile-"))
+    const dummyDir = path.join(tmp, "dummy")
+    fs.mkdirSync(dummyDir, { recursive: true })
+
+    vi.doMock("../registry/index.js", () => ({
+      getModel: () => ({
+        ...entry(),
+        runtime: "llama.cpp" as const,
+        path: dummyDir,
+        source: { type: "hf" as const, repo: "org/repo" }
+      }),
+      removeModel: () => true
+    }))
+    vi.doMock("../supervisor/index.js", () => ({ supervisor: { list: () => [] } }))
+
+    const { deleteModelFromDisk } = await import("./models.js")
+    expect(() => deleteModelFromDisk("a")).toThrow("could not remove files from disk for a")
+  })
 })
