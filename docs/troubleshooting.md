@@ -103,7 +103,7 @@ If other entries were affected, verify if an external tool formatted `~/.pi/agen
 
 If your machine rebooted unexpectedly or a process was killed externally with `SIGKILL`:
 - Run `athanor status` or `athanor sync`. Athanor reconciles dead processes against `~/.athanor/state.json` and cleans up stale PIDs opportunistically.
-- To cleanly reset an active model:
+- To restart an active model:
   ```bash
   athanor stop <slug>
   athanor start <slug>

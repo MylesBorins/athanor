@@ -64,8 +64,8 @@ The interface is divided into three sections:
 
 The Formula Editor allows live tuning of runtime launch flags:
 
-- **Mode Switching (`Tab`)**: Toggle between **Simple Mode** (high-level compound knobs) and **Advanced Mode** (granular per-flag keys).
-- **Simple Compound Knobs**:
+- **Mode Switching (`Tab`)**: Toggle between **Simple Mode** (compound settings) and **Advanced Mode** (granular per-flag keys).
+- **Compound Settings**:
   - *Context Window*: Cycle through 8K, 16K, 32K, 64K, 128K, or custom.
   - *KV Cache Quantization*: Cycle between FP16, Q8_0, Q4_0 with automatic Flash Attention.
   - *Speculative Decoding*: Configure Multi-Token Prediction (MTP) or draft model offloading.
@@ -90,7 +90,7 @@ Tracks active, queued, and completed downloads initiated via `athanor pull` or t
 
 ### 3. Telemetry Modal (`t`)
 
-Displays comprehensive performance metrics for the selected model:
+Displays performance metrics for the selected model:
 - Total requests and lifetime prompt / generation tokens.
 - Average time-to-first-token (TTFT) and throughput (tok/s).
 - Prompt evaluation speed and peak memory consumption (RSS).
@@ -115,7 +115,7 @@ Pressing `tab` collapses the model list and expands the log pane into a full-scr
 
 Athanor enables SGR mouse reporting (`\x1b[?1000h\x1b[?1006h`) while running, allowing you to scroll logs and lists with the mouse wheel.
 
-- **Selecting text**: In terminal emulators like iTerm2 or Terminal.app, hold `⌥` (Option / Alt) while dragging the mouse to bypass mouse tracking and copy text natively.
+- **Selecting text**: In terminal emulators like iTerm2 or Terminal.app, hold `⌥` (Option / Alt) while dragging the mouse to bypass mouse tracking and copy text.
 - **Clean exit**: Mouse tracking is cleanly disabled on normal exit, `SIGINT` (`Ctrl-C`), `SIGTERM`, and `SIGHUP`. If a crash leaves the terminal state altered, run `reset` to restore your shell.
 
 ---
@@ -128,4 +128,4 @@ For active development, run:
 npm run dev
 ```
 
-This runs `scripts/dev-watch.mjs`, which monitors TypeScript files and reloads the TUI with `ATHANOR_DEV_TUI=1`. This dev mode skips alt-screen clearing so you can comfortably test in tmux split panes without flickering or losing your scroll history.
+This runs `scripts/dev-watch.mjs`, which monitors TypeScript files and reloads the TUI with `ATHANOR_DEV_TUI=1`. This dev mode skips alt-screen clearing to prevent flickering and retain scroll history in tmux split panes.

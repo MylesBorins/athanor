@@ -137,7 +137,7 @@ Athanor performs cross-field validation on speculative settings during `athanor 
 
 Models with reasoning/thinking templates (e.g. Qwen3.8-27B) consume a `reasoning_effort` parameter (`xhigh`, `medium`, `low`). Stock templates often default to `xhigh`, which can cause 20+ minute generations and 20,000+ reasoning tokens.
 
-Athanor provides first-class reasoning effort support:
+Athanor provides reasoning effort support:
 
 ```bash
 # Set reasoning effort via formula

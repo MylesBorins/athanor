@@ -10,9 +10,9 @@ Not a library. Not a daemon. No network listeners except the runtime children th
 
 ## Invariants
 
-These are load-bearing. If a change seems to need to break one, stop and ask.
+These invariants are mandatory. Do not change them without an explicit user decision.
 
-1. **Stable port per model.** Ports are allocated on first discovery from `config.portRange` and persisted on the registry entry forever. A model's port never changes behind the user's back; pi-agent provider URLs must be stable across restarts.
+1. **Stable port per model.** Ports are allocated on first discovery from `config.portRange` and persisted on the registry entry. A model's port does not change after allocation; pi-agent provider URLs must remain stable across restarts.
 2. **Atomic registry writes.** `~/.athanor/models.json` is always written via temp-file + rename in `src/registry/index.ts`. Never partial-write it, never keep it open across awaits.
 3. **Preserve non-athanor pi entries.** `src/sync/pi.ts` rewrites only providers whose name starts with `athanor-`. Everything else in `~/.pi/agent/models.json` (OpenAI, Anthropic, Ollama, OpenRouter, user customs) must round-trip untouched. Same for `~/.pi/agent/settings.json` — only `defaultProvider` / `defaultModel` are touched, and only when a model is started as the active default.
 4. **Pi sync shape follows `config.router.enabled`.** Default (`router.enabled: true`): up to two aggregator providers — `athanor-mlx` and `athanor-llama` — both pointing at the ingress `baseUrl`, each listing only models of its runtime and carrying runtime-specific compat flags (MLX sets `supportsDeveloperRole: false`; llama-server doesn't). Providers with zero exposed members are suppressed. When `router.enabled` is false: each exposed model becomes its own pi provider `athanor-<runtime>-<slug>` with one `baseUrl` per model. Never emit both shapes. The CLI verbs are `expose` / `hide`; the underlying registry field is `publish: boolean` (storage name, kept stable for backward-compat of on-disk `models.json`).
@@ -22,7 +22,7 @@ These are load-bearing. If a change seems to need to break one, stop and ask.
    - `mlxCapabilities: ("vlm")[]` — a detected *fact* about the model (does config.json advertise a vision tower?). Refreshed by `ingestDiscovered` and `pull` via `detectMlxCapabilities()` in `src/discovery/scanner.ts`. Safe to overwrite on re-scan.
    - `mlxFlavor: "lm" | "vlm"` — user *intent* about which server binary to launch. `"vlm"` routes to `mlx_vlm.server`; `"lm"` (or absent) routes to `mlx_lm.server`. Only set by `athanor flavor <slug> lm|vlm` (`cmdFlavor` in `src/cli/commands.ts`). Discovery and ingest must never touch it.
 
-   Detection is advisory because many VLM-tagged repos run fine as text-only under `mlx_lm.server` with no torch/torchvision installed, and that's usually the preferred path. `cmdShow` surfaces the capability with a hint that points at `athanor flavor`. Do not add VLM detection anywhere other than `detectMlxCapabilities`; keep it a single source of truth.
+   Detection is advisory because many VLM-tagged repos run fine as text-only under `mlx_lm.server` with no torch/torchvision installed, and that's usually the preferred path. `cmdShow` surfaces the capability with a hint that points at `athanor flavor`. Do not add VLM detection anywhere other than `detectMlxCapabilities`; keep it the sole detection function.
 8. **Supervisor default policy is `single-active`.** Starting model B stops model A unless the user opts into `multi-active-lru` (or `manual`) in `config.json`. Policies live in `src/supervisor/policies.ts`.
 9. **Formulas are additive, scans are non-destructive.** `athanor scan` refreshes `path`, `sizeBytes`, and `mlxCapabilities`. `formula`, `publish`, `piAlias`, `tags`, `port`, `slug`, and `mlxFlavor` must survive re-scans. Built-in formulas are explicit; `balanced` is not shorthand for clearing a formula, and `formula clear` is the separate remove action.
 10. **All mutations go through helpers.** Use `setFormulaFields` / `unsetFormulaFields` from `src/presets/edit.ts`, `formulaToRuntime` from `src/presets/recipes.ts`, and `updateModel` / `setModelFormula` from `src/registry/index.ts`. Do not hand-edit registry objects in commands or UI components.
@@ -106,10 +106,10 @@ Linked mode does not auto-rebuild. Re-run `npm run build` after pulling changes 
 
 ### External binaries
 
-Run `athanor doctor` first — it prints presence, installed versions, and paths for each dependency and is the source of truth. When you specifically need to check staleness, run `athanor doctor --check-updates` as well:
+Run `athanor doctor` first — it prints presence, installed versions, and paths for each dependency. When you specifically need to check staleness, run `athanor doctor --check-updates` as well:
 
 - `mlx_lm.server` — required for MLX text models. `uv tool install mlx-lm` (or `pipx install mlx-lm`).
-- `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are load-bearing: `mlx-vlm` itself doesn't depend on them, but the `transformers` VLM processors it imports do, so installing `mlx-vlm` alone passes `athanor doctor` and then fails at request time with `Qwen3VLVideoProcessor requires the PyTorch library but it was not found in your environment`. Equivalent forms: `pipx install mlx-vlm && pipx inject mlx-vlm torch torchvision`, or `pip install -U mlx-vlm torch torchvision` in an active venv.
+- `mlx_vlm.server` — optional, for vision MLX models. `uv tool install mlx-vlm --with torch --with torchvision`. The torch/torchvision extras are required: `mlx-vlm` itself doesn't depend on them, but the `transformers` VLM processors it imports do, so installing `mlx-vlm` alone passes `athanor doctor` and then fails at request time with `Qwen3VLVideoProcessor requires the PyTorch library but it was not found in your environment`. Equivalent forms: `pipx install mlx-vlm && pipx inject mlx-vlm torch torchvision`, or `pip install -U mlx-vlm torch torchvision` in an active venv.
 - `llama-server` — optional, for GGUF models. `brew install llama.cpp` or build from source.
 - `hf` — required for `athanor pull`. `uv tool install huggingface_hub --with hf_transfer` (or `pip install -U huggingface_hub[cli]`).
 
@@ -178,7 +178,7 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 | Path | Purpose |
 |---|---|
 | `~/.athanor/config.json` | user config: scan roots, port range, supervisor policy, control API |
-| `~/.athanor/models.json` | registry — source of truth for slugs, ports, formulas, publish state |
+| `~/.athanor/models.json` | registry — storage for slugs, ports, formulas, publish state |
 | `~/.athanor/formulas.json` | optional user formulas; overrides built-ins of the same name (with auto-migration from legacy `recipes.json`) |
 | `~/.athanor/telemetry.json` | persistent generation telemetry history (tok/s, prompt eval, latency) |
 | `~/.athanor/logs/<slug>-<pid>.log` | per-run supervisor log |
@@ -191,9 +191,9 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 
 - TypeScript strict; no `any` unless unavoidable. Prefer `unknown` at boundaries and narrow.
 - Functions named after what they do, not how. Side-effecting helpers end in verbs (`ingestDiscovered`, `updateModel`, `syncPi`).
-- Comments match the local density. Do not annotate obvious code or explain the rationale for a change inside a comment — that belongs in the PR.
+- Keep comments concise. Do not annotate obvious code or explain the rationale for a change inside a comment — that belongs in the PR.
 - No new files unless necessary. Prefer editing an existing module. Especially: do not create new top-level docs (`*.md`) without being asked.
-- Keep command output scannable. Tables go through `format.ts`. Errors exit non-zero with a one-line message plus, when useful, a hint on the next line.
+- Format command output clearly. Tables go through `format.ts`. Errors exit non-zero with a one-line message plus, when useful, a hint on the next line.
 
 ## Roadmap
 

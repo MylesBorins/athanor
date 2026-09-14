@@ -1,16 +1,16 @@
 # athanor
 
-**Personal LLM alchemy on Apple Silicon.** Discover, run, configure, and switch between MLX and `llama.cpp` (GGUF) models from a unified TUI or CLI, while keeping an OpenAI-compatible HTTP ingress live for downstream tools like [pi-agent](https://github.com/badlogic/pi-mono).
+A local LLM workbench for Apple Silicon. Discover, run, configure, and switch between MLX and `llama.cpp` (GGUF) models from a TUI or CLI, while keeping an OpenAI-compatible HTTP ingress active for tools like [pi-agent](https://github.com/badlogic/pi-mono).
 
 ---
 
 ## What It Does
 
-- **Unified Runtimes**: Runs Apple MLX (`mlx_lm.server`, `mlx_vlm.server`) and GGUF (`llama-server`) models with full Metal acceleration.
-- **Zero Daemon**: No background daemon process. Runtimes are supervised as detached child processes bound to **stable ports** that never change across restarts.
-- **OpenAI-Compatible Ingress**: Single-port reverse proxy (`http://127.0.0.1:40879/v1`) with on-demand model activation and in-flight stream-drain safety.
-- **First-Class Pi-Agent Integration**: Synchronizes exposed models to `~/.pi/agent/models.json` via aggregator providers (`athanor-mlx` and `athanor-llama`) while leaving your other providers (OpenAI, Anthropic, Ollama, etc.) untouched.
-- **Terminal UI & Scriptable CLI**: Switch models, tail logs, adjust formulas, and monitor real-time token throughput from an interactive Ink TUI or scriptable CLI.
+- **Unified Runtimes**: Runs Apple MLX (`mlx_lm.server`, `mlx_vlm.server`) and GGUF (`llama-server`) models with Metal acceleration.
+- **Zero Daemon**: No persistent background service. Runtimes run as detached child processes bound to stable ports that persist across restarts.
+- **OpenAI-Compatible Ingress**: Single-port reverse proxy (`http://127.0.0.1:40879/v1`) with on-demand model activation and stream-drain safety.
+- **Pi-Agent Integration**: Synchronizes exposed models to `~/.pi/agent/models.json` via aggregator providers (`athanor-mlx` and `athanor-llama`) while leaving non-athanor providers (OpenAI, Anthropic, Ollama, etc.) untouched.
+- **Terminal UI & Scriptable CLI**: Switch models, tail logs, adjust formulas, and monitor token throughput from an Ink TUI or CLI.
 
 ---
 
@@ -121,7 +121,7 @@ athanor telemetry [<slug>|clear] view historical generation throughput and metri
 | `D` | Open Downloads modal |
 | `s` | Rescan models from cache |
 | `p` | Open Pull modal to download a model |
-| `e` | Open Formula Editor to adjust runtime knobs |
+| `e` | Open Formula Editor to adjust runtime parameters |
 | `t` | Open Telemetry modal |
 | `/` | Filter model list by text |
 | `tab` | Toggle full-screen log viewer mode |

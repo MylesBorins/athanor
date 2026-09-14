@@ -71,7 +71,7 @@ POST /v1/embeddings        { "model": ... } Activate model + proxy embeddings
 
 ## Pi-Agent Catalog Synchronization
 
-Athanor integrates seamlessly with [pi-agent](https://github.com/badlogic/pi-mono). Every time models are exposed, hidden, started, or updated, athanor synchronizes `~/.pi/agent/models.json`.
+Athanor synchronizes with [pi-agent](https://github.com/badlogic/pi-mono). Every time models are exposed, hidden, started, or updated, athanor writes to `~/.pi/agent/models.json`.
 
 ### Aggregator Providers (Default: `router.enabled: true`)
 
@@ -79,7 +79,7 @@ Pi-agent sees up to two providers pointing at the ingress:
 - `athanor-mlx` (configured with MLX compatibility flags, e.g. `supportsDeveloperRole: false`)
 - `athanor-llama` (configured with `llama.cpp` compatibility flags)
 
-Providers with zero exposed models are suppressed. Switching models inside pi-agent is instantaneous: pi sends the request with the new model ID, and the ingress swaps the active model automatically.
+Providers with zero exposed models are suppressed. When switching models in pi-agent, pi sends the request with the target model ID, and the ingress switches the active model automatically.
 
 ```json
 {
@@ -94,7 +94,7 @@ Providers with zero exposed models are suppressed. Switching models inside pi-ag
 
 If you disable the ingress, athanor switches to direct mode: each exposed model becomes its own pi provider named `athanor-<runtime>-<slug>`, each pointing to that model's dedicated stable port.
 
-### Load-Bearing Pi Invariants
+### Mandatory Pi Invariants
 
 1. **Non-Athanor Providers are Preserved**: Providers without the `athanor-` prefix (OpenAI, Anthropic, Ollama, OpenRouter, custom keys) round-trip untouched.
 2. **Settings Isolation**: `~/.pi/agent/settings.json` is only touched when an athanor model is started as the active default (`defaultProvider` and `defaultModel`).
@@ -104,9 +104,9 @@ If you disable the ingress, athanor switches to direct mode: each exposed model 
 
 ## Stable Per-Model Ports
 
-Every registered model is assigned a port from `portRange` (default: `40880`–`40979`) on first discovery and keeps that port forever in `~/.athanor/models.json`.
+Every registered model is assigned a port from `portRange` (default: `40880`–`40979`) on first discovery and retains that port in `~/.athanor/models.json`.
 
-- Ports never change behind the user's back across machine reboots.
+- Ports remain stable across machine restarts.
 - Switching between active models never requires reconfiguring downstream tools.
 - On load, athanor cleans up any duplicate registry entries sharing the same normalized path and resolves port collisions.
 
@@ -118,7 +118,7 @@ Athanor supervises model runtimes as detached child processes:
 - `detached: true` with `proc.unref()`, allowing CLI/TUI sessions to exit without terminating running models.
 - Standard I/O is redirected to `~/.athanor/logs/<slug>-<pid>.log`.
 - State is tracked in `~/.athanor/state.json`, allowing subsequent CLI commands and the TUI to reattach cleanly.
-- Health readiness is determined by polling the runtime's health endpoint (`/v1/models` for MLX, `/health` for llama.cpp), not by fragile stdout regexes.
+- Health readiness is determined by polling the runtime's health endpoint (`/v1/models` for MLX, `/health` for llama.cpp), rather than stdout pattern matching.
 
 ### Eviction Policies
 
