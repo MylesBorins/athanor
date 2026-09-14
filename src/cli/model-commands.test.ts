@@ -61,6 +61,13 @@ vi.mock("../machine/profile.js", () => ({
   }))
 }))
 
+vi.mock("readline/promises", () => ({
+  createInterface: vi.fn(() => ({
+    question: vi.fn(async () => "y"),
+    close: vi.fn()
+  }))
+}))
+
 import {
   scanModelsAndReport,
   deleteModelFromDisk,
@@ -268,6 +275,17 @@ describe("model-commands", () => {
       const output = logCalls.join("\n")
       expect(output).toContain("no running instances to stop")
     })
+
+    it("reports 'stopped all' when stopAll successfully stops instances", async () => {
+      vi.mocked(stopModel).mockResolvedValueOnce({
+        stopped: true,
+        stoppedAll: true
+      })
+
+      await cmdStop("all")
+      const output = logCalls.join("\n")
+      expect(output).toContain("stopped all")
+    })
   })
 
   describe("cmdRestart", () => {
@@ -293,6 +311,61 @@ describe("model-commands", () => {
 
       await cmdRestart("qwen2-5-7b", { yes: true })
       expect(restartModel).toHaveBeenCalledWith("qwen2-5-7b", { confirm: true })
+    })
+
+    it("cancels restart when warned and user declines prompt", async () => {
+      vi.mocked(restartModel).mockResolvedValueOnce({
+        entry: makeModel(),
+        warned: true,
+        preflight: {
+          currentUsedGiB: 28.5,
+          machineTotalGiB: 32,
+          estimatedFootprintGiB: 10,
+          projectedUsedGiB: 38.5,
+          shouldStrongWarn: true,
+          freeGiB: 3.5
+        } as any
+      })
+
+      // In non-TTY test runner, promptYesNo returns default (false)
+      await cmdRestart("qwen2-5-7b")
+      const output = logCalls.join("\n")
+      expect(output).toContain("restart cancelled")
+    })
+
+    it("proceeds with restart when warned and user confirms prompt in TTY", async () => {
+      vi.mocked(restartModel)
+        .mockResolvedValueOnce({
+          entry: makeModel(),
+          warned: true,
+          preflight: {
+            currentUsedGiB: 24,
+            machineTotalGiB: 32,
+            estimatedFootprintGiB: 5,
+            projectedUsedGiB: 29,
+            shouldStrongWarn: false,
+            freeGiB: 8
+          } as any
+        })
+        .mockResolvedValueOnce({
+          entry: makeModel(),
+          instance: makeInstance({ pid: 9999 }),
+          warned: false
+        })
+
+      const origInTTY = process.stdin.isTTY
+      const origOutTTY = process.stdout.isTTY
+      process.stdin.isTTY = true
+      process.stdout.isTTY = true
+      try {
+        await cmdRestart("qwen2-5-7b")
+        const output = logCalls.join("\n")
+        expect(output).toContain("restarted qwen2-5-7b")
+        expect(output).toContain("pid=9999")
+      } finally {
+        process.stdin.isTTY = origInTTY
+        process.stdout.isTTY = origOutTTY
+      }
     })
   })
 
@@ -421,6 +494,24 @@ describe("model-commands", () => {
       cmdShow("qwen2-5-7b")
       const output = logCalls.join("\n")
       expect(output).toContain("formula active")
+    })
+
+    it("displays validation warnings for llama.cpp entry with invalid speculative configuration", () => {
+      vi.mocked(getModel).mockReturnValueOnce(makeModel({
+        runtime: "llama.cpp",
+        formula: {
+          runtime: "llama.cpp",
+          llama: {
+            specDraftNMax: 5
+          }
+        }
+      }))
+      vi.mocked(supervisor.list).mockReturnValueOnce([])
+
+      cmdShow("qwen2-5-7b")
+      const output = logCalls.join("\n")
+      expect(output).toContain("validation warnings:")
+      expect(output).toContain("spec-draft parameters are configured")
     })
   })
 

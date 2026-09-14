@@ -118,4 +118,53 @@ describe("pull registry materialization", () => {
 
     expect(pulled.entry.path).toBe("/cache/mlx/revision-snap")
   })
+
+  it("throws error when runtime cannot be inferred", async () => {
+    vi.doMock("./api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({ id: "unknown/Repo" })),
+      inferRuntimeFromRepo: vi.fn(() => null),
+      listGgufFiles: vi.fn()
+    }))
+
+    const mod = await import("./hf.js")
+    await expect(mod.pull({ repo: "unknown/Repo" }))
+      .rejects.toThrow(/Could not infer runtime for unknown\/Repo/)
+  })
+
+  it("auto-picks single GGUF file when --file is omitted", async () => {
+    vi.doMock("./api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({ id: "author/Llama-GGUF" })),
+      inferRuntimeFromRepo: vi.fn(() => "llama.cpp" as const),
+      listGgufFiles: vi.fn(() => [{ rfilename: "single-model.gguf" }])
+    }))
+    const runHfDownload = vi.fn(async () => "/cache/llama/single-model.gguf")
+    vi.doMock("./download.js", () => ({
+      runHfDownload,
+      resolveMlxSnapshot: vi.fn()
+    }))
+
+    const mod = await import("./hf.js")
+    const pulled = await mod.pull({ repo: "author/Llama-GGUF" })
+
+    expect(pulled.entry.runtime).toBe("llama.cpp")
+    expect(runHfDownload).toHaveBeenCalledWith(expect.objectContaining({
+      file: "single-model.gguf"
+    }))
+  })
+
+  it("throws error listing available files when multiple GGUFs exist and --file is omitted", async () => {
+    vi.doMock("./api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({ id: "author/Multi-GGUF" })),
+      inferRuntimeFromRepo: vi.fn(() => "llama.cpp" as const),
+      listGgufFiles: vi.fn(() => [
+        { rfilename: "model-q4.gguf" },
+        { rfilename: "model-q8.gguf" }
+      ])
+    }))
+
+    const mod = await import("./hf.js")
+    await expect(mod.pull({ repo: "author/Multi-GGUF" }))
+      .rejects.toThrow(/Multiple GGUF files in author\/Multi-GGUF; specify --file <name\.gguf>\. Available: model-q4\.gguf, model-q8\.gguf/)
+  })
 })
+

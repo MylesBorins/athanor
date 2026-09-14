@@ -109,4 +109,31 @@ describe("MlxAdapter", () => {
     expect(args).toContain("--draft-model")
     expect(args[args.indexOf("--draft-model") + 1]).toBe("mlx-community/Qwen2.5-0.5B-Instruct-4bit")
   })
+
+  it("emits sampling flags and --prompt-cache-bytes when non-default", () => {
+    const entry = mlxEntry({ port: 8090 })
+    const config: MlxConfig = {
+      ...mlx,
+      temp: 0.7,
+      topP: 0.9,
+      topK: 40,
+      minP: 0.05,
+      promptConcurrency: 4,
+      promptCacheBytes: 1048576
+    }
+    const { args } = adapter.buildCommand(entry, config)
+    expect(args).toContain("--temp")
+    expect(args[args.indexOf("--temp") + 1]).toBe("0.7")
+    expect(args).toContain("--top-p")
+    expect(args[args.indexOf("--top-p") + 1]).toBe("0.9")
+    expect(args).toContain("--top-k")
+    expect(args[args.indexOf("--top-k") + 1]).toBe("40")
+    expect(args).toContain("--min-p")
+    expect(args[args.indexOf("--min-p") + 1]).toBe("0.05")
+    expect(args).toContain("--prompt-concurrency")
+    expect(args[args.indexOf("--prompt-concurrency") + 1]).toBe("4")
+    expect(args).toContain("--prompt-cache-bytes")
+    expect(args[args.indexOf("--prompt-cache-bytes") + 1]).toBe("1048576")
+  })
 })
+
