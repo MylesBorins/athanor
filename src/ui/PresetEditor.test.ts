@@ -1,4 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
+import { PassThrough } from "node:stream"
 import React from "react"
 import * as ink from "ink"
 
@@ -10,6 +11,15 @@ vi.mock("ink", async () => {
     useInput: (handler: any, opts: any) => {
       useInputMock(handler, opts)
     }
+  }
+})
+
+const copyToClipboardMock = vi.fn().mockReturnValue(true)
+vi.mock("./clipboard.js", async () => {
+  const actual = await vi.importActual<typeof import("./clipboard.js")>("./clipboard.js")
+  return {
+    ...actual,
+    copyToClipboard: (...args: any[]) => copyToClipboardMock(...args)
   }
 })
 
@@ -25,29 +35,39 @@ import {
   cycleFloat,
   CYCLABLE_KEYS
 } from "./PresetEditor.js"
+import { upsertModel } from "../registry/index.js"
+import type { ModelEntry } from "../types/index.js"
+import { supervisor } from "../supervisor/index.js"
+import { saveUserFormula } from "../presets/recipes.js"
+import * as editPresets from "../presets/edit.js"
+
+function getHandler(): (input: string, key: any) => void {
+  const calls = useInputMock.mock.calls
+  return calls[calls.length - 1][0]
+}
 
 describe("PresetEditor getNextStandardCtx", () => {
   it("cycles to next larger standard value when going right", () => {
     expect(getNextStandardCtx("4096", "right")).toBe(8192)
     expect(getNextStandardCtx("2048", "right")).toBe(4096)
     expect(getNextStandardCtx("32768", "right")).toBe(65536)
-    expect(getNextStandardCtx("65536", "right")).toBe(98304) // 96k
-    expect(getNextStandardCtx("98304", "right")).toBe(131072) // 128k
-    expect(getNextStandardCtx("524288", "right")).toBe(524288) // clamp at maximum 512k
+    expect(getNextStandardCtx("65536", "right")).toBe(98304)
+    expect(getNextStandardCtx("98304", "right")).toBe(131072)
+    expect(getNextStandardCtx("524288", "right")).toBe(524288)
   })
 
   it("cycles to next smaller standard value when going left", () => {
     expect(getNextStandardCtx("4096", "left")).toBe(2048)
     expect(getNextStandardCtx("8192", "left")).toBe(4096)
-    expect(getNextStandardCtx("98304", "left")).toBe(65536) // 96k -> 64k
-    expect(getNextStandardCtx("2048", "left")).toBe(2048) // clamp at minimum
+    expect(getNextStandardCtx("98304", "left")).toBe(65536)
+    expect(getNextStandardCtx("2048", "left")).toBe(2048)
   })
 
   it("moves to closest larger standard value when current is non-standard going right", () => {
     expect(getNextStandardCtx("3000", "right")).toBe(4096)
     expect(getNextStandardCtx("5000", "right")).toBe(8192)
-    expect(getNextStandardCtx("150000", "right")).toBe(163840) // 150k -> 160k
-    expect(getNextStandardCtx("600000", "right")).toBe(524288) // too large -> 512k
+    expect(getNextStandardCtx("150000", "right")).toBe(163840)
+    expect(getNextStandardCtx("600000", "right")).toBe(524288)
   })
 
   it("moves to closest smaller standard value when current is non-standard going left", () => {
@@ -69,6 +89,7 @@ describe("PresetEditor getNextSlotSize", () => {
     expect(getNextSlotSize("64", "right")).toBe(64)
     expect(getNextSlotSize("1", "left")).toBe(1)
     expect(getNextSlotSize("5", "right")).toBe(8)
+    expect(getNextSlotSize("5", "left")).toBe(4)
     expect(getNextSlotSize("invalid", "right")).toBe(1)
   })
 })
@@ -80,6 +101,7 @@ describe("PresetEditor getNextGpuLayer", () => {
     expect(getNextGpuLayer("999", "right")).toBe(999)
     expect(getNextGpuLayer("0", "left")).toBe(0)
     expect(getNextGpuLayer("40", "right")).toBe(48)
+    expect(getNextGpuLayer("40", "left")).toBe(32)
     expect(getNextGpuLayer("invalid", "right")).toBe(0)
   })
 })
@@ -101,6 +123,8 @@ describe("PresetEditor getNextRepeatLastN", () => {
     expect(getNextRepeatLastN("0", "left")).toBe(-1)
     expect(getNextRepeatLastN("-1", "left")).toBe(-1)
     expect(getNextRepeatLastN("4096", "right")).toBe(4096)
+    expect(getNextRepeatLastN("50", "left")).toBe(32)
+    expect(getNextRepeatLastN("50", "right")).toBe(64)
     expect(getNextRepeatLastN("invalid", "right")).toBe(64)
   })
 })
@@ -111,6 +135,8 @@ describe("PresetEditor cycleFloat", () => {
     expect(cycleFloat("0.7", "left", 0.1, 0.0, 2.0, 0.0)).toBe(0.6)
     expect(cycleFloat("2.0", "right", 0.1, 0.0, 2.0, 0.0)).toBe(2.0)
     expect(cycleFloat("0.0", "left", 0.1, 0.0, 2.0, 0.0)).toBe(0.0)
+    expect(cycleFloat("0.05", "left", 0.1, 0.0, 2.0, 0.0)).toBe(0.0)
+    expect(cycleFloat("1.95", "right", 0.1, 0.0, 2.0, 0.0)).toBe(2.0)
     expect(cycleFloat("0.95", "right", 0.05, 0.0, 1.0, 1.0)).toBe(1.0)
     expect(cycleFloat("0.95", "left", 0.05, 0.0, 1.0, 1.0)).toBe(0.9)
     expect(cycleFloat("invalid", "right", 0.1, 0.0, 2.0, 1.0)).toBe(1.0)
@@ -134,6 +160,7 @@ describe("PresetEditor getNextFlashAttn", () => {
     expect(getNextFlashAttn("on", "right")).toBe("off")
     expect(getNextFlashAttn("off", "left")).toBe("on")
     expect(getNextFlashAttn("auto", "left")).toBe("auto")
+    expect(getNextFlashAttn("off", "right")).toBe("off")
     expect(getNextFlashAttn("invalid", "right")).toBe("auto")
   })
 })
@@ -144,6 +171,7 @@ describe("PresetEditor getNextSpeculativeMode", () => {
     expect(getNextSpeculativeMode("enabled", "right")).toBe("disabled")
     expect(getNextSpeculativeMode("disabled", "left")).toBe("enabled")
     expect(getNextSpeculativeMode("auto", "left")).toBe("auto")
+    expect(getNextSpeculativeMode("disabled", "right")).toBe("disabled")
     expect(getNextSpeculativeMode("invalid", "right")).toBe("auto")
   })
 })
@@ -167,17 +195,20 @@ describe("CYCLABLE_KEYS", () => {
   })
 })
 
-import { upsertModel } from "../registry/index.js"
-import type { ModelEntry } from "../types/index.js"
-
 describe("PresetEditor component rendering and keyboard interaction", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    copyToClipboardMock.mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it("handles model not found state gracefully", async () => {
     const { PresetEditor } = await import("./PresetEditor.js")
     const onClose = vi.fn()
+    const stream = new PassThrough()
 
     const output = ink.renderToString(
       React.createElement(PresetEditor, {
@@ -185,22 +216,31 @@ describe("PresetEditor component rendering and keyboard interaction", () => {
         onClose
       })
     )
-
     expect(output).toContain("model not found")
-    expect(useInputMock).toHaveBeenCalled()
-    const capturedHandler = useInputMock.mock.calls[0][0]
 
-    capturedHandler("", { escape: true })
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "nonexistent/Model",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
+
+    expect(useInputMock).toHaveBeenCalled()
+
+    getHandler()("", { escape: true })
     expect(onClose).toHaveBeenCalledWith("")
+    app.unmount()
   })
 
-  it("renders MLX model, edits contextWindow, cycles knobs, saves recipe, copies, and clears", async () => {
+  it("supports MLX Simple Mode navigation, compound knobs, and edit buffer", async () => {
     const testMlxModel: ModelEntry = {
-      id: "mlx-community/Qwen2.5",
-      slug: "qwen2-5",
-      path: "/fake/path/qwen",
+      id: "mlx-community/Qwen2.5-7B",
+      slug: "qwen2-5-7b",
+      path: "/fake/path/qwen-simple",
       runtime: "mlx",
-      source: { type: "hf", repo: "mlx-community/Qwen2.5" },
+      source: { type: "hf", repo: "mlx-community/Qwen2.5-7B" },
       port: 18080,
       publish: true,
       addedAt: Date.now(),
@@ -211,102 +251,343 @@ describe("PresetEditor component rendering and keyboard interaction", () => {
 
     const { PresetEditor } = await import("./PresetEditor.js")
     const onClose = vi.fn()
+    const stream = new PassThrough()
 
     const output = ink.renderToString(
       React.createElement(PresetEditor, {
-        entryId: "mlx-community/Qwen2.5",
+        entryId: "mlx-community/Qwen2.5-7B",
         onClose
       })
     )
-
     expect(output).toContain("Formula editor [SIMPLE]")
-    expect(output).toContain("qwen2-5")
+    expect(output).toContain("qwen2-5-7b")
     expect(output).toContain("vision tower detected")
-    expect(useInputMock).toHaveBeenCalled()
-    const capturedHandler = useInputMock.mock.calls[0][0]
 
-    // Cycle compound knob in simple mode
-    capturedHandler("", { rightArrow: true })
-    capturedHandler("", { leftArrow: true })
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/Qwen2.5-7B",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
 
-    // Open edit buffer on contextWindow (cursor is 0)
-    capturedHandler("", { return: true })
-    // Cycle standard context left and right
-    capturedHandler("", { leftArrow: true })
-    capturedHandler("", { rightArrow: true })
-    // Type in edit buffer
-    capturedHandler("0", {})
-    capturedHandler("", { backspace: true })
-    // Cancel edit
-    capturedHandler("", { escape: true })
+    // Cursor 0: Context Window
+    getHandler()("", { rightArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { leftArrow: true })
+    await new Promise(r => setTimeout(r, 20))
 
-    // Open edit buffer again and commit
-    capturedHandler("", { return: true })
-    capturedHandler("", { rightArrow: true })
-    capturedHandler("", { return: true })
+    // Open edit buffer on contextWindow with return
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+    // In edit buffer: left and right cycle standard context
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    // Type numeric characters
+    getHandler()("8", {})
+    getHandler()("1", {})
+    // Non-numeric ignored for numeric field
+    getHandler()("z", {})
+    // Backspace
+    getHandler()("", { backspace: true })
+    // Cancel with escape
+    getHandler()("", { escape: true })
+    await new Promise(r => setTimeout(r, 20))
 
-    // Unset kvCache in simple mode
-    capturedHandler("", { downArrow: true })
-    capturedHandler("u", {})
+    // Open edit buffer again and commit with return
+    getHandler()("", { return: true })
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
 
-    // Toggle MLX flavor with 'v'
-    capturedHandler("v", {})
+    // Cursor 1: KV Cache
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    // 'u' resets KV cache
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
 
-    // Copy to clipboard
-    capturedHandler("y", {})
+    // Cursor 2: Speculative decoding
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    // 'u' resets speculative decoding
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
 
-    // Save recipe dialog
-    capturedHandler("s", {})
-    // Cycle formula names in save dialog
-    capturedHandler("", { downArrow: true })
-    capturedHandler("", { upArrow: true })
-    // Type name
-    capturedHandler("a", {})
-    capturedHandler("", { backspace: true })
-    // Commit save
-    capturedHandler("", { return: true })
+    // Cursor 3: Sampling mode
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    // 'u' on sampling mode does nothing
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
 
-    // Open save dialog and cancel with Escape
-    capturedHandler("s", {})
-    capturedHandler("", { escape: true })
+    // Down arrow past items clamps
+    getHandler()("", { downArrow: true })
+    getHandler()("", { downArrow: true })
 
-    // Switch to Advanced mode with Tab
-    capturedHandler("", { tab: true })
-    // Navigate in advanced mode
-    capturedHandler("", { downArrow: true })
-    capturedHandler("", { upArrow: true })
-    // Open edit buffer on advanced row
-    capturedHandler("", { return: true })
-    capturedHandler("", { rightArrow: true })
-    capturedHandler("", { leftArrow: true })
-    capturedHandler("", { return: true })
-    // Unset key in advanced mode with 'u'
-    capturedHandler("u", {})
+    // Up arrow navigates back to 0 and clamps at 0
+    getHandler()("", { upArrow: true })
+    getHandler()("", { upArrow: true })
+    getHandler()("", { upArrow: true })
+    getHandler()("", { upArrow: true })
 
-    // Clear confirmation with 'c'
-    capturedHandler("c", {})
-    // Reset confirmation by pressing an arrow key
-    capturedHandler("", { downArrow: true })
-    // Two-tap confirm clear
-    capturedHandler("c", {})
-    capturedHandler("c", {})
-
-    // Delete formula
-    capturedHandler("d", {})
-
-    // Close editor with escape
-    capturedHandler("", { escape: true })
-    expect(onClose).toHaveBeenCalled()
+    app.unmount()
   })
 
-  it("renders llama.cpp model and exercises llama-specific compound and advanced knobs", async () => {
+  it("handles formula save dialog, autocomplete, badge rendering, and cancellation", async () => {
+    const testMlxModel: ModelEntry = {
+      id: "mlx-community/Qwen2.5-Save",
+      slug: "qwen-save",
+      path: "/fake/path/qwen-save",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/Qwen2.5-Save" },
+      port: 18082,
+      publish: true,
+      addedAt: Date.now()
+    }
+    upsertModel(testMlxModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+    const stream = new PassThrough()
+
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/Qwen2.5-Save",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
+
+    // Open save formula dialog with 's'
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Cycle names up and down
+    getHandler()("", { downArrow: true })
+    getHandler()("", { upArrow: true })
+
+    // Tab autocomplete
+    getHandler()("", { backspace: true })
+    getHandler()("c", {})
+    getHandler()("o", {})
+    getHandler()("", { tab: true })
+
+    // Clear buffer to test empty name validation
+    for (let i = 0; i < 30; i++) {
+      getHandler()("", { backspace: true })
+    }
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Type a new formula name
+    getHandler()("t", {})
+    getHandler()("e", {})
+    getHandler()("s", {})
+    getHandler()("t", {})
+    getHandler()("-", {})
+    getHandler()("f", {})
+
+    // Commit save
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Open dialog again and cancel with escape
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { escape: true })
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("exercises flavor toggle, clipboard copying, two-tap clear, custom formula deletion, and hotkeys", async () => {
+    const testMlxModel: ModelEntry = {
+      id: "mlx-community/Qwen2.5-Actions",
+      slug: "qwen-actions",
+      path: "/fake/path/qwen-actions",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/Qwen2.5-Actions" },
+      port: 18083,
+      publish: true,
+      addedAt: Date.now(),
+      mlxFlavor: "lm",
+      mlxCapabilities: []
+    }
+    upsertModel(testMlxModel)
+
+    // Spy on supervisor to simulate model running
+    vi.spyOn(supervisor, "list").mockReturnValue([
+      {
+        id: "mlx-community/Qwen2.5-Actions",
+        pid: 9999,
+        port: 18083,
+        entry: testMlxModel,
+        status: "running"
+      } as any
+    ])
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+    const stream = new PassThrough()
+
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/Qwen2.5-Actions",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
+
+    // Toggle MLX flavor with 'v' when model has no vision tower and is running
+    getHandler()("v", {})
+    await new Promise(r => setTimeout(r, 20))
+    // Toggle back to 'lm'
+    getHandler()("v", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Clipboard copy with 'y' (success)
+    copyToClipboardMock.mockReturnValue(true)
+    getHandler()("y", {})
+    expect(copyToClipboardMock).toHaveBeenCalled()
+
+    // Clipboard copy with 'y' (failure)
+    copyToClipboardMock.mockReturnValue(false)
+    getHandler()("y", {})
+
+    // Number hotkeys 1-7
+    getHandler()("1", {})
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("2", {})
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("9", {})
+
+    // Clear formula: single 'c' triggers confirm notice
+    getHandler()("c", {})
+    await new Promise(r => setTimeout(r, 20))
+    // Reset confirm notice with arrow key
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    // Clear formula: double 'c' confirms clear
+    getHandler()("c", {})
+    getHandler()("c", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Delete formula with 'd' when no user formula exists
+    getHandler()("d", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Create user formula and delete it with 'd'
+    saveUserFormula({
+      name: "delete-me",
+      description: "temporary",
+      source: "user"
+    })
+    getHandler()("d", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Close with escape
+    getHandler()("", { escape: true })
+    expect(onClose).toHaveBeenCalled()
+
+    app.unmount()
+  })
+
+  it("exercises Advanced Mode scrolling, category headers, cyclable keys, and unsetting", async () => {
+    const testMlxModel: ModelEntry = {
+      id: "mlx-community/Qwen2.5-Advanced",
+      slug: "qwen-advanced",
+      path: "/fake/path/qwen-advanced",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/Qwen2.5-Advanced" },
+      port: 18084,
+      publish: true,
+      addedAt: Date.now()
+    }
+    upsertModel(testMlxModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+    const stream = new PassThrough()
+
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/Qwen2.5-Advanced",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
+
+    // Switch to Advanced mode with Tab
+    getHandler()("", { tab: true })
+    await new Promise(r => setTimeout(r, 40))
+
+    // Scroll down past MAX_VISIBLE_KEYS (8 items) to exercise windowing and indicators
+    for (let i = 0; i < 10; i++) {
+      getHandler()("", { downArrow: true })
+    }
+    await new Promise(r => setTimeout(r, 40))
+
+    // Scroll back up
+    for (let i = 0; i < 10; i++) {
+      getHandler()("", { upArrow: true })
+    }
+    await new Promise(r => setTimeout(r, 20))
+
+    // Open edit buffer on first key with return
+    getHandler()("", { return: true })
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Unset key in advanced mode with 'u'
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Test edit error handling when setFormulaFields throws
+    vi.spyOn(editPresets, "setFormulaFields").mockImplementationOnce(() => {
+      throw new Error("simulated set error")
+    })
+    getHandler()("", { return: true })
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Test unset error handling when unsetFormulaFields throws
+    vi.spyOn(editPresets, "unsetFormulaFields").mockImplementationOnce(() => {
+      throw new Error("simulated unset error")
+    })
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Switch back to simple mode with Tab
+    getHandler()("", { tab: true })
+    await new Promise(r => setTimeout(r, 40))
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("exercises llama-specific compound and advanced cyclable knobs", async () => {
     const testLlamaModel: ModelEntry = {
       id: "unsloth/Qwen3-GGUF:model.gguf",
       slug: "qwen3-gguf",
-      path: "/fake/path/model.gguf",
+      path: "/fake/path/qwen-llama.gguf",
       runtime: "llama.cpp",
       source: { type: "hf", repo: "unsloth/Qwen3-GGUF", file: "model.gguf" },
-      port: 18081,
+      port: 18085,
       publish: true,
       addedAt: Date.now(),
       reasoningEffort: { enum: ["low", "medium", "high"], templateDefault: "medium", athanorDefault: "medium" }
@@ -315,39 +596,180 @@ describe("PresetEditor component rendering and keyboard interaction", () => {
 
     const { PresetEditor } = await import("./PresetEditor.js")
     const onClose = vi.fn()
+    const stream = new PassThrough()
 
-    const output = ink.renderToString(
+    const app = ink.render(
       React.createElement(PresetEditor, {
         entryId: "unsloth/Qwen3-GGUF:model.gguf",
         onClose
-      })
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
     )
+    await new Promise(r => setTimeout(r, 40))
 
-    expect(output).toContain("Formula editor [SIMPLE]")
-    expect(output).toContain("qwen3-gguf")
-    const capturedHandler = useInputMock.mock.calls[0][0]
+    // Simple mode: cycle context
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
 
-    // Simple mode: navigate down to gpuOffload knob and open edit buffer
-    capturedHandler("", { downArrow: true })
-    capturedHandler("", { return: true })
-    capturedHandler("", { rightArrow: true })
-    capturedHandler("", { leftArrow: true })
-    capturedHandler("", { return: true })
+    // Open edit buffer on ctxSize for llama
+    getHandler()("", { return: true })
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
 
-    // Unset kvCache for llama (cacheTypeK, cacheTypeV)
-    capturedHandler("", { downArrow: true })
-    capturedHandler("u", {})
+    // Down to gpuOffload knob
+    getHandler()("", { downArrow: true })
+    // Return on gpuOffload opens edit buffer on nGpuLayers
+    getHandler()("", { return: true })
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
 
-    // Tab to Advanced mode
-    capturedHandler("", { tab: true })
-    capturedHandler("", { downArrow: true })
-    capturedHandler("", { return: true })
-    capturedHandler("", { rightArrow: true })
-    capturedHandler("", { return: true })
+    // Down to kvCache knob -> unset with 'u' (unsets cacheTypeK, cacheTypeV)
+    getHandler()("", { downArrow: true })
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
 
-    capturedHandler("", { escape: true })
-    expect(onClose).toHaveBeenCalled()
+    // Down to speculative knob -> unset with 'u' (unsets speculativeMode, specType, specDraftNgl, specDraftModel)
+    getHandler()("", { downArrow: true })
+    getHandler()("u", {})
+    await new Promise(r => setTimeout(r, 20))
+
+    // Down to reasoningEffort compound knob -> cycle options
+    getHandler()("", { downArrow: true })
+    getHandler()("", { rightArrow: true })
+    getHandler()("", { leftArrow: true })
+
+    // Switch to Advanced Mode
+    getHandler()("", { tab: true })
+    await new Promise(r => setTimeout(r, 40))
+
+    // In advanced mode, navigate and test editing various cyclable keys
+    const allLlamaKeys = editPresets.listKeys("llama.cpp")
+
+    const testKeyCycle = async (jsonName: string) => {
+      const idx = allLlamaKeys.findIndex(k => k.jsonName === jsonName)
+      if (idx >= 0) {
+        for (let i = 0; i < allLlamaKeys.length; i++) getHandler()("", { upArrow: true })
+        for (let i = 0; i < idx; i++) getHandler()("", { downArrow: true })
+        getHandler()("", { return: true })
+        getHandler()("", { rightArrow: true })
+        getHandler()("", { leftArrow: true })
+        getHandler()("", { return: true })
+        await new Promise(r => setTimeout(r, 10))
+      }
+    }
+
+    await testKeyCycle("temp")
+    await testKeyCycle("topP")
+    await testKeyCycle("topK")
+    await testKeyCycle("minP")
+    await testKeyCycle("parallel")
+    await testKeyCycle("nGpuLayers")
+    await testKeyCycle("specType")
+    await testKeyCycle("repeatPenalty")
+    await testKeyCycle("presencePenalty")
+    await testKeyCycle("frequencyPenalty")
+    await testKeyCycle("repeatLastN")
+    await testKeyCycle("cacheTypeK")
+    await testKeyCycle("flashAttn")
+    await testKeyCycle("speculativeMode")
+    await testKeyCycle("reasoningEffort")
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("exercises kvBits cycling in edit buffer for MLX", async () => {
+    const testKvModel: ModelEntry = {
+      id: "mlx-community/KvTest",
+      slug: "kv-test",
+      path: "/fake/path/qwen-kv",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/KvTest" },
+      port: 18087,
+      publish: true,
+      addedAt: Date.now()
+    }
+    upsertModel(testKvModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+    const stream = new PassThrough()
+
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/KvTest",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 40))
+
+    // Switch to advanced mode
+    getHandler()("", { tab: true })
+    await new Promise(r => setTimeout(r, 40))
+
+    const allKeys = editPresets.listKeys("mlx")
+    const kvIdx = allKeys.findIndex(k => k.jsonName === "kvBits")
+    if (kvIdx >= 0) {
+      for (let i = 0; i < kvIdx; i++) getHandler()("", { downArrow: true })
+      getHandler()("", { return: true })
+      getHandler()("", { rightArrow: true })
+      getHandler()("", { leftArrow: true })
+      getHandler()("5", {})
+      getHandler()("", { leftArrow: true })
+      getHandler()("", { rightArrow: true })
+      getHandler()("", { return: true })
+    }
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("resets clear confirmation after timer expires", async () => {
+    vi.useFakeTimers()
+
+    const testModel: ModelEntry = {
+      id: "mlx-community/TimerModel",
+      slug: "timer-model",
+      path: "/fake/path/qwen-timer",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/TimerModel" },
+      port: 18088,
+      publish: true,
+      addedAt: Date.now()
+    }
+    upsertModel(testModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+    const stream = new PassThrough()
+
+    const app = ink.render(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/TimerModel",
+        onClose
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await vi.advanceTimersByTimeAsync(40)
+
+    // Press 'c' to initiate confirmation
+    getHandler()("c", {})
+
+    // Advance timers by 3500ms
+    await vi.advanceTimersByTimeAsync(3500)
+
+    // Press 'c' again - this should NOT confirm clear, but start confirmation again
+    getHandler()("c", {})
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    app.unmount()
+    vi.useRealTimers()
   })
 })
-
-

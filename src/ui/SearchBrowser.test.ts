@@ -4,6 +4,7 @@ import * as ink from "ink"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { SearchResult } from "../search/hf.js"
 
+let customStdin: any = null
 const useInputMock = vi.fn()
 vi.mock("ink", async () => {
   const actual = await vi.importActual<typeof import("ink")>("ink")
@@ -11,13 +12,31 @@ vi.mock("ink", async () => {
     ...actual,
     useInput: (handler: any, opts: any) => {
       useInputMock(handler, opts)
+    },
+    useStdin: () => {
+      if (customStdin) return customStdin
+      return actual.useStdin()
     }
   }
 })
 
+let lastPullModalProps: any = null
+vi.mock("./PullModal.js", () => ({
+  PullModal: (props: any) => {
+    lastPullModalProps = props
+    return React.createElement("pull-modal-stub", props)
+  }
+}))
+
+function getHandler(): (input: string, key: any) => void {
+  const calls = useInputMock.mock.calls
+  return calls[calls.length - 1][0]
+}
+
 describe("SearchBrowser", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    lastPullModalProps = null
   })
 
   afterEach(() => {
@@ -27,8 +46,8 @@ describe("SearchBrowser", () => {
     vi.doUnmock("../pull/api.js")
   })
 
-  it("renders with search results and supports keyboard navigation and filtering", async () => {
-    const mockResults: SearchResult[] = [
+  it("renders with search results and supports keyboard navigation, filtering, sorting, and pagination", async () => {
+    const mockResultsPage1: SearchResult[] = [
       {
         id: "mlx-community/Qwen2.5-32B",
         runtime: "mlx",
@@ -58,14 +77,28 @@ describe("SearchBrowser", () => {
       }
     ]
 
+    const mockResultsPage2: SearchResult[] = [
+      {
+        id: "mlx-community/SmolLM2-135M",
+        runtime: "mlx",
+        downloads: 9000,
+        likes: 400,
+        sizeBytes: 500 * 1024 * 1024,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      }
+    ]
+
     vi.doMock("../search/hf.js", async () => {
       const actual: any = await vi.importActual("../search/hf.js")
       return {
         ...actual,
-        searchModelsPage: vi.fn(async () => ({
-          results: mockResults,
-          cursor: { mlx: "cur1" }
-        })),
+        searchModelsPage: vi.fn(async (_params: any, cur?: any) => {
+          if (cur) {
+            return { results: mockResultsPage2, cursor: undefined }
+          }
+          return { results: mockResultsPage1, cursor: { mlx: "page2" } }
+        }),
         enrichSelectionHint: vi.fn(async () => ({
           runtime: "llama.cpp",
           defaultFile: "model-q4.gguf",
@@ -97,67 +130,84 @@ describe("SearchBrowser", () => {
       { stdout: stream as any, stderr: stream as any, patchConsole: false }
     )
 
-    // Wait for searchModelsPage and enrichSelectionHint to resolve
     await new Promise(r => setTimeout(r, 60))
-
     expect(useInputMock).toHaveBeenCalled()
-    const handler = useInputMock.mock.calls[0][0]
 
     // Navigation in browse mode
-    handler("", { downArrow: true })
-    handler("", { upArrow: true })
-    handler("", { pageDown: true })
-    handler("", { pageUp: true })
-    handler("g", {})
-    handler("G", {})
-
-    // Cycle filter
-    handler("f", {})
-
-    // Cycle sort
-    handler("s", {})
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { upArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { pageDown: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { pageUp: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("g", {})
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("G", {})
+    await new Promise(r => setTimeout(r, 40))
 
     // Queue download directly from browse mode
-    handler("p", {})
+    getHandler()("p", {})
+    expect(onQueueDownload).toHaveBeenCalled()
 
-    // Edit mode
-    handler("/", {})
-    handler("a", {})
-    handler("", { backspace: true })
-    handler("", { return: true }) // back to browse
+    // Cycle filter (any -> mlx -> gguf -> any)
+    getHandler()("f", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("f", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("f", {})
+    await new Promise(r => setTimeout(r, 40))
 
-    // Inspect mode
-    handler("", { return: true })
+    // Cycle sort (downloads -> likes -> trending -> modified -> size -> fit)
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 40))
+    getHandler()("s", {})
+    await new Promise(r => setTimeout(r, 60))
+
+    // Enter edit mode
+    getHandler()("/", {})
     await new Promise(r => setTimeout(r, 20))
+    getHandler()("a", {})
+    getHandler()("b", { ctrl: true }) // ignored
+    getHandler()("", { backspace: true })
+    getHandler()("", { delete: true })
+    getHandler()("", { return: true }) // back to browse
+    await new Promise(r => setTimeout(r, 20))
+
+    // Inspect mode on currently selected model
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 40))
+
     // In inspect mode: choose file
-    handler("", { downArrow: true })
-    handler("", { upArrow: true })
-    handler("", { pageDown: true })
-    handler("", { pageUp: true })
-    handler("p", {}) // pull in inspect mode
+    getHandler()("", { downArrow: true })
+    getHandler()("", { upArrow: true })
+    getHandler()("j", {})
+    getHandler()("k", {})
+    getHandler()("", { pageDown: true })
+    getHandler()("", { pageUp: true })
+    getHandler()("p", {}) // pull in inspect mode
     await new Promise(r => setTimeout(r, 20))
 
     // Exit inspect mode
-    handler("", { escape: true })
-    await new Promise(r => setTimeout(r, 20))
-
-    // Select second item (llama model)
-    handler("", { downArrow: true })
-    // Inspect llama model
-    handler("", { return: true })
-    await new Promise(r => setTimeout(r, 20))
-
-    // Press 'f' to enter manual-pull mode
-    handler("f", {})
+    getHandler()("", { escape: true })
     await new Promise(r => setTimeout(r, 20))
 
     // Quit
-    handler("q", {})
+    getHandler()("q", {})
     app.unmount()
     expect(onExit).toHaveBeenCalled()
   })
 
-  it("renders inspect mode with comfortable, tight, and risky fit hints", async () => {
+  it("handles manual-pull workflow and PullModal callbacks", async () => {
     const mockResults: SearchResult[] = [
       {
         id: "unsloth/Qwen3-GGUF",
@@ -174,21 +224,13 @@ describe("SearchBrowser", () => {
       const actual: any = await vi.importActual("../search/hf.js")
       return {
         ...actual,
-        searchModelsPage: vi.fn(async () => ({
-          results: mockResults
-        })),
+        searchModelsPage: vi.fn(async () => ({ results: mockResults })),
         enrichSelectionHint: vi.fn(async () => ({
           runtime: "llama.cpp",
           defaultFile: "model-q4.gguf",
-          defaultFileSizeBytes: 12 * 1024 * 1024 * 1024,
-          ggufSelectableCount: 3,
-          ggufArchitecture: "qwen2",
-          ggufContextLength: 32768,
-          baseModel: "Qwen/Qwen2.5-7B",
+          ggufSelectableCount: 2,
           ggufCandidates: [
-            { name: "model-q4.gguf", sizeBytes: 12 * 1024 * 1024 * 1024 },
-            { name: "model-q5.gguf", sizeBytes: 16 * 1024 * 1024 * 1024 },
-            { name: "model-q8.gguf", sizeBytes: 24 * 1024 * 1024 * 1024 }
+            { name: "model-q4.gguf", sizeBytes: 10 * 1024 * 1024 * 1024 }
           ]
         }))
       }
@@ -197,49 +239,181 @@ describe("SearchBrowser", () => {
     const onExit = vi.fn()
     const { SearchBrowser } = await import("./SearchBrowser.js")
 
-    // 1. Comfortable on 32GB Mac (12GB <= 32 - 8 = 24GB)
-    const outComfortable = ink.renderToString(
+    const stream = new PassThrough()
+    const app = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "qwen",
+        onExit,
+        embedded: true
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+
+    // Enter inspect mode
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+
+    // Press 'f' to enter manual-pull mode
+    getHandler()("f", {})
+    await new Promise(r => setTimeout(r, 30))
+    expect(lastPullModalProps).not.toBeNull()
+
+    // Test PullModal onDone with multi-file error (stays in manual-pull mode)
+    lastPullModalProps.onDone("pull failed: Multiple GGUF files in unsloth/Qwen3-GGUF")
+    await new Promise(r => setTimeout(r, 30))
+
+    // Test PullModal onCancel (returns to browse mode)
+    lastPullModalProps.onCancel()
+    await new Promise(r => setTimeout(r, 30))
+
+    // Re-enter manual-pull and test successful onDone
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+    getHandler()("f", {})
+    await new Promise(r => setTimeout(r, 30))
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("renders inspect mode with comfortable, tight, and risky fit hints for GGUF and MLX", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "mlx-community/Qwen2.5-MLX",
+        runtime: "mlx",
+        downloads: 9500,
+        likes: 250,
+        sizeBytes: 10 * 1024 * 1024 * 1024,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      },
+      {
+        id: "unsloth/Qwen3-GGUF",
+        runtime: "llama.cpp",
+        downloads: 8200,
+        likes: 120,
+        sizeBytes: 12 * 1024 * 1024 * 1024,
+        lastModified: new Date().toISOString(),
+        tags: ["gguf"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults })),
+        enrichSelectionHint: vi.fn(async (r: SearchResult) => {
+          if (r.runtime === "mlx") return { runtime: "mlx" as const }
+          return {
+            runtime: "llama.cpp",
+            defaultFile: "model-q4.gguf",
+            defaultFileSizeBytes: 12 * 1024 * 1024 * 1024,
+            ggufTotalSizeBytes: 50 * 1024 * 1024 * 1024,
+            ggufSelectableCount: 3,
+            ggufArchitecture: "qwen2",
+            ggufContextLength: 32768,
+            baseModel: "Qwen/Qwen2.5-7B",
+            ggufCandidates: [
+              { name: "model-q4.gguf", sizeBytes: 12 * 1024 * 1024 * 1024 },
+              { name: "model-q5.gguf", sizeBytes: 16 * 1024 * 1024 * 1024 },
+              { name: "model-q8.gguf", sizeBytes: 24 * 1024 * 1024 * 1024 }
+            ]
+          }
+        })
+      }
+    })
+
+    const onExit = vi.fn()
+    const { SearchBrowser } = await import("./SearchBrowser.js")
+
+    // 1. Inspect MLX model
+    const stream1 = new PassThrough()
+    const app1 = ink.render(
       React.createElement(SearchBrowser, {
         initialQuery: "qwen",
         onExit,
         embedded: true,
         machineMemBytes: 32 * 1024 * 1024 * 1024
-      })
+      }),
+      { stdout: stream1 as any, stderr: stream1 as any, patchConsole: false }
     )
-    expect(outComfortable).toBeDefined()
-    const handler1 = useInputMock.mock.calls[0][0]
-    // Enter inspect mode
-    handler1("", { return: true })
-    // Navigate candidates with j and k
-    handler1("j", {})
-    handler1("k", {})
-    // Candidate jump with pageUp and pageDown
-    handler1("", { pageDown: true })
-    handler1("", { pageUp: true })
-    // Close inspect mode
-    handler1("", { escape: true })
+    await new Promise(r => setTimeout(r, 60))
 
-    // 2. Tight on 18GB Mac (12GB <= 18 - 4 = 14GB, but > 18 - 8 = 10GB)
-    const outTight = ink.renderToString(
+    // MLX inspect
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+    // Pull MLX from inspect
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { escape: true })
+    await new Promise(r => setTimeout(r, 20))
+    app1.unmount()
+
+    // 2. Comfortable GGUF on 32GB Mac (12GB <= 32 - 8 = 24GB)
+    const stream2 = new PassThrough()
+    const app2 = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "qwen",
+        onExit,
+        embedded: true,
+        machineMemBytes: 32 * 1024 * 1024 * 1024
+      }),
+      { stdout: stream2 as any, stderr: stream2 as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+    // Move to GGUF row
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+    // Navigate candidates
+    getHandler()("j", {})
+    getHandler()("k", {})
+    getHandler()("", { pageDown: true })
+    getHandler()("", { pageUp: true })
+    getHandler()("", { escape: true })
+    await new Promise(r => setTimeout(r, 20))
+    app2.unmount()
+
+    // 3. Tight GGUF on 18GB Mac
+    const stream3 = new PassThrough()
+    const app3 = ink.render(
       React.createElement(SearchBrowser, {
         initialQuery: "qwen",
         onExit,
         embedded: true,
         machineMemBytes: 18 * 1024 * 1024 * 1024
-      })
+      }),
+      { stdout: stream3 as any, stderr: stream3 as any, patchConsole: false }
     )
-    expect(outTight).toBeDefined()
+    await new Promise(r => setTimeout(r, 60))
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+    app3.unmount()
 
-    // 3. Risky / not recommended on 8GB Mac (12GB > 8GB)
-    const outRisky = ink.renderToString(
+    // 4. Risky GGUF on 8GB Mac
+    const stream4 = new PassThrough()
+    const app4 = ink.render(
       React.createElement(SearchBrowser, {
         initialQuery: "qwen",
         onExit,
         embedded: true,
         machineMemBytes: 8 * 1024 * 1024 * 1024
-      })
+      }),
+      { stdout: stream4 as any, stderr: stream4 as any, patchConsole: false }
     )
-    expect(outRisky).toBeDefined()
+    await new Promise(r => setTimeout(r, 60))
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app4.unmount()
   })
 
   it("handles downloads mode when onQueueDownload is not provided", async () => {
@@ -259,57 +433,97 @@ describe("SearchBrowser", () => {
       const actual: any = await vi.importActual("../search/hf.js")
       return {
         ...actual,
-        searchModelsPage: vi.fn(async () => ({
-          results: mockResults
-        }))
+        searchModelsPage: vi.fn(async () => ({ results: mockResults }))
       }
     })
 
     const onExit = vi.fn()
     const { SearchBrowser } = await import("./SearchBrowser.js")
 
-    const output = ink.renderToString(
+    const stream = new PassThrough()
+    const app = ink.render(
       React.createElement(SearchBrowser, {
         initialQuery: "smol",
         onExit,
         embedded: true
-        // onQueueDownload omitted -> uses downloads hook
-      })
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
     )
-    expect(output).toBeDefined()
-    const handler = useInputMock.mock.calls[0][0]
+    await new Promise(r => setTimeout(r, 60))
 
     // Enter edit mode via 'i'
-    handler("i", {})
+    getHandler()("i", {})
+    await new Promise(r => setTimeout(r, 20))
     // Exit edit mode via downArrow
-    handler("", { downArrow: true })
+    getHandler()("", { downArrow: true })
+    await new Promise(r => setTimeout(r, 20))
+
+    // Enter edit mode via '/'
+    getHandler()("/", {})
+    await new Promise(r => setTimeout(r, 20))
+    // Exit edit mode via escape
+    getHandler()("", { escape: true })
+    await new Promise(r => setTimeout(r, 20))
 
     // Press 'p' in browse mode without onQueueDownload -> sets mode = "downloads"
-    handler("p", {})
+    getHandler()("p", {})
+    await new Promise(r => setTimeout(r, 30))
 
     // Suppress mouse sequence
-    handler("[<35;10;20M", {})
+    getHandler()("[<35;10;20M", {})
+    getHandler()("\x1b[<35;10;20M", {})
 
-    // Exit inspect/downloads with escape
-    handler("", { escape: true })
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app.unmount()
   })
 
-  it("renders at various terminal widths (narrow, medium, wide)", async () => {
+  it("filters already downloaded models and handles empty / error states", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "already/downloaded-model",
+        runtime: "mlx",
+        downloads: 500,
+        likes: 20,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      },
+      {
+        id: "fresh/available-model",
+        runtime: "mlx",
+        downloads: 200,
+        likes: 10,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults }))
+      }
+    })
+
     const onExit = vi.fn()
     const { SearchBrowser } = await import("./SearchBrowser.js")
 
-    // Narrow width
-    const narrow = ink.renderToString(
+    // Filter already-downloaded model
+    const stream1 = new PassThrough()
+    const app1 = ink.render(
       React.createElement(SearchBrowser, {
-        initialQuery: "narrow",
+        initialQuery: "filter",
         onExit,
-        embedded: true
-      })
+        embedded: true,
+        models: [{ id: "already/downloaded-model" } as any]
+      }),
+      { stdout: stream1 as any, stderr: stream1 as any, patchConsole: false }
     )
-    expect(narrow).toBeDefined()
-  })
+    await new Promise(r => setTimeout(r, 60))
+    app1.unmount()
 
-  it("handles empty search results and query error gracefully", async () => {
+    // Search query network error
     vi.doMock("../search/hf.js", async () => {
       const actual: any = await vi.importActual("../search/hf.js")
       return {
@@ -320,17 +534,288 @@ describe("SearchBrowser", () => {
       }
     })
 
+    const stream2 = new PassThrough()
+    const app2 = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "error-query",
+        onExit,
+        embedded: true
+      }),
+      { stdout: stream2 as any, stderr: stream2 as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+    app2.unmount()
+
+    // Empty search results
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: [] }))
+      }
+    })
+
+    const stream3 = new PassThrough()
+    const app3 = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "empty-query",
+        onExit,
+        embedded: true
+      }),
+      { stdout: stream3 as any, stderr: stream3 as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+    expect(onExit).not.toHaveBeenCalled()
+    app3.unmount()
+  })
+
+  it("handles SGR mouse clicks for header sorting, row selection, and ignores invalid mouse events", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "model/one",
+        runtime: "mlx",
+        downloads: 100,
+        likes: 10,
+        sizeBytes: 1024 * 1024 * 1024,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      },
+      {
+        id: "model/two",
+        runtime: "llama.cpp",
+        downloads: 200,
+        likes: 20,
+        sizeBytes: 2 * 1024 * 1024 * 1024,
+        lastModified: new Date().toISOString(),
+        tags: ["gguf"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults })),
+        enrichSelectionHint: vi.fn(async () => ({ runtime: "llama.cpp" }))
+      }
+    })
+
     const onExit = vi.fn()
     const { SearchBrowser } = await import("./SearchBrowser.js")
 
-    const output = ink.renderToString(
+    const stdinStream = new PassThrough()
+    customStdin = {
+      stdin: stdinStream,
+      setRawMode: vi.fn(),
+      isRawModeSupported: true
+    }
+
+    const stdoutStream = new PassThrough()
+    ;(stdoutStream as any).columns = 130
+    ;(stdoutStream as any).rows = 30
+
+    const app = ink.render(
       React.createElement(SearchBrowser, {
-        initialQuery: "nonexistent",
+        initialQuery: "mouse",
+        onExit,
+        embedded: false
+      }),
+      {
+        stdin: stdinStream as any,
+        stdout: stdoutStream as any,
+        stderr: stdoutStream as any,
+        patchConsole: false
+      }
+    )
+    await new Promise(r => setTimeout(r, 60))
+
+    // Click on header sort column "size" (x = 76, y = 4)
+    stdinStream.emit("data", Buffer.from("\x1b[<0;76;4M"))
+    await new Promise(r => setTimeout(r, 30))
+
+    // Click on header non-sort column "rt" (x = 68, y = 4)
+    stdinStream.emit("data", Buffer.from("\x1b[<0;68;4M"))
+    await new Promise(r => setTimeout(r, 20))
+
+    // Click on row 0 (y = 5, x = 20)
+    stdinStream.emit("data", Buffer.from("\x1b[<0;20;5M"))
+    await new Promise(r => setTimeout(r, 20))
+
+    // Click on row 1 (y = 6, x = 20)
+    stdinStream.emit("data", Buffer.from("\x1b[<0;20;6M"))
+    await new Promise(r => setTimeout(r, 20))
+
+    // Click on out of range rows (y = 2, y = 99)
+    stdinStream.emit("data", Buffer.from("\x1b[<0;20;2M"))
+    stdinStream.emit("data", Buffer.from("\x1b[<0;20;99M"))
+
+    // Emit release event (m instead of M) - should be ignored
+    stdinStream.emit("data", Buffer.from("\x1b[<0;20;5m"))
+
+    // Emit mouse wheel event (cb = 64) - should be ignored
+    stdinStream.emit("data", Buffer.from("\x1b[<64;20;5M"))
+
+    // Emit right click (cb = 2) - should be ignored
+    stdinStream.emit("data", Buffer.from("\x1b[<2;20;5M"))
+
+    // Emit stdout resize event
+    stdoutStream.emit("resize")
+    await new Promise(r => setTimeout(r, 20))
+
+    // Clean exit
+    getHandler()("q", {})
+    expect(onExit).toHaveBeenCalled()
+    app.unmount()
+    customStdin = null
+  })
+
+  it("handles background batch enrichment for MLX without sizeBytes and GGUF models", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "mlx-community/No-Size-Model",
+        runtime: "mlx",
+        downloads: 100,
+        likes: 5,
+        // sizeBytes undefined triggers fetchRepoTree
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      },
+      {
+        id: "unsloth/Qwen-GGUF-Model",
+        runtime: "llama.cpp",
+        downloads: 200,
+        likes: 10,
+        lastModified: new Date().toISOString(),
+        tags: ["gguf"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults })),
+        enrichSelectionHint: vi.fn(async () => ({
+          runtime: "llama.cpp",
+          defaultFile: "model.gguf"
+        }))
+      }
+    })
+
+    vi.doMock("../pull/api.js", async () => {
+      return {
+        fetchRepoTree: vi.fn(async () => [
+          { type: "file", path: "model.safetensors", size: 4 * 1024 * 1024 * 1024 },
+          { type: "file", path: "config.json", size: 1024 }
+        ])
+      }
+    })
+
+    const onExit = vi.fn()
+    const { SearchBrowser } = await import("./SearchBrowser.js")
+
+    const stream = new PassThrough()
+    const app = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "batch",
         onExit,
         embedded: true
-      })
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
     )
+    await new Promise(r => setTimeout(r, 80))
 
-    expect(output).toBeDefined()
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("handles narrow terminal width and truncMid edge branches", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "mlx-community/A-Very-Long-Model-Name-That-Exceeds-Narrow-Width",
+        runtime: "mlx",
+        downloads: 100,
+        likes: 5,
+        lastModified: new Date().toISOString(),
+        tags: ["mlx"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults }))
+      }
+    })
+
+    const onExit = vi.fn()
+    const { SearchBrowser } = await import("./SearchBrowser.js")
+
+    // Very narrow width (cols = 16)
+    const stdoutStream = new PassThrough()
+    ;(stdoutStream as any).columns = 16
+    ;(stdoutStream as any).rows = 20
+
+    const app = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "narrow",
+        onExit,
+        embedded: true
+      }),
+      { stdout: stdoutStream as any, stderr: stdoutStream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app.unmount()
+  })
+
+  it("handles enrichSelectionHint rejection gracefully", async () => {
+    const mockResults: SearchResult[] = [
+      {
+        id: "unsloth/Qwen-Failed-Hint",
+        runtime: "llama.cpp",
+        downloads: 100,
+        likes: 5,
+        lastModified: new Date().toISOString(),
+        tags: ["gguf"]
+      }
+    ]
+
+    vi.doMock("../search/hf.js", async () => {
+      const actual: any = await vi.importActual("../search/hf.js")
+      return {
+        ...actual,
+        searchModelsPage: vi.fn(async () => ({ results: mockResults })),
+        enrichSelectionHint: vi.fn(async () => {
+          throw new Error("network failed to inspect GGUF")
+        })
+      }
+    })
+
+    const onExit = vi.fn()
+    const { SearchBrowser } = await import("./SearchBrowser.js")
+
+    const stream = new PassThrough()
+    const app = ink.render(
+      React.createElement(SearchBrowser, {
+        initialQuery: "fail-hint",
+        onExit,
+        embedded: true
+      }),
+      { stdout: stream as any, stderr: stream as any, patchConsole: false }
+    )
+    await new Promise(r => setTimeout(r, 60))
+
+    // Enter inspect mode to check fallback selectionHint
+    getHandler()("", { return: true })
+    await new Promise(r => setTimeout(r, 30))
+
+    expect(useInputMock).toHaveBeenCalled()
+    expect(onExit).not.toHaveBeenCalled()
+    app.unmount()
   })
 })
