@@ -191,11 +191,9 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 
 ## Roadmap
 
-### Router — remaining work
+### Router — completed capabilities
 
-The router in `src/router/server.ts` is live (see invariant #4 and the Router section in `README.md`). Headless mode (`athanor router` subcommand) and in-flight stream safety (`src/supervisor/inflight.ts` + `supervisor.stop()` drain before SIGTERM, bounded by `config.router.drainTimeoutMs`) are both done. One follow-up remains:
-
-- **Token accounting via passthrough.** The router sees the completion stream live. `src/supervisor/metrics.ts` could tee token counts off the passthrough instead of tailing logs, which would make `tok/s` a live counter while generation is running (not just post-request) when router mode is on. The hook point is the `pipeline(Readable.fromWeb(...), res)` call in `proxy()`; insert a passthrough Transform that counts SSE `data:` frames and updates a shared metric keyed on `entry.id`, then teach `src/supervisor/metrics.ts` to prefer that source when non-null.
+The router in `src/router/server.ts` is live (see invariant #4 and the Router section in `README.md`). Headless mode (`athanor router` subcommand), in-flight stream safety (`src/supervisor/inflight.ts` + `supervisor.stop()` drain before SIGTERM, bounded by `config.router.drainTimeoutMs`), and live token accounting via passthrough Transform (`SSETokenCounter` feeding `src/supervisor/metrics.ts` `updateLiveRouterStats` and consumed by CLI/TUI) are all complete.
 
 ## License
 

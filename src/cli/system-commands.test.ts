@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cmdConfig, cmdDoctor, cmdRouter, cmdSearch } from "./system-commands.js"
 
+const mockRender = vi.fn()
+vi.mock("ink", () => ({
+  render: (...args: any[]) => mockRender(...args)
+}))
+
 vi.mock("../search/hf.js", () => ({
   HfSearchRateLimitError: class HfSearchRateLimitError extends Error {
     readonly status = 429
@@ -148,6 +153,43 @@ describe("cmdSearch", () => {
   it("rethrows non-rate-limit errors", async () => {
     vi.mocked(searchModels).mockRejectedValueOnce(new Error("network failure"))
     await expect(cmdSearch({ query: "test" })).rejects.toThrow("network failure")
+  })
+
+  it("runs interactive TUI SearchBrowser when stdin and stdout are TTYs", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true })
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true })
+
+    const stdoutWrites: string[] = []
+    vi.spyOn(process.stdout, "write").mockImplementation((str: any) => {
+      stdoutWrites.push(String(str))
+      return true
+    })
+
+    mockRender.mockImplementationOnce((elem: any, _opts: any) => {
+      // Simulate onExit callback
+      elem.props.onExit("successfully pulled test-model")
+      return {
+        waitUntilExit: vi.fn().mockResolvedValue(undefined)
+      }
+    })
+
+    await cmdSearch({ query: "qwen", filter: "mlx", sort: "downloads" })
+
+    expect(mockRender).toHaveBeenCalledTimes(1)
+    const [renderElem, renderOpts] = mockRender.mock.calls[0]
+    expect(renderOpts).toEqual({ exitOnCtrlC: true })
+    expect(renderElem.props.initialQuery).toBe("qwen")
+    expect(renderElem.props.initialFilter).toBe("mlx")
+    expect(renderElem.props.initialSort).toBe("downloads")
+
+    // Verify alt screen enter/leave and cursor hide/show escape sequences
+    const fullStdout = stdoutWrites.join("")
+    expect(fullStdout).toContain("\x1b[?1049h\x1b[?25l") // enter alt screen + hide cursor
+    expect(fullStdout).toContain("\x1b[?25h\x1b[?1049l") // show cursor + leave alt screen
+
+    // Verify final message was logged
+    const logOutput = vi.mocked(console.log).mock.calls.map(args => String(args[0])).join("\n")
+    expect(logOutput).toContain("successfully pulled test-model")
   })
 })
 

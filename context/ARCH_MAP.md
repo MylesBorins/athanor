@@ -56,6 +56,7 @@ Compressed, code-driven architecture context for future work.
   - `src/supervisor/policies.ts`
   - `src/supervisor/state.ts`
   - `src/supervisor/metrics.ts`
+  - `src/supervisor/telemetry.ts`
   - `src/supervisor/inflight.ts`
 - **sync**
   - `src/sync/pi.ts`
@@ -78,11 +79,14 @@ Compressed, code-driven architecture context for future work.
 - **ui**
   - `src/ui/App.tsx`
   - `src/ui/ModelList.tsx`
+  - `src/ui/SearchBrowser.tsx`
+  - `src/ui/DownloadsModal.tsx`
+  - `src/ui/PresetEditor.tsx`
   - `src/ui/useAppData.ts`
   - `src/ui/useModelActions.ts`
   - `src/ui/useAppInput.ts`
+  - `src/ui/useDownloads.ts`
   - `src/ui/useMouseWheel.ts`
-  - `src/ui/PresetEditor.tsx`
 
 ## Dependency graph
 

@@ -16,8 +16,12 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Duplicate registry cleanup** — path dedup in scanner + `deduplicateRegistry()` on load/startup (see `plans/done/fix-dupe-models.md`)
 - **Model display alignment** — HF repo primary in TUI/pi; hub GGUF runtime ids match registry id in pi (see `src/registry/display.ts`, `src/adapters/model-id.ts`)
 - **Recommendation / fit guidance** — detected metadata on `ModelEntry`, `src/registry/recommend.ts`, `show`/TUI fit bands, preflight warnings, enriched starter suggestions
+- **Ingress as default** — `config.router.enabled: true` default with aggregated pi providers (`athanor-mlx`, `athanor-llama`)
+- **Interactive HF search browser & concurrent downloads** — `SearchBrowser.tsx`, `DownloadsModal.tsx`, `useDownloads.ts` with queue deduplication and cancellation
+- **Router live token accounting** — `SSETokenCounter` passthrough Transform in `src/router/server.ts` tees SSE stream tokens live, updating `src/supervisor/metrics.ts` (`updateLiveRouterStats`), surfaced in CLI (`athanor status`) and TUI (`useAppData`)
+- **Comprehensive test suite** — full integration test suites (pi-sync, CLI flows, pipeline, detached supervisor, router telemetry), complete TUI hook coverage (`useAppInput`, `useDownloads`, `useModelActions`, `useAppData`, `useMouseWheel`), and supervisor policy & eviction suites.
 
-Test suite as of 2026-05-24: 45 files, 334 tests.
+Test suite as of 2026-09-13: 64 test files, 730+ tests, running under Vitest v5, TypeScript 7, and oxlint with >76% overall branch coverage.
 
 ## Remaining backlog
 
@@ -25,23 +29,18 @@ Ordered by value; none of these require breaking `AGENTS.md` invariants without 
 
 ### High value
 
-1. **Integration-style sync tests** — broader start/stop/expose/router/default-provider coverage beyond current unit tests
-2. **Search/download polish** — see active plan `plans/search-downloads-refactor.md` (flow verification, MLX row-size test gap, optional metadata polish)
-3. **Ingress as default** — see proposed plan `plans/ingress-default-refactor.md` (make router-backed pi shape the default UX)
+1. **Supervisor lifecycle events** — tiny event emitter (`starting`, `running`, `stopped`, `error`) to reduce polling and centralize sync
+2. **Move `cmdPull()`** — last large piece still in `src/cli/commands.ts` into a dedicated command module
 
 ### Medium value
 
-4. **Supervisor lifecycle events** — tiny event emitter (`starting`, `running`, `stopped`, `error`) to reduce polling and centralize sync
-5. **Move `cmdPull()`** — last large piece still in `src/cli/commands.ts`
-6. **TUI hook tests** — targeted coverage for extracted hooks where practical
-7. **Recommendation calibration** — validate GGUF/MLX metadata extraction and fit-band heuristics on real machines
+3. **Recommendation calibration** — validate GGUF/MLX metadata extraction and fit-band heuristics on real machines
+4. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
 
 ### Later / optional
 
-8. **Router live token accounting** — tee SSE frames in `src/router/server.ts` passthrough (see `AGENTS.md` roadmap)
-9. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
-10. **Black-box integration tests** — fake runtimes + stub health endpoints across registry/supervisor/sync/router
-11. **Transactional state store** — process-local cache with events; only if orchestration complexity grows further
+5. **Black-box integration tests** — fake runtimes + stub health endpoints across registry/supervisor/sync/router
+6. **Transactional state store** — process-local cache with events; only if orchestration complexity grows further
 
 ## Known structural risks (unchanged)
 
