@@ -1,7 +1,7 @@
 # Plan: search-downloads-refactor
 
 ## Status
-In Progress
+Done
 
 The search/download UX refactor is substantially implemented and validated with typecheck + expanded targeted tests. The remaining work is narrower now: download UX verification/polish, one remaining MLX row-size preference test gap, and optional search metadata polish.
 

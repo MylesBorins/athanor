@@ -1,7 +1,7 @@
 # Plan: ingress-default-refactor
 
 ## Status
-Proposed
+Done
 
 Athanor's current distinction between "router mode" and "direct per-model pi providers" has become a product and UX liability. The user's desired mental model is simpler:
 - athanor provides a general ingress for pi by default

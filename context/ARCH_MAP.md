@@ -17,6 +17,7 @@ Compressed, code-driven architecture context for future work.
 - **router** — optional OpenAI-compatible proxy over published models plus detached lifecycle coordination
 - **control** — optional local HTTP API for activate/deactivate/status
 - **search** — HF search/trending queries and result formatting
+- **machine** — Apple Silicon hardware profiling, memory bandwidth constants, and host sizing
 - **app** — thin orchestration layer for model operations + pi sync side effects
 - **cli** — command dispatch, domain command modules, pull progress renderer, formatting
 - **ui** — Ink TUI components and extracted hooks for data/actions/input/mouse
@@ -67,8 +68,11 @@ Compressed, code-driven architecture context for future work.
   - `src/control/server.ts`
 - **search**
   - `src/search/hf.ts`
+- **machine**
+  - `src/machine/profile.ts`
 - **app**
   - `src/app/models.ts`
+  - `src/app/preflight.ts`
 - **cli**
   - `src/cli/index.ts`
   - `src/cli/commands.ts`

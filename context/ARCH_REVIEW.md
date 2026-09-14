@@ -11,7 +11,7 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **App service layer** — `src/app/models.ts` centralizes scan/pull/start/stop/expose/preset flows and most pi sync side effects
 - **CLI split** — domain modules under `src/cli/` (`model-commands`, `preset-commands`, `system-commands`, `pull-commands`, `snippet-commands`, `telemetry-commands`, `pull-renderer`, `shared`); `commands.ts` is now a pure re-export aggregator
 - **TUI split** — hooks extracted from `App.tsx` (`useAppData`, `useModelActions`, `useAppInput`, `useMouseWheel`)
-- **Pi context correctness** — `contextWindow` from effective merged runtime config; 16K default baselines; explicit recipe context bands
+- **Pi context correctness** — `contextWindow` from effective merged runtime config; 64K default baselines; explicit recipe context bands
 - **Router lifecycle detach** — `src/router/lifecycle.ts`; router follows active model state, not TUI lifetime (see `plans/done/router-lifecycle-detach.md`)
 - **Duplicate registry cleanup** — path dedup in scanner + `deduplicateRegistry()` on load/startup (see `plans/done/fix-dupe-models.md`)
 - **Model display alignment** — HF repo primary in TUI/pi; hub GGUF runtime ids match registry id in pi (see `src/registry/display.ts`, `src/adapters/model-id.ts`)

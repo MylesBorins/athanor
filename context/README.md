@@ -1,6 +1,6 @@
 # Context folder
 
-Reusable architecture and planning context for athanor. Not user-facing docs — see `README.md` and `AGENTS.md` for that.
+Reusable architecture and planning context for athanor. Not user-facing docs — see `README.md`, `AGENTS.md`, and `docs/` for that.
 
 ## Routine work
 
