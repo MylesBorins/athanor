@@ -75,7 +75,6 @@ Compressed, code-driven architecture context for future work.
   - `src/app/preflight.ts`
 - **cli**
   - `src/cli/index.ts`
-  - `src/cli/commands.ts`
   - `src/cli/model-commands.ts`
   - `src/cli/preset-commands.ts`
   - `src/cli/system-commands.ts`

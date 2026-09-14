@@ -1,6 +1,6 @@
 import * as fs from "fs"
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { cmdFlavor } from "./commands.js"
+import { cmdFlavor } from "./model-commands.js"
 import { getModel, upsertModel } from "../registry/index.js"
 import { PATHS } from "../config/index.js"
 import type { ModelEntry } from "../types/index.js"

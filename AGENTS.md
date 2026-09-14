@@ -20,7 +20,7 @@ These invariants are mandatory. Do not change them without an explicit user deci
 6. **Pi context metadata reflects effective served context.** `src/sync/pi.ts` must advertise the model's effective runtime context window from merged runtime config (`mergedConfigFor(entry)`), not only explicit per-model formula fields and not the model's theoretical maximum. pi should see what athanor will actually serve.
 7. **MLX capability detection and flavor routing are separate axes.** Two fields live on an MLX entry:
    - `mlxCapabilities: ("vlm")[]` — a detected *fact* about the model (does config.json advertise a vision tower?). Refreshed by `ingestDiscovered` and `pull` via `detectMlxCapabilities()` in `src/discovery/scanner.ts`. Safe to overwrite on re-scan.
-   - `mlxFlavor: "lm" | "vlm"` — user *intent* about which server binary to launch. `"vlm"` routes to `mlx_vlm.server`; `"lm"` (or absent) routes to `mlx_lm.server`. Only set by `athanor flavor <slug> lm|vlm` (`cmdFlavor` in `src/cli/commands.ts`). Discovery and ingest must never touch it.
+   - `mlxFlavor: "lm" | "vlm"` — user *intent* about which server binary to launch. `"vlm"` routes to `mlx_vlm.server`; `"lm"` (or absent) routes to `mlx_lm.server`. Only set by `athanor flavor <slug> lm|vlm` (`cmdFlavor` in `src/cli/model-commands.ts`). Discovery and ingest must never touch it.
 
    Detection is advisory because many VLM-tagged repos run fine as text-only under `mlx_lm.server` with no torch/torchvision installed, and that's usually the preferred path. `cmdShow` surfaces the capability with a hint that points at `athanor flavor`. Do not add VLM detection anywhere other than `detectMlxCapabilities`; keep it the sole detection function.
 8. **Supervisor default policy is `single-active`.** Starting model B stops model A unless the user opts into `multi-active-lru` (or `manual`) in `config.json`. Policies live in `src/supervisor/policies.ts`.
@@ -34,7 +34,7 @@ docs/           # deep-dive user guides: setup, formulas, architecture, tui, tro
 src/
   adapters/     # mlx_lm + mlx_vlm + llama-server command builders, health probes, runtime model ids (model-id.ts)
   app/          # application orchestration (model operations, preflight, sync side-effects)
-  cli/          # dispatcher (index.ts), commands.ts, doctor, formatting
+  cli/          # dispatcher (index.ts), command modules, doctor, formatting
   config/       # config load + defaults
   control/      # optional HTTP control API (opt-in)
   discovery/    # HF cache scanner + ingest + fs.watch watcher; detectMlxCapabilities lives here
@@ -168,7 +168,7 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 ## How to add things
 
 - **New adapter (runtime).** Add a file in `src/adapters/`, export `buildCommand(entry, config): { cmd, args }` and a health probe. Register it in `src/adapters/index.ts`. Add a fixture to `__fixtures.ts` and a test alongside.
-- **New CLI command.** Implement it in the relevant CLI module (`src/cli/model-commands.ts`, `preset-commands.ts`, `system-commands.ts`, or a new focused module), re-export as needed from `src/cli/commands.ts` for compatibility, and wire it in `src/cli/index.ts`'s dispatcher. Keep output going through `src/cli/format.ts` / `style.ts` so colors respect `NO_COLOR`.
+- **New CLI command.** Implement it in the relevant CLI module (`src/cli/model-commands.ts`, `preset-commands.ts`, `system-commands.ts`, or a new focused module), and wire it in `src/cli/index.ts`'s dispatcher. Keep output going through `src/cli/format.ts` / `style.ts` so colors respect `NO_COLOR`.
 - **New TUI key.** Bind it in `src/ui/App.tsx`'s `useInput` handler and document it in the footer string and the README key table.
 - **New registry field.** Add it to `ModelEntry` in `src/types/index.ts`, teach `ingestDiscovered` how to populate/refresh it, add a migration-safe default (optional field, never required of older entries), and surface it in `athanor show` if user-relevant.
 - **New tunable runtime flag.** Add to `TUNABLE_KEYS` in `src/presets/edit.ts` with both kebab-case CLI name and camelCase JSON name, then reference it in the relevant adapter's `buildCommand`.

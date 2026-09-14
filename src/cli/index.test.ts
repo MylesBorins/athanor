@@ -46,13 +46,56 @@ describe("runCli dispatcher", () => {
       cmdTelemetry: vi.fn()
     }
 
-    vi.doMock("./commands.js", () => mockCommands)
+    vi.doMock("./model-commands.js", () => ({
+      cmdExpose: mockCommands.cmdExpose,
+      cmdFlavor: mockCommands.cmdFlavor,
+      cmdList: mockCommands.cmdList,
+      cmdLogs: mockCommands.cmdLogs,
+      cmdRestart: mockCommands.cmdRestart,
+      cmdRm: mockCommands.cmdRm,
+      cmdScan: mockCommands.cmdScan,
+      cmdShow: mockCommands.cmdShow,
+      cmdStart: mockCommands.cmdStart,
+      cmdStatus: mockCommands.cmdStatus,
+      cmdStop: mockCommands.cmdStop,
+      cmdSync: mockCommands.cmdSync
+    }))
+    vi.doMock("./preset-commands.js", () => ({
+      cmdFormulaApply: mockCommands.cmdFormulaApply,
+      cmdFormulaClear: mockCommands.cmdFormulaClear,
+      cmdFormulaSave: mockCommands.cmdFormulaSave,
+      cmdFormulaSet: mockCommands.cmdFormulaSet,
+      cmdFormulaShow: mockCommands.cmdFormulaShow,
+      cmdFormulaUnset: mockCommands.cmdFormulaUnset,
+      cmdFormulas: mockCommands.cmdFormulas,
+      cmdFormulasDelete: mockCommands.cmdFormulasDelete
+    }))
+    vi.doMock("./system-commands.js", () => ({
+      cmdConfig: mockCommands.cmdConfig,
+      cmdDoctor: mockCommands.cmdDoctor,
+      cmdRouter: mockCommands.cmdRouter,
+      cmdSearch: mockCommands.cmdSearch
+    }))
+    vi.doMock("./pull-commands.js", () => ({
+      cmdPull: mockCommands.cmdPull
+    }))
+    vi.doMock("./snippet-commands.js", () => ({
+      cmdSnippet: mockCommands.cmdSnippet
+    }))
+    vi.doMock("./telemetry-commands.js", () => ({
+      cmdTelemetry: mockCommands.cmdTelemetry
+    }))
   })
 
   afterEach(() => {
     vi.resetModules()
     vi.restoreAllMocks()
-    vi.doUnmock("./commands.js")
+    vi.doUnmock("./model-commands.js")
+    vi.doUnmock("./preset-commands.js")
+    vi.doUnmock("./system-commands.js")
+    vi.doUnmock("./pull-commands.js")
+    vi.doUnmock("./snippet-commands.js")
+    vi.doUnmock("./telemetry-commands.js")
   })
 
   async function getRunner() {

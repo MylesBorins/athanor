@@ -1,8 +1,18 @@
 import {
-  cmdConfig,
-  cmdDoctor,
   cmdExpose,
   cmdFlavor,
+  cmdList,
+  cmdLogs,
+  cmdRestart,
+  cmdRm,
+  cmdScan,
+  cmdShow,
+  cmdStart,
+  cmdStatus,
+  cmdStop,
+  cmdSync
+} from "./model-commands.js"
+import {
   cmdFormulaApply,
   cmdFormulaClear,
   cmdFormulaSave,
@@ -10,23 +20,17 @@ import {
   cmdFormulaShow,
   cmdFormulaUnset,
   cmdFormulas,
-  cmdFormulasDelete,
-  cmdList,
-  cmdLogs,
-  cmdPull,
-  cmdRestart,
-  cmdRm,
+  cmdFormulasDelete
+} from "./preset-commands.js"
+import {
+  cmdConfig,
+  cmdDoctor,
   cmdRouter,
-  cmdScan,
-  cmdSearch,
-  cmdShow,
-  cmdSnippet,
-  cmdStart,
-  cmdStatus,
-  cmdStop,
-  cmdSync,
-  cmdTelemetry
-} from "./commands.js"
+  cmdSearch
+} from "./system-commands.js"
+import { cmdPull } from "./pull-commands.js"
+import { cmdSnippet } from "./snippet-commands.js"
+import { cmdTelemetry } from "./telemetry-commands.js"
 import type { SearchFilter, SearchSort } from "../search/hf.js"
 import { style } from "./style.js"
 

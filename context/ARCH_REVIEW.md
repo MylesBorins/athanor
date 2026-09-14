@@ -9,7 +9,7 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Config safety** — load-time sanitization in `src/config/index.ts`
 - **Registry helpers** — semantic mutations (`setModelPublish`, `setModelFlavor`, etc.) plus shared materialization in `src/registry/materialize.ts`
 - **App service layer** — `src/app/models.ts` centralizes scan/pull/start/stop/expose/preset flows and most pi sync side effects
-- **CLI split** — domain modules under `src/cli/` (`model-commands`, `preset-commands`, `system-commands`, `pull-commands`, `snippet-commands`, `telemetry-commands`, `pull-renderer`, `shared`); `commands.ts` is now a pure re-export aggregator
+- **CLI split** — domain modules under `src/cli/` (`model-commands`, `preset-commands`, `system-commands`, `pull-commands`, `snippet-commands`, `telemetry-commands`, `pull-renderer`, `shared`) wired directly into `src/cli/index.ts` dispatcher
 - **TUI split** — hooks extracted from `App.tsx` (`useAppData`, `useModelActions`, `useAppInput`, `useMouseWheel`)
 - **Pi context correctness** — `contextWindow` from effective merged runtime config; 64K default baselines; explicit recipe context bands
 - **Router lifecycle detach** — `src/router/lifecycle.ts`; router follows active model state, not TUI lifetime (see `plans/done/router-lifecycle-detach.md`)
