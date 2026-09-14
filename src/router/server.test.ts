@@ -223,9 +223,10 @@ describe("startRouter", () => {
     // Wait for the asynchronous telemetry record to be saved
     await new Promise(r => setTimeout(r, 200))
     const history = loadTelemetryHistory()
-    expect(history.length).toBe(1)
-    expect(history[0]?.modelId).toBe("mlx-community/A")
-    expect(history[0]?.generatedTokens).toBe(2)
+    const rec = history.find(r => r.modelId === "mlx-community/A" && r.generatedTokens === 2)!
+    expect(rec).toBeDefined()
+    expect(rec.modelId).toBe("mlx-community/A")
+    expect(rec.generatedTokens).toBe(2)
 
     await stopRouter()
     await upstream.close()

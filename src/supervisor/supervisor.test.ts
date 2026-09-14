@@ -384,3 +384,128 @@ process.on("SIGTERM", () => { clearTimeout(t); process.exit(0) })
   }, 10_000)
 })
 
+describe("Supervisor lifecycle events", () => {
+  beforeEach(() => { resetState(); vi.resetModules() })
+  afterEach(() => { resetState() })
+
+  it("emits starting, running, and stopped events through model lifecycle", async () => {
+    const sup = await loadSupervisor()
+    const events: string[] = []
+    let startedEntry: ModelEntry | undefined
+    let runningInstance: any
+
+    sup.on("starting", (e) => {
+      events.push("starting")
+      startedEntry = e
+    })
+    sup.on("running", (inst) => {
+      events.push("running")
+      runningInstance = inst
+    })
+    sup.on("stopped", (id) => {
+      events.push(`stopped:${id}`)
+    })
+
+    const e = entry(18101, "events/test")
+    const inst = await sup.start(e)
+    try {
+      expect(events).toEqual(["starting", "running"])
+      expect(startedEntry?.id).toBe("events/test")
+      expect(runningInstance?.pid).toBe(inst.pid)
+      expect(runningInstance?.status).toBe("running")
+    } finally {
+      await sup.stop("events/test")
+    }
+    expect(events).toEqual(["starting", "running", "stopped:events/test"])
+  }, 15_000)
+
+  it("emits evicted event when a policy stops an active model to start another", async () => {
+    const sup = await loadSupervisor()
+    const evicted: Array<{ evictedId: string; triggering: string }> = []
+
+    sup.on("evicted", (evictedId, triggeringEntry) => {
+      evicted.push({ evictedId, triggering: triggeringEntry.id })
+    })
+
+    const _a = await sup.start(entry(18102, "model/a"))
+    try {
+      const _b = await sup.start(entry(18103, "model/b"))
+      try {
+        expect(evicted).toEqual([{ evictedId: "model/a", triggering: "model/b" }])
+      } finally {
+        await sup.stop("model/b")
+      }
+    } finally {
+      await sup.stop("model/a")
+    }
+  }, 15_000)
+
+  it("emits error event when process startup fails", async () => {
+    const sup = await loadSupervisor({
+      customCmd: { cmd: "non_existent_binary_12345", args: [] }
+    })
+    let caughtError: { id: string; error: Error } | undefined
+
+    sup.on("error", (id, error) => {
+      caughtError = { id, error }
+    })
+
+    const e = entry(18104, "fail/model")
+    await expect(sup.start(e)).rejects.toThrow(/Failed to execute/)
+    expect(caughtError).toBeDefined()
+    expect(caughtError?.id).toBe("fail/model")
+    expect(caughtError?.error).toBeInstanceOf(Error)
+  }, 10_000)
+
+  it("emits exit event when a child process terminates", async () => {
+    const sup = await loadSupervisor()
+    let exitEvent: { id: string; code: number | null } | undefined
+
+    sup.on("exit", (id, code) => {
+      exitEvent = { id, code }
+    })
+
+    const e = entry(18105, "exit/model")
+    const inst = await sup.start(e)
+
+    // Terminate process with SIGTERM
+    process.kill(inst.pid, "SIGTERM")
+    while (pidAlive(inst.pid)) {
+      await new Promise(r => setTimeout(r, 20))
+    }
+    // Allow microtask tick for proc exit event to fire
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(exitEvent).toBeDefined()
+    expect(exitEvent?.id).toBe("exit/model")
+
+    await sup.stop("exit/model")
+  }, 15_000)
+
+  it("supports typed once, off, and removeListener methods", async () => {
+    const sup = await loadSupervisor()
+    let onceCalled = 0
+    let regularCalled = 0
+
+    const onceListener = () => { onceCalled++ }
+    const regularListener = () => { regularCalled++ }
+
+    sup.once("stopped", onceListener)
+    sup.on("stopped", regularListener)
+
+    sup.emit("stopped", "test/1")
+    expect(onceCalled).toBe(1)
+    expect(regularCalled).toBe(1)
+
+    // Second emit: once listener should not fire
+    sup.emit("stopped", "test/2")
+    expect(onceCalled).toBe(1)
+    expect(regularCalled).toBe(2)
+
+    // Test off / removeListener
+    sup.off("stopped", regularListener)
+    sup.emit("stopped", "test/3")
+    expect(regularCalled).toBe(2)
+  })
+})
+
