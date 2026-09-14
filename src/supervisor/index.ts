@@ -1,4 +1,5 @@
 import { spawn } from "child_process"
+import { EventEmitter } from "events"
 import * as fs from "fs"
 import type { ActiveInstance, ModelEntry } from "../types/index.js"
 import { buildCommandFor, getAdapter } from "../adapters/index.js"
@@ -15,14 +16,52 @@ import { listModels, touchModelLastUsed } from "../registry/index.js"
 import { awaitIdle } from "./inflight.js"
 import { recoverLiveInstances } from "./reconcile.js"
 
-export class Supervisor {
+export interface SupervisorEventMap {
+  starting: (entry: ModelEntry) => void
+  running: (instance: ActiveInstance) => void
+  stopped: (id: string) => void
+  exit: (id: string, code: number | null, signal: NodeJS.Signals | null) => void
+  error: (id: string, error: Error) => void
+  evicted: (evictedId: string, triggeringEntry: ModelEntry) => void
+}
+
+export class Supervisor extends EventEmitter {
   private instances = new Map<string, ActiveInstance>()
   private readyPromise: Promise<void>
   private pendingStarts = new Map<string, Promise<ActiveInstance>>()
   private startAbortControllers = new Map<string, AbortController>()
 
   constructor() {
+    super()
+    // Default no-op error handler prevents unhandled 'error' event exceptions
+    // when consumers haven't registered an explicit error listener.
+    this.on("error", () => {})
     this.readyPromise = this.reattach()
+  }
+
+  override emit<K extends keyof SupervisorEventMap>(event: K, ...args: Parameters<SupervisorEventMap[K]>): boolean
+  override emit(event: string | symbol, ...args: any[]): boolean {
+    return super.emit(event, ...args)
+  }
+
+  override on<K extends keyof SupervisorEventMap>(event: K, listener: SupervisorEventMap[K]): this
+  override on(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.on(event, listener)
+  }
+
+  override once<K extends keyof SupervisorEventMap>(event: K, listener: SupervisorEventMap[K]): this
+  override once(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.once(event, listener)
+  }
+
+  override off<K extends keyof SupervisorEventMap>(event: K, listener: SupervisorEventMap[K]): this
+  override off(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.off(event, listener)
+  }
+
+  override removeListener<K extends keyof SupervisorEventMap>(event: K, listener: SupervisorEventMap[K]): this
+  override removeListener(event: string | symbol, listener: (...args: any[]) => void): this {
+    return super.removeListener(event, listener)
   }
 
   async ready(): Promise<void> {
@@ -136,14 +175,20 @@ export class Supervisor {
       this.list(),
       entry
     )
-    for (const id of stopBeforeStart) await this.stop(id)
-
-    if (await probeHealth(entry.runtime, entry.port, 500)) {
-      throw new Error(
-        `Port ${entry.port} already in use by another process; stop it or reassign the model's port.`
-      )
+    for (const id of stopBeforeStart) {
+      this.emit("evicted", id, entry)
+      await this.stop(id)
     }
 
+    if (await probeHealth(entry.runtime, entry.port, 500)) {
+      const err = new Error(
+        `Port ${entry.port} already in use by another process; stop it or reassign the model's port.`
+      )
+      this.emit("error", entry.id, err)
+      throw err
+    }
+
+    this.emit("starting", entry)
     const { cmd, args, env: adapterEnv } = buildCommandFor(entry)
     const stdoutLog = openLogFile(entry.slug, process.pid)
     try {
@@ -167,6 +212,10 @@ export class Supervisor {
         throw new Error(`Failed to execute '${cmd}'${detail}`)
       }
       proc.unref()
+
+      proc.on("exit", (code, signal) => {
+        this.emit("exit", entry.id, code, signal)
+      })
 
       const now = Date.now()
       const instance: ActiveInstance = {
@@ -212,6 +261,7 @@ export class Supervisor {
         instance.healthyAt = Date.now()
         this.persist()
         touchModelLastUsed(entry.id, Date.now())
+        this.emit("running", instance)
         return instance
       } catch (err) {
         instance.status = "error"
@@ -222,6 +272,8 @@ export class Supervisor {
       }
     } catch (err) {
       try { fs.closeSync(stdoutLog.fd) } catch { /* already closed */ }
+      const error = err instanceof Error ? err : new Error(String(err))
+      this.emit("error", entry.id, error)
       throw err
     }
   }
@@ -247,6 +299,7 @@ export class Supervisor {
       }
       this.instances.delete(id)
       this.persist()
+      this.emit("stopped", id)
       return true
     }
     // Wait briefly for any router-proxied streams targeting this model
@@ -260,6 +313,7 @@ export class Supervisor {
     await this.killPid(inst.pid)
     this.instances.delete(id)
     this.persist()
+    this.emit("stopped", id)
     return true
   }
 
