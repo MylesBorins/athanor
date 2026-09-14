@@ -30,12 +30,15 @@ These are load-bearing. If a change seems to need to break one, stop and ask.
 ## Layout
 
 ```
+docs/           # deep-dive user guides: setup, formulas, architecture, tui, troubleshooting
 src/
   adapters/     # mlx_lm + mlx_vlm + llama-server command builders, health probes, runtime model ids (model-id.ts)
+  app/          # application orchestration (model operations, preflight, sync side-effects)
   cli/          # dispatcher (index.ts), commands.ts, doctor, formatting
   config/       # config load + defaults
   control/      # optional HTTP control API (opt-in)
   discovery/    # HF cache scanner + ingest + fs.watch watcher; detectMlxCapabilities lives here
+  machine/      # Apple Silicon hardware profiling, bandwidth constants, memory estimation
   presets/      # formula merge, tunable-key metadata, built-in + user formulas engine
   pull/         # HF repo inspection + `hf` download wrapper
   registry/     # atomic models.json CRUD, slug + port allocation, dedup on load, display labels
@@ -66,6 +69,8 @@ Context discipline:
 
 ## Development
 
+Requires Node.js ≥ 22 on Apple Silicon (macOS 13.5+).
+
 ```bash
 npm install
 npx tsc --noEmit      # typecheck — must be clean
@@ -89,7 +94,7 @@ When a user opens this repo with an agent and asks to "set up athanor", work in 
 
 ### CLI install modes
 
-`bin/athanor` resolves `../src/index.js` (the compiled entry), so the binary only works after a build. Pick one:
+`bin/athanor` resolves `../dist/index.js` (the compiled entry), so the binary only works after a build. Pick one:
 
 | Mode | Setup | Invocation |
 |---|---|---|
@@ -138,7 +143,7 @@ Quantization reading:
 - **MLX:** prefer `mlx-community/*` — they carry the right conversion manifest. Suffix `-4bit` is the default; `-6bit` / `-8bit` cost ~1.5×/2× disk and memory for modest quality gains; `-bf16` is rarely worth it for serving on a Mac.
 - **GGUF:** `Q4_K_M` is the balanced default, `Q5_K_M` / `Q6_K` trade size for quality, `Q8_0` is near-lossless but large. Avoid `Q2_*` and `Q3_*` except on tight memory.
 
-After pull, `athanor show <slug>` shows detected capabilities, resolved launch command, and merged preset. For MLX entries where `caps` includes `vlm`, only flip `athanor flavor <slug> vlm` if the user actually needs image input — most VLM repos serve text fine under `mlx_lm.server` without the torch install (see invariant #6).
+After pull, `athanor show <slug>` shows detected capabilities, resolved launch command, and merged preset. For MLX entries where `caps` includes `vlm`, only flip `athanor flavor <slug> vlm` if the user actually needs image input — most VLM repos serve text fine under `mlx_lm.server` without the torch install (see invariant #7).
 
 ### Running a model
 
@@ -175,6 +180,7 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 | `~/.athanor/config.json` | user config: scan roots, port range, supervisor policy, control API |
 | `~/.athanor/models.json` | registry — source of truth for slugs, ports, formulas, publish state |
 | `~/.athanor/formulas.json` | optional user formulas; overrides built-ins of the same name (with auto-migration from legacy `recipes.json`) |
+| `~/.athanor/telemetry.json` | persistent generation telemetry history (tok/s, prompt eval, latency) |
 | `~/.athanor/logs/<slug>-<pid>.log` | per-run supervisor log |
 | `~/.athanor/state.json` | running PIDs / ports for reattach (see `src/supervisor/state.ts`) |
 | `~/.pi/agent/models.json` | pi-agent providers; athanor namespace only |
