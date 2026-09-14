@@ -193,7 +193,7 @@ To make a running model available to `pi-agent` downstream, `athanor expose <slu
 
 ### Router — completed capabilities
 
-The router in `src/router/server.ts` is live (see invariant #4 and the Router section in `README.md`). Headless mode (`athanor router` subcommand), in-flight stream safety (`src/supervisor/inflight.ts` + `supervisor.stop()` drain before SIGTERM, bounded by `config.router.drainTimeoutMs`), and live token accounting via passthrough Transform (`SSETokenCounter` feeding `src/supervisor/metrics.ts` `updateLiveRouterStats` and consumed by CLI/TUI) are all complete.
+The router in `src/router/server.ts` is live (see invariant #4, `README.md`, and `docs/architecture.md`). Headless mode (`athanor router` subcommand), in-flight stream safety (`src/supervisor/inflight.ts` + `supervisor.stop()` drain before SIGTERM, bounded by `config.router.drainTimeoutMs`), and live token accounting via passthrough Transform (`SSETokenCounter` feeding `src/supervisor/metrics.ts` `updateLiveRouterStats` and consumed by CLI/TUI) are all complete.
 
 ## License
 

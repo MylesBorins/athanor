@@ -5,7 +5,7 @@ Compressed, code-driven architecture context for future work.
 ## Modules
 
 - **entrypoint** — bootstraps base dirs, dispatches CLI vs TUI, starts optional control API, and reconciles detached router lifecycle
-- **config** — home paths, defaults, config load/save, sanitization, effective runtime baselines (now 16K context defaults)
+- **config** — home paths, defaults, config load/save, sanitization, effective runtime baselines (64K context defaults)
 - **types** — shared runtime and registry types
 - **registry** — atomic `models.json` CRUD, slug allocation, stable port allocation, shared materialization helpers, duplicate cleanup on load, fit/recommendation inference
 - **discovery** — scan HF/local model roots, detect MLX capabilities, ingest into registry, watch for changes
