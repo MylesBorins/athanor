@@ -116,6 +116,7 @@ export function useDownloads(onTaskFinished?: (message: string) => void): Downlo
       abort
     }
 
+    tasksRef.current = [base, ...tasksRef.current]
     setTasks(prev => [base, ...prev])
 
     const handleEvent = (ev: ProgressEvent): void => {

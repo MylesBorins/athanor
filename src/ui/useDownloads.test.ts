@@ -100,26 +100,23 @@ describe("useDownloads hook lifecycle", () => {
 
     const { useDownloads } = await import("./useDownloads.js")
 
-    let hookState: any = null
+    const hookRef = { current: null as any }
     function TestComponent() {
-      hookState = useDownloads()
-      return React.createElement(ink.Text, null, `active: ${hookState.activeCount}`)
+      hookRef.current = useDownloads()
+      return React.createElement(ink.Text, null, `active: ${hookRef.current.activeCount}`)
     }
 
     const stream = new PassThrough()
     const app = ink.render(React.createElement(TestComponent), { stdout: stream as any, stderr: stream as any, patchConsole: false })
 
-    expect(hookState.activeCount).toBe(0)
+    expect(hookRef.current.activeCount).toBe(0)
 
     // Queue download
-    const t1 = hookState.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
+    const t1 = hookRef.current.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
     expect(t1.repo).toBe("mlx-community/Qwen2.5-32B")
 
-    // Allow React state update to flush
-    await new Promise(r => setTimeout(r, 50))
-
-    // Queue duplicate: should return same task
-    const tDuplicate = hookState.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
+    // Queue duplicate: should immediately return same task without race condition
+    const tDuplicate = hookRef.current.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
     expect(tDuplicate.id).toBe(t1.id)
 
     // Trigger events
@@ -135,10 +132,10 @@ describe("useDownloads hook lifecycle", () => {
     if (onLineCb) onLineCb("progress line update")
 
     // Cancel download
-    hookState.cancelDownload(t1.id)
+    hookRef.current.cancelDownload(t1.id)
 
     // Clear finished
-    hookState.clearFinished()
+    hookRef.current.clearFinished()
 
     app.unmount()
   })
@@ -164,22 +161,22 @@ describe("useDownloads hook lifecycle", () => {
     const { useDownloads } = await import("./useDownloads.js")
 
     const onFinished = vi.fn()
-    let hookState: any = null
+    const hookRef = { current: null as any }
     function TestComponent() {
-      hookState = useDownloads(onFinished)
-      return React.createElement(ink.Text, null, `active: ${hookState.activeCount}`)
+      hookRef.current = useDownloads(onFinished)
+      return React.createElement(ink.Text, null, `active: ${hookRef.current.activeCount}`)
     }
 
     const stream = new PassThrough()
     const app = ink.render(React.createElement(TestComponent), { stdout: stream as any, stderr: stream as any, patchConsole: false })
 
-    hookState.queueDownload({ repo: "mlx-community/A" })
+    hookRef.current.queueDownload({ repo: "mlx-community/A" })
     await new Promise(r => setTimeout(r, 60))
     expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pulled success-slug"))
 
     // Failure case
     shouldSucceed = false
-    hookState.queueDownload({ repo: "mlx-community/B" })
+    hookRef.current.queueDownload({ repo: "mlx-community/B" })
     await new Promise(r => setTimeout(r, 60))
     expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pull failed: failed download"))
 
