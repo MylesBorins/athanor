@@ -9,7 +9,7 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Config safety** — load-time sanitization in `src/config/index.ts`
 - **Registry helpers** — semantic mutations (`setModelPublish`, `setModelFlavor`, etc.) plus shared materialization in `src/registry/materialize.ts`
 - **App service layer** — `src/app/models.ts` centralizes scan/pull/start/stop/expose/preset flows and most pi sync side effects
-- **CLI split** — domain modules under `src/cli/` (`model-commands`, `preset-commands`, `system-commands`, `pull-renderer`, `shared`)
+- **CLI split** — domain modules under `src/cli/` (`model-commands`, `preset-commands`, `system-commands`, `pull-commands`, `snippet-commands`, `telemetry-commands`, `pull-renderer`, `shared`); `commands.ts` is now a pure re-export aggregator
 - **TUI split** — hooks extracted from `App.tsx` (`useAppData`, `useModelActions`, `useAppInput`, `useMouseWheel`)
 - **Pi context correctness** — `contextWindow` from effective merged runtime config; 16K default baselines; explicit recipe context bands
 - **Router lifecycle detach** — `src/router/lifecycle.ts`; router follows active model state, not TUI lifetime (see `plans/done/router-lifecycle-detach.md`)
@@ -21,7 +21,7 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Router live token accounting** — `SSETokenCounter` passthrough Transform in `src/router/server.ts` tees SSE stream tokens live, updating `src/supervisor/metrics.ts` (`updateLiveRouterStats`), surfaced in CLI (`athanor status`) and TUI (`useAppData`)
 - **Comprehensive test suite** — full integration test suites (pi-sync, CLI flows, pipeline, detached supervisor, router telemetry), complete TUI hook coverage (`useAppInput`, `useDownloads`, `useModelActions`, `useAppData`, `useMouseWheel`), and supervisor policy & eviction suites.
 
-Test suite as of 2026-09-13: 64 test files, 730+ tests, running under Vitest v5, TypeScript 7, and oxlint with >76% overall branch coverage.
+Test suite as of 2026-09-13: 64 test files, 732 tests, running under Vitest v5, TypeScript 7, and oxlint with >76% overall branch coverage.
 
 ## Remaining backlog
 
@@ -30,12 +30,11 @@ Ordered by value; none of these require breaking `AGENTS.md` invariants without 
 ### High value
 
 1. **Supervisor lifecycle events** — tiny event emitter (`starting`, `running`, `stopped`, `error`) to reduce polling and centralize sync
-2. **Move `cmdPull()`** — last large piece still in `src/cli/commands.ts` into a dedicated command module
 
 ### Medium value
 
-3. **Recommendation calibration** — validate GGUF/MLX metadata extraction and fit-band heuristics on real machines
-4. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
+2. **Recommendation calibration** — validate GGUF/MLX metadata extraction and fit-band heuristics on real machines
+3. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
 
 ### Later / optional
 

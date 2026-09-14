@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest"
-import { cmdPull } from "./commands.js"
+import { cmdPull } from "./pull-commands.js"
+import { cmdPull as reExportedCmdPull } from "./commands.js"
 import { PullAbortedError } from "../pull/download.js"
 
 vi.mock("../app/models.js", () => ({
@@ -95,5 +96,9 @@ describe("cmdPull", () => {
     await cmdPull("mlx-community/Qwen2.5-7B")
     expect(process.listenerCount("SIGINT")).toBe(initialIntListeners)
     expect(process.listenerCount("SIGTERM")).toBe(initialTermListeners)
+  })
+
+  it("is re-exported identically from commands.js for backward compatibility", () => {
+    expect(reExportedCmdPull).toBe(cmdPull)
   })
 })

@@ -75,6 +75,9 @@ Compressed, code-driven architecture context for future work.
   - `src/cli/model-commands.ts`
   - `src/cli/preset-commands.ts`
   - `src/cli/system-commands.ts`
+  - `src/cli/pull-commands.ts`
+  - `src/cli/snippet-commands.ts`
+  - `src/cli/telemetry-commands.ts`
   - `src/cli/pull-renderer.ts`
 - **ui**
   - `src/ui/App.tsx`
