@@ -20,9 +20,9 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Interactive HF search browser & concurrent downloads** — `SearchBrowser.tsx`, `DownloadsModal.tsx`, `useDownloads.ts` with queue deduplication and cancellation
 - **Router live token accounting** — `SSETokenCounter` passthrough Transform in `src/router/server.ts` tees SSE stream tokens live, updating `src/supervisor/metrics.ts` (`updateLiveRouterStats`), surfaced in CLI (`athanor status`) and TUI (`useAppData`)
 - **Supervisor lifecycle events** — `Supervisor` extends `EventEmitter` with strongly-typed lifecycle events (`starting`, `running`, `stopped`, `exit`, `error`, `evicted`), providing event-driven observability for process transitions
-- **Comprehensive test suite** — full integration test suites (pi-sync, CLI flows, pipeline, detached supervisor, router telemetry), complete TUI hook coverage (`useAppInput`, `useDownloads`, `useModelActions`, `useAppData`, `useMouseWheel`), and supervisor policy & eviction suites.
+- **Comprehensive test suite** — full integration test suites (pi-sync, CLI flows, pipeline, detached supervisor, router telemetry), complete TUI coverage (`PresetEditor`, `SearchBrowser`, `PullModal`, `ModelList`, and hooks `useAppInput`, `useDownloads`, `useModelActions`, `useAppData`, `useMouseWheel`), and supervisor policy & eviction suites.
 
-Test suite as of 2026-09-13: 64 test files, 738+ tests, running under Vitest v5, TypeScript 7, and oxlint with >76% overall branch coverage.
+Test suite as of 2026-09-14: 64 test files, 749 tests, running under Vitest v5, TypeScript 7, and oxlint with >85% overall branch coverage and >93% statement coverage.
 
 ## Remaining backlog
 
@@ -32,12 +32,11 @@ Ordered by value; none of these require breaking `AGENTS.md` invariants without 
 
 1. **Recommendation calibration** — see `plans/recommendation-calibration.md` (validate GGUF/MLX metadata extraction, GQA attention head scalings, and fit-band heuristics on real machines)
 2. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
-3. **TUI test expansion** — see `plans/tui-test-expansion.md` (coverage on PresetEditor, SearchBrowser, and PullModal)
 
 ### Later / optional
 
-4. **Black-box integration tests** — fake runtimes + stub health endpoints across registry/supervisor/sync/router
-5. **Transactional state store** — process-local cache with events; only if orchestration complexity grows further
+3. **Black-box integration tests** — fake runtimes + stub health endpoints across registry/supervisor/sync/router
+4. **Transactional state store** — process-local cache with events; only if orchestration complexity grows further
 
 ## Known structural risks (unchanged)
 

@@ -66,6 +66,7 @@ Context discipline:
 - avoid re-reading the entire repository unless the task is cross-cutting, the map is stale, or the user asks for a fresh architectural review
 - prefer incremental context: changed files, directly related modules, and affected invariants
 - after meaningful architectural refactors, update the relevant file(s) under `context/`
+- when completing a task tracked in `context/plans/`, move the plan into `context/plans/done/`, update its status to `Completed`, and update the remaining backlog in `context/ARCH_REVIEW.md`
 
 ## Development
 
@@ -87,6 +88,7 @@ Before sending a change:
 2. `npm test` green.
 3. If you added a new command or TUI key, update `README.md` (CLI reference / TUI bindings tables) in the same change.
 4. If you touched an invariant above, flag it explicitly in the PR description.
+5. If completing a planned task, ensure the plan is moved to `context/plans/done/` and `context/ARCH_REVIEW.md` is updated.
 
 ## Onboarding a user
 

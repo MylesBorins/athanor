@@ -1,7 +1,7 @@
 # Plan: tui-test-expansion
 
 ## Status
-Proposed
+Completed
 
 ## Context
 Athanor's core logic (adapters, config, discovery, registry, router, supervisor, sync, cli) has achieved between 85% and 100% statement and branch coverage with over 730 automated tests. The remaining uncovered branches across the repository reside almost entirely in three interactive Ink TUI components:
