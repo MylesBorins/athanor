@@ -355,5 +355,28 @@ describe("compound presets", () => {
       const res = applyCompoundSelection(entry, "unknownKnob" as any, "value")
       expect(res).toEqual(entry.preset)
     })
+
+    it("infers all MLX sampling modes in inferCompoundState", () => {
+      const mlx = mlxEntry()
+
+      expect(inferCompoundState(mlx, { temp: 1.0, topP: 0.95, topK: 20, minP: 0.0 }).samplingMode).toBe("thinking")
+      expect(inferCompoundState(mlx, { temp: 0.7, topP: 0.80, topK: 20, minP: 0.0, presencePenalty: 1.5 }).samplingMode).toBe("instruct")
+      expect(inferCompoundState(mlx, { temp: 0.8, topP: 0.95, topK: 40, minP: 0.05 }).samplingMode).toBe("balanced")
+      expect(inferCompoundState(mlx, { temp: 0.0, topP: 1.0, topK: 0, minP: 0.0 }).samplingMode).toBe("deterministic")
+      expect(inferCompoundState(mlx, { temp: 1.1, topP: 0.95, topK: 50, minP: 0.05 }).samplingMode).toBe("creative")
+      expect(inferCompoundState(mlx, { temp: 0.5, topP: 0.5 }).samplingMode).toBe("custom")
+    })
+
+    it("infers GPU offload levels for llama.cpp in inferCompoundState", () => {
+      const llama = llamaEntry()
+      const mlx = mlxEntry()
+
+      expect(inferCompoundState(llama, { nGpuLayers: 999 }).gpuOffload).toBe("all")
+      expect(inferCompoundState(llama, { nGpuLayers: 0 }).gpuOffload).toBe("cpu")
+      expect(inferCompoundState(llama, { nGpuLayers: 24 }).gpuOffload).toBe("custom")
+      expect(inferCompoundState(llama, {}).gpuOffload).toBe("custom")
+      expect(inferCompoundState(mlx, {}).gpuOffload).toBeUndefined()
+    })
   })
 })
+

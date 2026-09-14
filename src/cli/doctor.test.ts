@@ -169,8 +169,40 @@ describe("binaryUpdateStatus", () => {
     expect(status).toBeNull()
   })
 
+  it("returns null when brew info output is invalid JSON or has no stable version", async () => {
+    mockSpawn("not-valid-json", 0)
+    const status1 = await binaryUpdateStatus("llama-server", "b4000")
+    expect(status1).toBeNull()
+
+    mockSpawn(JSON.stringify({ formulae: [] }), 0)
+    const status2 = await binaryUpdateStatus("llama-server", "b4000")
+    expect(status2).toBeNull()
+  })
+
   it("returns null for unknown binary", async () => {
     const status = await binaryUpdateStatus("custom_binary", "1.0.0")
     expect(status).toBeNull()
+  })
+})
+
+describe("binaryVersion site-packages miss", () => {
+  it("returns null when python lib dir exists but dist-info does not match target package", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-doctor-mismatch-"))
+    try {
+      const toolDir = path.join(tmp, "uv-tools", "some-tool")
+      const binDir = path.join(toolDir, "bin")
+      const libDir = path.join(toolDir, "lib", "python3.12", "site-packages")
+      const distInfo = path.join(libDir, "unrelated_pkg-1.0.dist-info")
+      fs.mkdirSync(binDir, { recursive: true })
+      fs.mkdirSync(distInfo, { recursive: true })
+
+      const binaryPath = path.join(binDir, "mlx_lm.server")
+      fs.writeFileSync(binaryPath, "#!/bin/sh\n")
+
+      const ver = await binaryVersion("mlx_lm.server", binaryPath)
+      expect(ver).toBeNull()
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })

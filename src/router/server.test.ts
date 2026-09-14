@@ -368,4 +368,187 @@ describe("startRouter", () => {
     await stopRouter()
     await upstream.close()
   })
+
+  it("handles /health and unknown 404 routes correctly", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter({ silent: true })
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    // GET /health
+    const resHealth = await fetch(`http://127.0.0.1:${address.port}/health`)
+    expect(resHealth.status).toBe(200)
+    expect(await resHealth.text()).toBe("ok")
+
+    // GET /unknown -> 404
+    const resNotFound = await fetch(`http://127.0.0.1:${address.port}/unknown`)
+    expect(resNotFound.status).toBe(404)
+
+    // POST /v1/chat/completions with empty body -> 400
+    const resEmpty = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: ""
+    })
+    expect(resEmpty.status).toBe(400)
+
+    // POST /v1/chat/completions with missing model -> 400
+    const resNoModel = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [] })
+    })
+    expect(resNoModel.status).toBe(400)
+
+    // POST /v1/chat/completions with unknown model -> 404
+    const resUnknownModel = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "non-existent-model" })
+    })
+    expect(resUnknownModel.status).toBe(404)
+
+    await stopRouter()
+  })
+
+  it("handles upstream failure retry returning 503 when target resolution fails", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0, verbose: true }
+        })
+      }
+    })
+
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/FailModel",
+        slug: "fail-model",
+        path: "/cache/fail",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/FailModel" },
+        port: 18999,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+
+    let started = false
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => {
+          if (!started) return { port: 18999 }
+          return undefined
+        },
+        list: () => [],
+        start: vi.fn(async () => {
+          started = true
+          throw new Error("retry start failed")
+        }),
+        stop: vi.fn(async () => {
+          started = true
+        }),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter({ silent: true, verbose: true })
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "mlx-community/FailModel",
+        messages: [{ role: "user", content: "hello" }],
+        temperature: 0.7
+      })
+    })
+
+    // Expect 502 or 503 error returned to client
+    expect([502, 503]).toContain(res.status)
+
+    await stopRouter()
+  })
+
+  it("handles router lifecycle options, disabled config, and verbose logging", async () => {
+    vi.resetModules()
+    vi.doMock("../config/index.js", async () => {
+      const actual: any = await vi.importActual("../config/index.js")
+      return {
+        ...actual,
+        loadConfig: () => ({
+          ...actual.loadConfig(),
+          router: {
+            enabled: false,
+            host: "127.0.0.1",
+            port: 0,
+            verbose: false,
+            drainTimeoutMs: 100
+          }
+        })
+      }
+    })
+
+    const { startRouter, stopRouter } = await import("./server.js")
+
+    // When disabled and not forced, returns null
+    const sNull = startRouter({ force: false })
+    expect(sNull).toBeNull()
+
+    // Stop when not running resolves cleanly
+    await expect(stopRouter()).resolves.toBeUndefined()
+
+    // Start with force: true and verbose: true, silent: false
+    const s1 = startRouter({ force: true, port: 0, verbose: true, silent: false })
+    expect(s1).not.toBeNull()
+    await new Promise<void>(resListen => s1!.once("listening", resListen))
+    const address = s1!.address() as AddressInfo
+
+    // Calling startRouter again returns same server instance
+    const s2 = startRouter({ force: true })
+    expect(s2).toBe(s1)
+
+    // GET /health with verbose: true
+    const resHealth = await fetch(`http://127.0.0.1:${address.port}/health`)
+    expect(resHealth.status).toBe(200)
+
+    // GET /models alias with verbose: true
+    const resModels = await fetch(`http://127.0.0.1:${address.port}/models`)
+    expect(resModels.status).toBe(200)
+
+    // POST /v1/invalid with non-JSON body to trigger summarizeRequestBody catch branch
+    const resBadBody = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "text/plain", "x-custom-test": "header-val" },
+      body: "this is not json at all"
+    })
+    expect(resBadBody.status).toBe(400)
+
+    // GET /not-found with verbose: true
+    const res404 = await fetch(`http://127.0.0.1:${address.port}/unhandled/path`)
+    expect(res404.status).toBe(404)
+
+    await stopRouter()
+  })
 })
+
+

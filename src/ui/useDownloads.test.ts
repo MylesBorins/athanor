@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { PullAbortedError } from "../pull/download.js"
 import {
   findActiveDuplicate,
@@ -81,3 +81,110 @@ describe("useDownloads helpers", () => {
     expect(next[0]?.resultMessage).toBe("pull cancelled")
   })
 })
+
+describe("useDownloads hook lifecycle", () => {
+  it("queues downloads, deduplicates, updates on events, and cancels", async () => {
+    const React = await import("react")
+    const ink = await import("ink")
+    const { PassThrough } = await import("node:stream")
+
+    let capturedOnEvent: any = null
+    const mockPull = vi.fn((opts: any) => {
+      capturedOnEvent = opts.onEvent
+      return new Promise<{ entry: { slug: string; port: number } }>(() => {})
+    })
+
+    vi.doMock("../pull/hf.js", () => ({
+      pull: mockPull
+    }))
+
+    const { useDownloads } = await import("./useDownloads.js")
+
+    let hookState: any = null
+    function TestComponent() {
+      hookState = useDownloads()
+      return React.createElement(ink.Text, null, `active: ${hookState.activeCount}`)
+    }
+
+    const stream = new PassThrough()
+    const app = ink.render(React.createElement(TestComponent), { stdout: stream as any, stderr: stream as any, patchConsole: false })
+
+    expect(hookState.activeCount).toBe(0)
+
+    // Queue download
+    const t1 = hookState.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
+    expect(t1.repo).toBe("mlx-community/Qwen2.5-32B")
+
+    // Allow React state update to flush
+    await new Promise(r => setTimeout(r, 50))
+
+    // Queue duplicate: should return same task
+    const tDuplicate = hookState.queueDownload({ repo: "mlx-community/Qwen2.5-32B", file: "model.safetensors" })
+    expect(tDuplicate.id).toBe(t1.id)
+
+    // Trigger events
+    if (capturedOnEvent) {
+      capturedOnEvent({ type: "resolving", elapsed: 100 })
+      capturedOnEvent({ type: "progress", unit: "B", file: "model.safetensors", done: 500, total: 1000, elapsed: 10, rate: 1024 })
+      capturedOnEvent({ type: "error", message: "fail" })
+      capturedOnEvent({ type: "done", elapsed: 200, path: "/tmp/snap" })
+    }
+
+    // Test onLine callback
+    const onLineCb = mockPull.mock.calls[0]?.[0]?.onLine
+    if (onLineCb) onLineCb("progress line update")
+
+    // Cancel download
+    hookState.cancelDownload(t1.id)
+
+    // Clear finished
+    hookState.clearFinished()
+
+    app.unmount()
+  })
+
+  it("handles pull success and failure callbacks", async () => {
+    vi.resetModules()
+    const React = await import("react")
+    const ink = await import("ink")
+    const { PassThrough } = await import("node:stream")
+
+    let shouldSucceed = true
+    const mockPull = vi.fn(async () => {
+      if (shouldSucceed) {
+        return { entry: { slug: "success-slug", port: 8085 } }
+      }
+      throw new Error("failed download")
+    })
+
+    vi.doMock("../pull/hf.js", () => ({
+      pull: mockPull
+    }))
+
+    const { useDownloads } = await import("./useDownloads.js")
+
+    const onFinished = vi.fn()
+    let hookState: any = null
+    function TestComponent() {
+      hookState = useDownloads(onFinished)
+      return React.createElement(ink.Text, null, `active: ${hookState.activeCount}`)
+    }
+
+    const stream = new PassThrough()
+    const app = ink.render(React.createElement(TestComponent), { stdout: stream as any, stderr: stream as any, patchConsole: false })
+
+    hookState.queueDownload({ repo: "mlx-community/A" })
+    await new Promise(r => setTimeout(r, 60))
+    expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pulled success-slug"))
+
+    // Failure case
+    shouldSucceed = false
+    hookState.queueDownload({ repo: "mlx-community/B" })
+    await new Promise(r => setTimeout(r, 60))
+    expect(onFinished).toHaveBeenCalledWith(expect.stringContaining("pull failed: failed download"))
+
+    app.unmount()
+  })
+})
+
+

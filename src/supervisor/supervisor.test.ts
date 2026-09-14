@@ -184,4 +184,39 @@ describe("Supervisor (integration)", () => {
     })
     await expect(sup.start(entry(19555))).rejects.toThrow("Failed to execute 'non_existent_binary_for_testing_12345'")
   }, 10_000)
+
+  it("stopAll returns false when no instances are running and true when instances are stopped", async () => {
+    const sup = await loadSupervisor()
+    await sup.ready()
+
+    // No instances
+    const res1 = await sup.stopAll()
+    expect(res1).toBe(false)
+
+    // Start an instance
+    const e = entry(18088)
+    await sup.start(e)
+    expect(sup.list()).toHaveLength(1)
+
+    // Stop all
+    const res2 = await sup.stopAll()
+    expect(res2).toBe(true)
+    expect(sup.list()).toHaveLength(0)
+  }, 15_000)
+
+  it("restarts a running model", async () => {
+    const sup = await loadSupervisor()
+    await sup.ready()
+
+    const e = entry(18089)
+    const inst1 = await sup.start(e)
+    expect(inst1.status).toBe("running")
+
+    const inst2 = await sup.restart(e)
+    expect(inst2.status).toBe("running")
+    expect(inst2.pid).not.toBe(inst1.pid)
+
+    await sup.stop(e.id)
+  }, 15_000)
 })
+

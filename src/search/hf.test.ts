@@ -337,6 +337,59 @@ describe("enrichSelectionHint", () => {
     expect(hint.defaultFile).toBe("model-Q4_K_M.gguf")
     expect(hint.defaultFileSizeBytes).toBe(4_100_000_000)
   })
+
+  it("immediately returns runtime without fetching when runtime is not llama.cpp", async () => {
+    const mod = await import("./hf.js")
+    const hint = await mod.enrichSelectionHint({ id: "mlx-community/A", runtime: "mlx", tags: ["mlx"] })
+    expect(hint).toEqual({ runtime: "mlx" })
+  })
+
+  it("handles empty GGUF candidates and filters mmproj and shards", async () => {
+    vi.doMock("../pull/api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({
+        id: "owner/sharded-repo",
+        siblings: [
+          { rfilename: "model-00001-of-00002.gguf", size: 4_000_000_000 },
+          { rfilename: "mmproj-model.gguf", size: 500_000_000 }
+        ]
+      })),
+      fetchRepoTree: vi.fn(async () => [])
+    }))
+    const mod = await import("./hf.js")
+    const hint = await mod.enrichSelectionHint({ id: "owner/sharded-repo", runtime: "llama.cpp", tags: ["gguf"] })
+    expect(hint.defaultFile).toBeUndefined()
+    expect(hint.ggufCandidates).toEqual([])
+  })
+
+  it("ranks quantizations across Q5_K_M, Q8_0, IQ4, IQ3, IQ2, and tie-breaks by size", async () => {
+    vi.doMock("../pull/api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => ({
+        id: "owner/quants-repo",
+        siblings: [
+          { rfilename: "model-IQ2_XXS.gguf", size: 2_000_000_000 },
+          { rfilename: "model-IQ3_M.gguf", size: 3_000_000_000 },
+          { rfilename: "model-IQ4_NL.gguf", size: 4_000_000_000 },
+          { rfilename: "model-Q8_0.gguf", size: 8_000_000_000 },
+          { rfilename: "model-Q4_K_S.gguf", size: 4_100_000_000 },
+          { rfilename: "model-Q5_K_M.gguf", size: 5_000_000_000 }
+        ]
+      })),
+      fetchRepoTree: vi.fn(async () => [])
+    }))
+    const mod = await import("./hf.js")
+    const hint = await mod.enrichSelectionHint({ id: "owner/quants-repo", runtime: "llama.cpp", tags: ["gguf"] })
+    expect(hint.defaultFile).toBe("model-Q5_K_M.gguf")
+  })
+
+  it("deletes from cache and re-throws if enrichSelectionHint fails", async () => {
+    vi.doMock("../pull/api.js", () => ({
+      fetchRepoInfo: vi.fn(async () => { throw new Error("fetch error") }),
+      fetchRepoTree: vi.fn(async () => [])
+    }))
+    const mod = await import("./hf.js")
+    await expect(mod.enrichSelectionHint({ id: "owner/error-repo", runtime: "llama.cpp", tags: ["gguf"] }))
+      .rejects.toThrow("fetch error")
+  })
 })
 
 describe("groupByRuntime", () => {

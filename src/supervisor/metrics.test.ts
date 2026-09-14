@@ -1,14 +1,29 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 import {
   parseProcStats,
   parseCompletionStats,
   parseVmStat,
+  sampleProcessStats,
   sampleSystemStats,
   _resetMetricsState,
   updateLiveRouterStats,
   clearLiveRouterStats,
   getLiveRouterStats
 } from "./metrics.js"
+
+const execFileSyncMock = vi.fn()
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("child_process")>()
+  return {
+    ...actual,
+    execFileSync: (file: any, args: any, opts: any) => {
+      if (execFileSyncMock.getMockImplementation()) {
+        return execFileSyncMock(file, args, opts)
+      }
+      return actual.execFileSync(file, args, opts)
+    }
+  }
+})
 
 describe("parseProcStats", () => {
   it("parses multi-line ps output (pid, %cpu, rss-in-kb)", () => {
@@ -211,6 +226,40 @@ describe("liveRouterStats", () => {
     } finally {
       Date.now = origNow
     }
+  })
+})
+
+describe("sampleProcessStats", () => {
+  beforeEach(() => {
+    execFileSyncMock.mockReset()
+  })
+
+  it("returns empty map when pids array has no valid pids", () => {
+    expect(sampleProcessStats([])).toEqual(new Map())
+    expect(sampleProcessStats([-1, 0, NaN])).toEqual(new Map())
+  })
+
+  it("calls execFileSync ps and parses stats for valid pids", () => {
+    execFileSyncMock.mockReturnValue("12345 15.5 102400\n")
+    const result = sampleProcessStats([12345])
+    expect(execFileSyncMock).toHaveBeenCalled()
+    expect(result.get(12345)).toEqual({ pid: 12345, cpuPct: 15.5, rssBytes: 102400 * 1024 })
+  })
+
+  it("returns empty map if execFileSync throws", () => {
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("ps failed")
+    })
+    const result = sampleProcessStats([12345])
+    expect(result.size).toBe(0)
+  })
+
+  it("handles vm_stat failure in sampleSystemStats gracefully", () => {
+    execFileSyncMock.mockImplementation(() => {
+      throw new Error("vm_stat failed")
+    })
+    const stats = sampleSystemStats()
+    expect(stats.totalMemBytes).toBeGreaterThan(0)
   })
 })
 

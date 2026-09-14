@@ -1,4 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi, beforeEach } from "vitest"
+import React from "react"
+import * as ink from "ink"
+
+const useInputMock = vi.fn()
+vi.mock("ink", async () => {
+  const actual = await vi.importActual<typeof import("ink")>("ink")
+  return {
+    ...actual,
+    useInput: (handler: any, opts: any) => {
+      useInputMock(handler, opts)
+    }
+  }
+})
+
 import {
   getNextStandardCtx,
   getNextSlotSize,
@@ -152,3 +166,188 @@ describe("CYCLABLE_KEYS", () => {
     expect(CYCLABLE_KEYS).toContain("speculativeMode")
   })
 })
+
+import { upsertModel } from "../registry/index.js"
+import type { ModelEntry } from "../types/index.js"
+
+describe("PresetEditor component rendering and keyboard interaction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("handles model not found state gracefully", async () => {
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+
+    const output = ink.renderToString(
+      React.createElement(PresetEditor, {
+        entryId: "nonexistent/Model",
+        onClose
+      })
+    )
+
+    expect(output).toContain("model not found")
+    expect(useInputMock).toHaveBeenCalled()
+    const capturedHandler = useInputMock.mock.calls[0][0]
+
+    capturedHandler("", { escape: true })
+    expect(onClose).toHaveBeenCalledWith("")
+  })
+
+  it("renders MLX model, edits contextWindow, cycles knobs, saves recipe, copies, and clears", async () => {
+    const testMlxModel: ModelEntry = {
+      id: "mlx-community/Qwen2.5",
+      slug: "qwen2-5",
+      path: "/fake/path/qwen",
+      runtime: "mlx",
+      source: { type: "hf", repo: "mlx-community/Qwen2.5" },
+      port: 18080,
+      publish: true,
+      addedAt: Date.now(),
+      mlxFlavor: "lm",
+      mlxCapabilities: ["vlm"]
+    }
+    upsertModel(testMlxModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+
+    const output = ink.renderToString(
+      React.createElement(PresetEditor, {
+        entryId: "mlx-community/Qwen2.5",
+        onClose
+      })
+    )
+
+    expect(output).toContain("Formula editor [SIMPLE]")
+    expect(output).toContain("qwen2-5")
+    expect(output).toContain("vision tower detected")
+    expect(useInputMock).toHaveBeenCalled()
+    const capturedHandler = useInputMock.mock.calls[0][0]
+
+    // Cycle compound knob in simple mode
+    capturedHandler("", { rightArrow: true })
+    capturedHandler("", { leftArrow: true })
+
+    // Open edit buffer on contextWindow (cursor is 0)
+    capturedHandler("", { return: true })
+    // Cycle standard context left and right
+    capturedHandler("", { leftArrow: true })
+    capturedHandler("", { rightArrow: true })
+    // Type in edit buffer
+    capturedHandler("0", {})
+    capturedHandler("", { backspace: true })
+    // Cancel edit
+    capturedHandler("", { escape: true })
+
+    // Open edit buffer again and commit
+    capturedHandler("", { return: true })
+    capturedHandler("", { rightArrow: true })
+    capturedHandler("", { return: true })
+
+    // Unset kvCache in simple mode
+    capturedHandler("", { downArrow: true })
+    capturedHandler("u", {})
+
+    // Toggle MLX flavor with 'v'
+    capturedHandler("v", {})
+
+    // Copy to clipboard
+    capturedHandler("y", {})
+
+    // Save recipe dialog
+    capturedHandler("s", {})
+    // Cycle formula names in save dialog
+    capturedHandler("", { downArrow: true })
+    capturedHandler("", { upArrow: true })
+    // Type name
+    capturedHandler("a", {})
+    capturedHandler("", { backspace: true })
+    // Commit save
+    capturedHandler("", { return: true })
+
+    // Open save dialog and cancel with Escape
+    capturedHandler("s", {})
+    capturedHandler("", { escape: true })
+
+    // Switch to Advanced mode with Tab
+    capturedHandler("", { tab: true })
+    // Navigate in advanced mode
+    capturedHandler("", { downArrow: true })
+    capturedHandler("", { upArrow: true })
+    // Open edit buffer on advanced row
+    capturedHandler("", { return: true })
+    capturedHandler("", { rightArrow: true })
+    capturedHandler("", { leftArrow: true })
+    capturedHandler("", { return: true })
+    // Unset key in advanced mode with 'u'
+    capturedHandler("u", {})
+
+    // Clear confirmation with 'c'
+    capturedHandler("c", {})
+    // Reset confirmation by pressing an arrow key
+    capturedHandler("", { downArrow: true })
+    // Two-tap confirm clear
+    capturedHandler("c", {})
+    capturedHandler("c", {})
+
+    // Delete formula
+    capturedHandler("d", {})
+
+    // Close editor with escape
+    capturedHandler("", { escape: true })
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it("renders llama.cpp model and exercises llama-specific compound and advanced knobs", async () => {
+    const testLlamaModel: ModelEntry = {
+      id: "unsloth/Qwen3-GGUF:model.gguf",
+      slug: "qwen3-gguf",
+      path: "/fake/path/model.gguf",
+      runtime: "llama.cpp",
+      source: { type: "hf", repo: "unsloth/Qwen3-GGUF", file: "model.gguf" },
+      port: 18081,
+      publish: true,
+      addedAt: Date.now(),
+      reasoningEffort: { enum: ["low", "medium", "high"], templateDefault: "medium", athanorDefault: "medium" }
+    }
+    upsertModel(testLlamaModel)
+
+    const { PresetEditor } = await import("./PresetEditor.js")
+    const onClose = vi.fn()
+
+    const output = ink.renderToString(
+      React.createElement(PresetEditor, {
+        entryId: "unsloth/Qwen3-GGUF:model.gguf",
+        onClose
+      })
+    )
+
+    expect(output).toContain("Formula editor [SIMPLE]")
+    expect(output).toContain("qwen3-gguf")
+    const capturedHandler = useInputMock.mock.calls[0][0]
+
+    // Simple mode: navigate down to gpuOffload knob and open edit buffer
+    capturedHandler("", { downArrow: true })
+    capturedHandler("", { return: true })
+    capturedHandler("", { rightArrow: true })
+    capturedHandler("", { leftArrow: true })
+    capturedHandler("", { return: true })
+
+    // Unset kvCache for llama (cacheTypeK, cacheTypeV)
+    capturedHandler("", { downArrow: true })
+    capturedHandler("u", {})
+
+    // Tab to Advanced mode
+    capturedHandler("", { tab: true })
+    capturedHandler("", { downArrow: true })
+    capturedHandler("", { return: true })
+    capturedHandler("", { rightArrow: true })
+    capturedHandler("", { return: true })
+
+    capturedHandler("", { escape: true })
+    expect(onClose).toHaveBeenCalled()
+  })
+})
+
+
