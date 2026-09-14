@@ -1,4 +1,7 @@
 import * as http from "http"
+import * as fs from "fs"
+import * as os from "os"
+import * as path from "path"
 import type { AddressInfo } from "net"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
@@ -548,6 +551,548 @@ describe("startRouter", () => {
     expect(res404.status).toBe(404)
 
     await stopRouter()
+  })
+
+  it("records rich telemetry for non-streaming completions including logs, process stats, and llama speculative metrics", async () => {
+    const tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-router-test-"))
+    const logFile = path.join(tmpLogDir, "test-llama.log")
+    fs.writeFileSync(
+      logFile,
+      [
+        "prompt eval time = 100.0 ms / 40 tokens (400.0 tokens per second)",
+        "eval time = 400.0 ms / 20 tokens (50.0 tokens per second)",
+        "spec acceptance = 80.0%"
+      ].join("\n"),
+      "utf8"
+    )
+
+    const upstream = await new Promise<{ port: number; close: () => Promise<void> }>(resolve => {
+      const server = http.createServer((req, res) => {
+        if (req.url === "/v1/models") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: [{ id: "test-org/llama-model" }] }))
+          return
+        }
+        if (req.url === "/v1/chat/completions") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({
+            id: "cmpl-123",
+            object: "chat.completion",
+            choices: [{ message: { role: "assistant", content: "Hello there!" } }],
+            usage: {
+              prompt_tokens: 40,
+              completion_tokens: 20,
+              total_tokens: 60
+            }
+          }))
+          return
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as AddressInfo).port
+        resolve({
+          port,
+          close: () => new Promise<void>((resClose, rej) => server.close(err => err ? rej(err) : resClose()))
+        })
+      })
+    })
+
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0, verbose: true }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "test-org/llama-model",
+        slug: "test-llama",
+        path: "/cache/test-llama",
+        runtime: "llama.cpp",
+        source: { type: "hf", repo: "test-org/llama-model" },
+        port: upstream.port,
+        publish: true,
+        addedAt: 0,
+        capabilities: ["mtp"],
+        formula: {
+          runtime: "llama.cpp",
+          name: "spec-fast",
+          llama: {
+            speculativeMode: "enabled",
+            specDraftNMax: 5,
+            ctxSize: 4096
+          }
+        }
+      }]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => ({
+          id: "test-org/llama-model",
+          port: upstream.port,
+          pid: process.pid,
+          logFile
+        }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const { clearTelemetryHistory, loadTelemetryHistory } = await import("../supervisor/telemetry.js")
+    clearTelemetryHistory()
+
+    const server = startRouter({ verbose: true })
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "test-org/llama-model",
+        messages: [{ role: "user", content: "hi" }],
+        stream: false
+      })
+    })
+
+    expect(res.status).toBe(200)
+    const data = await res.json() as any
+    expect(data.id).toBe("cmpl-123")
+
+    // Wait for async telemetry record to be saved
+    await new Promise(r => setTimeout(r, 250))
+    const history = loadTelemetryHistory()
+    const rec = history.find(r => r.modelId === "test-org/llama-model")!
+    expect(rec).toBeDefined()
+    expect(rec.modelId).toBe("test-org/llama-model")
+    expect(rec.promptTokens).toBe(40)
+    expect(rec.generatedTokens).toBe(20)
+    expect(rec.promptThroughput).toBe(400)
+    expect(rec.generationThroughput).toBe(50)
+    expect(rec.contextSize).toBe(4096)
+    expect(rec.contextUtilization).toBeCloseTo(60 / 4096)
+    expect(rec.presetName).toBe("spec-fast")
+    expect(rec.runtimeSpecific?.llama?.speculativeEnabled).toBe(true)
+    expect(rec.runtimeSpecific?.llama?.mtpEnabled).toBe(true)
+    expect(rec.runtimeSpecific?.llama?.speculativeAcceptanceRate).toBe(80)
+    expect(rec.runtimeSpecific?.llama?.meanDraftLength).toBe(4)
+    expect(typeof rec.peakMemoryBytes).toBe("number")
+
+    await stopRouter()
+    await upstream.close()
+    fs.rmSync(tmpLogDir, { recursive: true, force: true })
+  })
+
+  it("records MLX compilation time in telemetry from supervisor log", async () => {
+    const tmpLogDir = fs.mkdtempSync(path.join(os.tmpdir(), "athanor-router-mlx-"))
+    const logFile = path.join(tmpLogDir, "mlx-model.log")
+    fs.writeFileSync(
+      logFile,
+      "compiler compile time = 85.5 ms\nGeneration: 12 tokens 24.0 tokens-per-sec\n",
+      "utf8"
+    )
+
+    const upstream = await new Promise<{ port: number; close: () => Promise<void> }>(resolve => {
+      const server = http.createServer((req, res) => {
+        if (req.url === "/v1/models") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: [{ id: "mlx-community/ModelB" }] }))
+          return
+        }
+        if (req.url === "/v1/chat/completions") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({
+            choices: [{ message: { role: "assistant", content: "MLX response" } }],
+            usage: { prompt_tokens: 10, completion_tokens: 12 }
+          }))
+          return
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as AddressInfo).port
+        resolve({
+          port,
+          close: () => new Promise<void>((resClose, rej) => server.close(err => err ? rej(err) : resClose()))
+        })
+      })
+    })
+
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/ModelB",
+        slug: "model-b",
+        path: "/cache/model-b",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/ModelB" },
+        port: upstream.port,
+        publish: true,
+        addedAt: 0,
+        preset: { recipe: "balanced-recipe" }
+      }]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => ({
+          id: "mlx-community/ModelB",
+          port: upstream.port,
+          pid: process.pid,
+          logFile
+        }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const { clearTelemetryHistory, loadTelemetryHistory } = await import("../supervisor/telemetry.js")
+    clearTelemetryHistory()
+
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "mlx-community/ModelB",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    })
+
+    expect(res.status).toBe(200)
+    await new Promise(r => setTimeout(r, 250))
+    const history = loadTelemetryHistory()
+    const rec = history.find(r => r.modelId === "mlx-community/ModelB")
+    expect(rec).toBeDefined()
+    expect(rec!.runtimeSpecific?.mlx?.compilationTimeMs).toBe(85.5)
+    expect(rec!.presetName).toBe("balanced-recipe")
+
+    await stopRouter()
+    await upstream.close()
+    fs.rmSync(tmpLogDir, { recursive: true, force: true })
+  })
+
+  it("handles upstream empty body and error status codes", async () => {
+    let returnStatus = 204
+    const upstream = await new Promise<{ port: number; close: () => Promise<void> }>(resolve => {
+      const server = http.createServer((req, res) => {
+        if (req.url === "/v1/models") {
+          res.writeHead(200, { "content-type": "application/json" })
+          res.end(JSON.stringify({ data: [{ id: "mlx-community/StatusModel" }] }))
+          return
+        }
+        if (req.url === "/v1/chat/completions") {
+          if (returnStatus === 204) {
+            res.writeHead(204)
+            res.end()
+            return
+          }
+          res.writeHead(returnStatus, { "content-type": "application/json" })
+          res.end(JSON.stringify({ error: { message: "upstream error" } }))
+          return
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as AddressInfo).port
+        resolve({
+          port,
+          close: () => new Promise<void>((resClose, rej) => server.close(err => err ? rej(err) : resClose()))
+        })
+      })
+    })
+
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/StatusModel",
+        slug: "status-model",
+        path: "/cache/status-model",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/StatusModel" },
+        port: upstream.port,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => ({ port: upstream.port }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    // Test 204 No Content
+    returnStatus = 204
+    const res204 = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/StatusModel", messages: [{ role: "user", content: "hi" }] })
+    })
+    expect(res204.status).toBe(204)
+
+    // Test 500 Internal Error from upstream
+    returnStatus = 500
+    const res500 = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/StatusModel", messages: [{ role: "user", content: "hi" }] })
+    })
+    expect(res500.status).toBe(500)
+    const errBody = await res500.json() as any
+    expect(errBody.error.message).toBe("upstream error")
+
+    await stopRouter()
+    await upstream.close()
+  })
+
+  it("handles failure to start target or empty target in ensureRequestTarget", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/FailStart",
+        slug: "fail-start",
+        path: "/cache/fail",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/FailStart" },
+        port: 19999,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+
+    let throwInStart = true
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => undefined,
+        list: () => [],
+        start: vi.fn(async () => {
+          if (throwInStart) {
+            throw new Error("spawn failed: ENOENT")
+          }
+          return undefined as any
+        }),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    // 1. supervisor.start throws
+    throwInStart = true
+    const resThrow = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/FailStart", messages: [{ role: "user", content: "hi" }] })
+    })
+    expect(resThrow.status).toBe(503)
+    const bodyThrow = await resThrow.json() as any
+    expect(bodyThrow.error).toContain("failed to start fail-start")
+
+    // 2. supervisor.start returns undefined
+    throwInStart = false
+    const resEmpty = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/FailStart", messages: [{ role: "user", content: "hi" }] })
+    })
+    expect(resEmpty.status).toBe(503)
+    const bodyEmpty = await resEmpty.json() as any
+    expect(bodyEmpty.error).toContain("failed to resolve active target for fail-start")
+
+    await stopRouter()
+  })
+
+  it("handles retry returning 503 when retry target cannot be resolved after upstream failure", async () => {
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0, verbose: true }
+        })
+      }
+    })
+
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/FailModelRetry",
+        slug: "fail-model-retry",
+        path: "/cache/fail",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/FailModelRetry" },
+        port: 18998,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+
+    let started = false
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => {
+          if (!started) return { port: 18998 }
+          return undefined
+        },
+        list: () => [],
+        start: vi.fn(async () => {
+          started = true
+          return undefined as any
+        }),
+        stop: vi.fn(async () => {
+          started = true
+        }),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter({ silent: true, verbose: true })
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "mlx-community/FailModelRetry",
+        messages: [{ role: "user", content: "hello" }]
+      })
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.error).toContain("failed to resolve active target for fail-model-retry after upstream failure")
+
+    await stopRouter()
+  })
+
+  it("catches and logs telemetry recording errors cleanly without throwing", async () => {
+    const upstream = await startUpstream()
+    vi.doMock("../config/index.js", async () => {
+      const real: any = await vi.importActual("../config/index.js")
+      return {
+        ...real,
+        loadConfig: () => ({
+          ...real.DEFAULT_CONFIG,
+          router: { enabled: true, host: "127.0.0.1", port: 0 }
+        })
+      }
+    })
+    vi.doMock("../registry/index.js", () => ({
+      listModels: () => [{
+        id: "mlx-community/A",
+        slug: "a",
+        path: "/cache/a",
+        runtime: "mlx",
+        source: { type: "hf", repo: "mlx-community/A" },
+        port: upstream.port,
+        publish: true,
+        addedAt: 0
+      }]
+    }))
+    vi.doMock("../supervisor/index.js", () => ({
+      supervisor: {
+        ready: vi.fn(async () => {}),
+        get: () => ({ port: upstream.port }),
+        list: () => [],
+        start: vi.fn(),
+        stop: vi.fn(),
+        stopAll: vi.fn(),
+        restart: vi.fn()
+      }
+    }))
+    vi.doMock("../supervisor/telemetry.js", () => ({
+      saveTelemetryRecord: () => {
+        throw new Error("simulated telemetry disk error")
+      },
+      clearTelemetryHistory: vi.fn(),
+      loadTelemetryHistory: vi.fn(() => []),
+      parseLogTelemetry: vi.fn(() => ({}))
+    }))
+
+    const { startRouter, stopRouter } = await import("./server.js")
+    const server = startRouter()
+    await new Promise<void>(resListen => server!.once("listening", resListen))
+    const address = server!.address() as AddressInfo
+
+    const res = await fetch(`http://127.0.0.1:${address.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "mlx-community/A", messages: [{ role: "user", content: "hi" }] })
+    })
+    expect(res.status).toBe(200)
+    // Wait for the async telemetry timeout to run and catch
+    await new Promise(r => setTimeout(r, 250))
+
+    await stopRouter()
+    await upstream.close()
   })
 })
 
