@@ -22,17 +22,56 @@ export interface Recommendation {
   presetHintReason?: string
 }
 
-const COMFORTABLE_THRESHOLD = 0.60
-const TIGHT_THRESHOLD = 0.75
-
 // Empirical KV-cache coefficient: bytes per B-active-param per K-context-token
 // for FP16 K/V tensors.
 const KV_BYTES_PER_BPARAM_PER_KCTX = 3.5 * 1024 * 1024 // 3.5 MB
-const MOE_ATTENTION_PARAM_MULTIPLIER = 4.0
 const FRAMEWORK_OVERHEAD_BYTES = 500 * 1024 * 1024 // 500 MB
 
+/**
+ * Minimum system and macOS memory buffer reserved to prevent memory pressure
+ * and paging/swap on Apple Silicon unified memory architectures.
+ */
+export function minOsHeadroomGiB(totalMemoryGiB: number): number {
+  if (totalMemoryGiB <= 8) return 3.0
+  if (totalMemoryGiB <= 16) return 4.0
+  if (totalMemoryGiB <= 36) return 6.0
+  if (totalMemoryGiB <= 64) return 8.0
+  return 10.0
+}
+
+/**
+ * Effective Grouped-Query Attention (GQA) head ratio (kvHeads / queryHeads).
+ * Standard Multi-Head Attention (MHA) has a ratio of 1.0. Modern architectures
+ * frequently use 4:1 (0.25) or 8:1 (0.125), reducing the KV-cache by 4x to 8x.
+ */
+export function effectiveGqaRatio(entry: ModelEntry): number {
+  if (entry.gqaRatio !== undefined && entry.gqaRatio > 0 && entry.gqaRatio <= 1.0) {
+    return entry.gqaRatio
+  }
+  if (entry.headCount && entry.kvHeadCount && entry.headCount > 0 && entry.kvHeadCount > 0) {
+    return Math.min(1.0, entry.kvHeadCount / entry.headCount)
+  }
+  // Architecture-family heuristics when head counts are not explicitly stored
+  const arch = entry.architectureFamily?.toLowerCase()
+  if (arch) {
+    if (arch.includes("llama")) return 0.25
+    if (arch.includes("qwen")) return 0.20
+    if (arch.includes("mistral") || arch.includes("mixtral")) return 0.25
+    if (arch.includes("gemma")) return 0.50
+    if (arch.includes("deepseek")) return 0.15
+  }
+  return 1.0
+}
+
+export function normalizeParamCount(val: number | undefined): number | undefined {
+  if (val === undefined || val <= 0) return undefined
+  // If count is less than 1000, caller passed count in billions (e.g. 7, 30, or 70)
+  return val < 1000 ? val * 1e9 : val
+}
+
 function estimateParamCount(entry: ModelEntry, _weightGiB: number): number {
-  if (entry.paramCount) return entry.paramCount
+  const norm = normalizeParamCount(entry.paramCount)
+  if (norm !== undefined) return norm
 
   // Estimate parameter count based on quantization and file size.
   // 4-bit quants use roughly 0.5 bytes per parameter.
@@ -61,11 +100,13 @@ function estimateParamCount(entry: ModelEntry, _weightGiB: number): number {
 }
 
 function estimateActiveParams(entry: ModelEntry, totalParams: number): number {
-  if (entry.activeParams) return entry.activeParams
+  if (entry.activeParams !== undefined && entry.activeParams > 0) {
+    const norm = normalizeParamCount(entry.activeParams)
+    if (norm !== undefined) return norm
+  }
   if (entry.isMoe) {
-    // For Mixture of Experts, typically 10-25% of parameters are active per token.
-    // Use 15% as a safe default proxy.
-    return totalParams * 0.15
+    // For Mixture of Experts, typically 20-25% of parameters are active per token.
+    return totalParams * 0.25
   }
   return totalParams
 }
@@ -90,12 +131,11 @@ export function estimateFootprintGiB(entry: ModelEntry, contextLength: number): 
     else if (k === "q4_0" || k === "q4_1" || k === "iq4_nl") kvQuantFactor = 0.25
   }
 
-  // Active-params * MoE multiplier gives a reasonable proxy for attention layers
-  const paramsB = entry.isMoe
-    ? (activeParams / 1e9) * MOE_ATTENTION_PARAM_MULTIPLIER
-    : (activeParams / 1e9)
+  const gqa = effectiveGqaRatio(entry)
+  // Attention KV-cache scales with active attention dimension and GQA ratio
+  const paramsB = activeParams / 1e9
   const ctxK = contextLength / 1024
-  const kvBytes = paramsB * ctxK * KV_BYTES_PER_BPARAM_PER_KCTX * kvQuantFactor
+  const kvBytes = paramsB * ctxK * KV_BYTES_PER_BPARAM_PER_KCTX * kvQuantFactor * gqa
   const kvGiB = kvBytes / (1024 ** 3)
 
   // 3. Activation Memory GiB
@@ -112,8 +152,11 @@ export function estimateFootprintGiB(entry: ModelEntry, contextLength: number): 
 
 function computeFitBand(estimatedFootprintGiB: number, totalMemoryGiB: number): FitBand {
   const ratio = estimatedFootprintGiB / totalMemoryGiB
-  if (ratio <= COMFORTABLE_THRESHOLD) return "comfortable"
-  if (ratio <= TIGHT_THRESHOLD) return "tight"
+  const headroomGiB = totalMemoryGiB - estimatedFootprintGiB
+  const minHeadroom = minOsHeadroomGiB(totalMemoryGiB)
+
+  if (ratio <= 0.65 && headroomGiB >= minHeadroom) return "comfortable"
+  if (ratio <= 0.80 && headroomGiB >= minHeadroom * 0.5) return "tight"
   return "risky"
 }
 
@@ -175,11 +218,14 @@ function buildExplanation(entry: ModelEntry, fitBand: FitBand, estimatedFootprin
 
   if (entry.quantization) clauses.push(QUANT_NOTES[entry.quantization] ?? `${entry.quantization} quant`)
   if (entry.isMoe) {
-    const activeParamsVal = entry.activeParams || 0
-    const paramCountVal = entry.paramCount || 0
+    const weightGiB = (entry.sizeBytes ?? 0) / (1024 ** 3)
+    const totalParams = estimateParamCount(entry, weightGiB)
+    const activeParams = estimateActiveParams(entry, totalParams)
+    const activeB = Math.round(activeParams / 1e9)
+    const totalB = Math.round(totalParams / 1e9)
     clauses.push(
-      activeParamsVal && paramCountVal
-        ? `MoE: ~${activeParamsVal}B active params per token (${paramCountVal}B stored)`
+      activeB && totalB
+        ? `MoE: ~${activeB}B active params per token (${totalB}B stored)`
         : "MoE architecture — total params stored, fewer active per token"
     )
   }

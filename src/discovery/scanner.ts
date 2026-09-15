@@ -122,15 +122,27 @@ export function detectMlxMetadata(snapshotDir: string, fallbackName?: string): P
   "paramCount" |
   "isMoe" |
   "activeParams" |
-  "metadataSource"
+  "metadataSource" |
+  "headCount" |
+  "kvHeadCount" |
+  "gqaRatio"
 > {
   try {
     const raw = fs.readFileSync(path.join(snapshotDir, "config.json"), "utf8")
     const cfg = JSON.parse(raw) as Record<string, unknown>
     const modelType = typeof cfg.model_type === "string" ? cfg.model_type : undefined
     const maxPos = typeof cfg.max_position_embeddings === "number" ? cfg.max_position_embeddings : undefined
-    const numExperts = typeof cfg.num_experts === "number" ? cfg.num_experts : undefined
+    const numExperts = typeof cfg.num_local_experts === "number"
+      ? cfg.num_local_experts
+      : (typeof cfg.num_experts === "number" ? cfg.num_experts : undefined)
     const numExpertsPerTok = typeof cfg.num_experts_per_tok === "number" ? cfg.num_experts_per_tok : undefined
+    const numHeads = typeof cfg.num_attention_heads === "number" ? cfg.num_attention_heads : undefined
+    const numKvHeads = typeof cfg.num_key_value_heads === "number"
+      ? cfg.num_key_value_heads
+      : (numHeads !== undefined ? numHeads : undefined)
+    const gqaRatio = numHeads && numKvHeads && numHeads > 0 ? numKvHeads / numHeads : undefined
+    const paramCount = typeof cfg.num_parameters === "number" ? cfg.num_parameters : undefined
+
     let quantization: string | undefined
     try {
       const qraw = fs.readFileSync(path.join(snapshotDir, "quantization_config.json"), "utf8")
@@ -145,7 +157,11 @@ export function detectMlxMetadata(snapshotDir: string, fallbackName?: string): P
       quantization,
       isMoe: (numExperts ?? 0) > 1,
       activeParams: numExpertsPerTok,
-      metadataSource: "mlx_config"
+      metadataSource: "mlx_config",
+      ...(numHeads !== undefined ? { headCount: numHeads } : {}),
+      ...(numKvHeads !== undefined ? { kvHeadCount: numKvHeads } : {}),
+      ...(gqaRatio !== undefined ? { gqaRatio } : {}),
+      ...(paramCount !== undefined ? { paramCount } : {})
     }
   } catch {
     return { metadataSource: "file_size_only" }
@@ -275,12 +291,158 @@ export function detectReasoningEffort(filePath: string, fallbackName?: string): 
   return undefined
 }
 
+export interface ParsedGgufHeader {
+  architecture?: string
+  contextLength?: number
+  headCount?: number
+  kvHeadCount?: number
+  gqaRatio?: number
+  paramCount?: number
+  expertCount?: number
+  expertUsedCount?: number
+  isMoe?: boolean
+}
+
+export function parseGgufHeader(filePath: string): ParsedGgufHeader {
+  const result: ParsedGgufHeader = {}
+  let fd: number | null = null
+  try {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return result
+    fd = fs.openSync(filePath, "r")
+    const buffer = Buffer.alloc(256 * 1024)
+    const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0)
+    if (bytesRead < 24) return result
+
+    if (buffer.toString("latin1", 0, 4) !== "GGUF") return result
+
+    const version = buffer.readUInt32LE(4)
+    if (version < 2 || version > 3) return result
+
+    const kvCount = Number(buffer.readBigUInt64LE(16))
+    if (kvCount <= 0 || kvCount > 100000) return result
+
+    let offset = 24
+    let parsedCount = 0
+
+    while (offset < bytesRead && parsedCount < kvCount) {
+      if (offset + 8 > bytesRead) break
+      const keyLen = Number(buffer.readBigUInt64LE(offset))
+      offset += 8
+      if (keyLen <= 0 || offset + keyLen > bytesRead) break
+      const key = buffer.toString("utf8", offset, offset + keyLen)
+      offset += keyLen
+
+      if (offset + 4 > bytesRead) break
+      const valType = buffer.readUInt32LE(offset)
+      offset += 4
+
+      let numVal: number | undefined
+      let strVal: string | undefined
+
+      if (valType === 0 || valType === 1 || valType === 7) {
+        if (offset + 1 > bytesRead) break
+        numVal = valType === 7 ? (buffer.readUInt8(offset) ? 1 : 0) : buffer.readUInt8(offset)
+        offset += 1
+      } else if (valType === 2 || valType === 3) {
+        if (offset + 2 > bytesRead) break
+        numVal = buffer.readUInt16LE(offset)
+        offset += 2
+      } else if (valType === 4 || valType === 5) {
+        if (offset + 4 > bytesRead) break
+        numVal = buffer.readUInt32LE(offset)
+        offset += 4
+      } else if (valType === 6) {
+        if (offset + 4 > bytesRead) break
+        numVal = buffer.readFloatLE(offset)
+        offset += 4
+      } else if (valType === 8) {
+        if (offset + 8 > bytesRead) break
+        const strLen = Number(buffer.readBigUInt64LE(offset))
+        offset += 8
+        if (offset + strLen > bytesRead) break
+        strVal = buffer.toString("utf8", offset, offset + strLen)
+        offset += strLen
+      } else if (valType === 10 || valType === 11) {
+        if (offset + 8 > bytesRead) break
+        numVal = Number(buffer.readBigUInt64LE(offset))
+        offset += 8
+      } else if (valType === 12) {
+        if (offset + 8 > bytesRead) break
+        numVal = buffer.readDoubleLE(offset)
+        offset += 8
+      } else if (valType === 9) {
+        if (offset + 12 > bytesRead) break
+        const itemType = buffer.readUInt32LE(offset)
+        const arrLen = Number(buffer.readBigUInt64LE(offset + 4))
+        offset += 12
+        const itemSizes: Record<number, number> = { 0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8 }
+        if (itemSizes[itemType] !== undefined) {
+          const totalBytes = arrLen * itemSizes[itemType]!
+          if (offset + totalBytes > bytesRead) break
+          offset += totalBytes
+        } else if (itemType === 8) {
+          let ok = true
+          for (let i = 0; i < arrLen; i++) {
+            if (offset + 8 > bytesRead) { ok = false; break }
+            const sLen = Number(buffer.readBigUInt64LE(offset))
+            offset += 8
+            if (offset + sLen > bytesRead) { ok = false; break }
+            offset += sLen
+          }
+          if (!ok) break
+        } else {
+          break
+        }
+      } else {
+        break
+      }
+
+      parsedCount++
+
+      if (key === "general.architecture" && strVal) {
+        result.architecture = strVal
+      } else if (key === "general.parameter_count" && numVal !== undefined) {
+        result.paramCount = numVal
+      } else if (key.endsWith(".context_length") && numVal !== undefined) {
+        result.contextLength = numVal
+      } else if (key.endsWith(".attention.head_count") && numVal !== undefined) {
+        result.headCount = numVal
+      } else if (key.endsWith(".attention.head_count_kv") && numVal !== undefined) {
+        result.kvHeadCount = numVal
+      } else if (key.endsWith(".expert_count") && numVal !== undefined) {
+        result.expertCount = numVal
+        result.isMoe = numVal > 1
+      } else if (key.endsWith(".expert_used_count") && numVal !== undefined) {
+        result.expertUsedCount = numVal
+      }
+    }
+
+    if (result.headCount && result.kvHeadCount && result.headCount > 0) {
+      result.gqaRatio = result.kvHeadCount / result.headCount
+    }
+  } catch {
+    // Graceful ignore
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd) } catch {}
+    }
+  }
+  return result
+}
+
 export function detectGgufMetadata(filePath: string, fallbackName?: string): Pick<DiscoveredModel,
   "architectureFamily" |
   "quantization" |
   "capabilities" |
   "reasoningEffort" |
-  "metadataSource"
+  "metadataSource" |
+  "headCount" |
+  "kvHeadCount" |
+  "gqaRatio" |
+  "trainedContextLength" |
+  "isMoe" |
+  "paramCount" |
+  "activeParams"
 > {
   const name = path.basename(filePath, ".gguf")
   const upper = name.toUpperCase()
@@ -294,12 +456,21 @@ export function detectGgufMetadata(filePath: string, fallbackName?: string): Pic
   if (reasoningEffort) {
     capabilities.push("reasoning_effort")
   }
+  const header = parseGgufHeader(filePath)
+
   return {
-    architectureFamily: detectArchitectureFamily(undefined, fallbackName ?? name),
+    architectureFamily: detectArchitectureFamily(header.architecture, fallbackName ?? name),
     quantization,
     capabilities,
     reasoningEffort,
-    metadataSource: quantization ? "gguf_header" : "file_size_only"
+    metadataSource: (quantization || header.architecture) ? "gguf_header" : "file_size_only",
+    ...(header.contextLength ? { trainedContextLength: header.contextLength } : {}),
+    ...(header.headCount ? { headCount: header.headCount } : {}),
+    ...(header.kvHeadCount ? { kvHeadCount: header.kvHeadCount } : {}),
+    ...(header.gqaRatio ? { gqaRatio: header.gqaRatio } : {}),
+    ...(header.isMoe !== undefined ? { isMoe: header.isMoe } : {}),
+    ...(header.paramCount ? { paramCount: header.paramCount } : {}),
+    ...(header.expertUsedCount ? { activeParams: header.expertUsedCount } : {})
   }
 }
 

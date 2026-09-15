@@ -185,6 +185,9 @@ export interface ModelEntry {
   isMoe?: boolean
   activeParams?: number
   metadataSource?: MetadataSource
+  headCount?: number
+  kvHeadCount?: number
+  gqaRatio?: number
 }
 
 export interface Registry {
@@ -236,6 +239,9 @@ export interface DiscoveredModel {
   isMoe?: boolean
   activeParams?: number
   metadataSource?: MetadataSource
+  headCount?: number
+  kvHeadCount?: number
+  gqaRatio?: number
 }
 
 export interface TelemetryRecord {

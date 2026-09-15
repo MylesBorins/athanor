@@ -1,7 +1,7 @@
 # Plan: recommendation-calibration
 
 ## Status
-Proposed
+Completed
 
 ## Context
 Athanor predicts memory footprint and runtime fit bands (`comfortable`, `tight`, `risky`) in `src/registry/recommend.ts` using heuristics adapted from `whichllm`. These heuristics determine:

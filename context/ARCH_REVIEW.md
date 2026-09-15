@@ -21,8 +21,9 @@ The review targeted orchestration sprawl (CLI/TUI god modules, scattered `syncPi
 - **Router live token accounting** — `SSETokenCounter` passthrough Transform in `src/router/server.ts` tees SSE stream tokens live, updating `src/supervisor/metrics.ts` (`updateLiveRouterStats`), surfaced in CLI (`athanor status`) and TUI (`useAppData`)
 - **Supervisor lifecycle events** — `Supervisor` extends `EventEmitter` with strongly-typed lifecycle events (`starting`, `running`, `stopped`, `exit`, `error`, `evicted`), providing event-driven observability for process transitions
 - **Comprehensive test suite** — full integration test suites (pi-sync, CLI flows, pipeline, detached supervisor, router telemetry), complete TUI coverage (`PresetEditor`, `SearchBrowser`, `PullModal`, `ModelList`, and hooks `useAppInput`, `useDownloads`, `useModelActions`, `useAppData`, `useMouseWheel`), and supervisor policy & eviction suites.
+- **Recommendation calibration** — GQA attention scaling (4:1–8:1), GGUF v2/v3 binary header parser, MLX attention/KV head extraction, parameter count unit normalization, and tiered Apple Silicon OS headroom reservations (see `plans/done/recommendation-calibration.md`).
 
-Test suite as of 2026-09-14: 64 test files, 749 tests, running under Vitest v5, TypeScript 7, and oxlint with >85% overall branch coverage and >93% statement coverage.
+Test suite as of 2026-09-14: 64 test files, 759 tests, running under Vitest v5, TypeScript 7, and oxlint with >85% overall branch coverage and >93% statement coverage.
 
 ## Remaining backlog
 
@@ -30,8 +31,7 @@ Ordered by value; none of these require breaking `AGENTS.md` invariants without 
 
 ### Medium value
 
-1. **Recommendation calibration** — see `plans/recommendation-calibration.md` (validate GGUF/MLX metadata extraction, GQA attention head scalings, and fit-band heuristics on real machines)
-2. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
+1. **Performance pass** — see `plans/performance-optimization.md` (warmup semantics, latency observability, preset tuning)
 
 ### Later / optional
 

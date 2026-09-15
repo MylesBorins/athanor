@@ -40,6 +40,9 @@ export interface RegistryMaterializeInput {
   isMoe?: ModelEntry["isMoe"]
   activeParams?: ModelEntry["activeParams"]
   metadataSource?: ModelEntry["metadataSource"]
+  headCount?: ModelEntry["headCount"]
+  kvHeadCount?: ModelEntry["kvHeadCount"]
+  gqaRatio?: ModelEntry["gqaRatio"]
 }
 
 export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMaterializeInput {
@@ -59,7 +62,10 @@ export function discoveredToMaterializeInput(d: DiscoveredModel): RegistryMateri
     paramCount: d.paramCount,
     isMoe: d.isMoe,
     activeParams: d.activeParams,
-    metadataSource: d.metadataSource
+    metadataSource: d.metadataSource,
+    headCount: d.headCount,
+    kvHeadCount: d.kvHeadCount,
+    gqaRatio: d.gqaRatio
   }
 }
 
@@ -197,7 +203,10 @@ export function materializeRegistryEntry(input: RegistryMaterializeInput): Regis
     ...(input.paramCount ? { paramCount: input.paramCount } : {}),
     ...(input.isMoe ? { isMoe: input.isMoe } : {}),
     ...(input.activeParams ? { activeParams: input.activeParams } : {}),
-    ...(input.metadataSource ? { metadataSource: input.metadataSource } : {})
+    ...(input.metadataSource ? { metadataSource: input.metadataSource } : {}),
+    ...(input.headCount ? { headCount: input.headCount } : {}),
+    ...(input.kvHeadCount ? { kvHeadCount: input.kvHeadCount } : {}),
+    ...(input.gqaRatio ? { gqaRatio: input.gqaRatio } : {})
   }
 
   // Enforced safe default: if a model's template defaults to an expensive effort
@@ -265,6 +274,9 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
   changed = replaceDetectedField(existing, "isMoe", input.isMoe) || changed
   changed = replaceDetectedField(existing, "activeParams", input.activeParams) || changed
   changed = replaceDetectedField(existing, "metadataSource", input.metadataSource) || changed
+  changed = replaceDetectedField(existing, "headCount", input.headCount) || changed
+  changed = replaceDetectedField(existing, "kvHeadCount", input.kvHeadCount) || changed
+  changed = replaceDetectedField(existing, "gqaRatio", input.gqaRatio) || changed
 
   if (existing.metadataSource === "file_size_only") {
     changed = replaceDetectedField(existing, "architectureFamily", input.architectureFamily) || changed
@@ -273,6 +285,9 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
     changed = replaceDetectedField(existing, "paramCount", input.paramCount) || changed
     changed = replaceDetectedField(existing, "isMoe", input.isMoe) || changed
     changed = replaceDetectedField(existing, "activeParams", input.activeParams) || changed
+    changed = replaceDetectedField(existing, "headCount", input.headCount) || changed
+    changed = replaceDetectedField(existing, "kvHeadCount", input.kvHeadCount) || changed
+    changed = replaceDetectedField(existing, "gqaRatio", input.gqaRatio) || changed
   }
 
   if (input.metadataSource === "file_size_only") {
@@ -282,6 +297,9 @@ function updateExistingEntry(existing: ModelEntry, input: RegistryMaterializeInp
     changed = clearDetectedField(existing, "paramCount") || changed
     changed = clearDetectedField(existing, "isMoe") || changed
     changed = clearDetectedField(existing, "activeParams") || changed
+    changed = clearDetectedField(existing, "headCount") || changed
+    changed = clearDetectedField(existing, "kvHeadCount") || changed
+    changed = clearDetectedField(existing, "gqaRatio") || changed
   }
 
   return changed
@@ -294,7 +312,10 @@ function replaceDetectedField<K extends keyof Pick<ModelEntry,
   "paramCount" |
   "isMoe" |
   "activeParams" |
-  "metadataSource"
+  "metadataSource" |
+  "headCount" |
+  "kvHeadCount" |
+  "gqaRatio"
 >>(
   entry: ModelEntry,
   key: K,
@@ -316,7 +337,10 @@ function clearDetectedField<K extends keyof Pick<ModelEntry,
   "quantization" |
   "paramCount" |
   "isMoe" |
-  "activeParams"
+  "activeParams" |
+  "headCount" |
+  "kvHeadCount" |
+  "gqaRatio"
 >>(
   entry: ModelEntry,
   key: K

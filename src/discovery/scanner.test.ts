@@ -255,4 +255,97 @@ describe("discovery scanner metadata helpers", () => {
     const found = getModelByPath("/nonexistent/model/path")
     expect(found).toBeUndefined()
   })
+
+  it("extracts MLX GQA attention heads and calculates gqaRatio", () => {
+    const mlxDir = path.join(tmp, "mlx-gqa-model")
+    fs.mkdirSync(mlxDir, { recursive: true })
+    fs.writeFileSync(path.join(mlxDir, "config.json"), JSON.stringify({
+      model_type: "llama",
+      max_position_embeddings: 131072,
+      num_attention_heads: 32,
+      num_key_value_heads: 8,
+      num_parameters: 8000000000
+    }))
+    const meta = detectMlxMetadata(mlxDir, "Meta-Llama-3-8B")
+    expect(meta.architectureFamily).toBe("llama")
+    expect(meta.trainedContextLength).toBe(131072)
+    expect(meta.headCount).toBe(32)
+    expect(meta.kvHeadCount).toBe(8)
+    expect(meta.gqaRatio).toBe(0.25)
+    expect(meta.paramCount).toBe(8000000000)
+  })
+
+  it("parses binary GGUF header metadata including architecture, GQA heads, and MoE", async () => {
+    const { parseGgufHeader } = await import("./scanner.js")
+    const ggufFile = path.join(tmp, "test-model.gguf")
+
+    // Construct valid binary GGUF v3 header
+    const kvs: Array<{ key: string; type: number; value: any }> = [
+      { key: "general.architecture", type: 8, value: "llama" },
+      { key: "llama.context_length", type: 4, value: 131072 },
+      { key: "llama.attention.head_count", type: 4, value: 64 },
+      { key: "llama.attention.head_count_kv", type: 4, value: 8 },
+      { key: "general.parameter_count", type: 10, value: 70000000000 },
+      { key: "llama.expert_count", type: 4, value: 8 },
+      { key: "llama.expert_used_count", type: 4, value: 2 }
+    ]
+
+    const parts: Buffer[] = []
+    const header = Buffer.alloc(24)
+    header.write("GGUF", 0, "latin1")
+    header.writeUInt32LE(3, 4)
+    header.writeBigUInt64LE(0n, 8)
+    header.writeBigUInt64LE(BigInt(kvs.length), 16)
+    parts.push(header)
+
+    for (const { key, type, value } of kvs) {
+      const keyBuf = Buffer.from(key, "utf8")
+      const klenBuf = Buffer.alloc(8)
+      klenBuf.writeBigUInt64LE(BigInt(keyBuf.length))
+      const typeBuf = Buffer.alloc(4)
+      typeBuf.writeUInt32LE(type)
+
+      let valBuf: Buffer
+      if (type === 4 || type === 5) {
+        valBuf = Buffer.alloc(4)
+        valBuf.writeUInt32LE(value)
+      } else if (type === 10 || type === 11) {
+        valBuf = Buffer.alloc(8)
+        valBuf.writeBigUInt64LE(BigInt(value))
+      } else if (type === 8) {
+        const sBuf = Buffer.from(value, "utf8")
+        valBuf = Buffer.alloc(8 + sBuf.length)
+        valBuf.writeBigUInt64LE(BigInt(sBuf.length), 0)
+        sBuf.copy(valBuf, 8)
+      } else {
+        valBuf = Buffer.alloc(1)
+        valBuf.writeUInt8(value)
+      }
+      parts.push(klenBuf, keyBuf, typeBuf, valBuf)
+    }
+
+    fs.writeFileSync(ggufFile, Buffer.concat(parts))
+
+    const parsed = parseGgufHeader(ggufFile)
+    expect(parsed.architecture).toBe("llama")
+    expect(parsed.contextLength).toBe(131072)
+    expect(parsed.headCount).toBe(64)
+    expect(parsed.kvHeadCount).toBe(8)
+    expect(parsed.gqaRatio).toBe(0.125)
+    expect(parsed.paramCount).toBe(70000000000)
+    expect(parsed.expertCount).toBe(8)
+    expect(parsed.expertUsedCount).toBe(2)
+    expect(parsed.isMoe).toBe(true)
+
+    const meta = detectGgufMetadata(ggufFile, "test-model-Q4_K_M")
+    expect(meta.architectureFamily).toBe("llama")
+    expect(meta.trainedContextLength).toBe(131072)
+    expect(meta.headCount).toBe(64)
+    expect(meta.kvHeadCount).toBe(8)
+    expect(meta.gqaRatio).toBe(0.125)
+    expect(meta.isMoe).toBe(true)
+    expect(meta.paramCount).toBe(70000000000)
+    expect(meta.activeParams).toBe(2)
+    expect(meta.metadataSource).toBe("gguf_header")
+  })
 })
