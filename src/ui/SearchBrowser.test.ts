@@ -660,7 +660,13 @@ describe("SearchBrowser", () => {
 
     // Emit stdout resize event
     stdoutStream.emit("resize")
-    await new Promise(r => setTimeout(r, 20))
+
+    // Keystrokes within 20ms of a mouse sequence are suppressed
+    getHandler()("q", {})
+    expect(onExit).not.toHaveBeenCalled()
+
+    // Wait past the 20ms mouse debounce window
+    await new Promise(r => setTimeout(r, 60))
 
     // Clean exit
     getHandler()("q", {})
