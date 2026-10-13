@@ -39,7 +39,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "ink": "^7.0.0",
+    "ink": "^8.0.0",
     "react": "^19.2.5"
   },
   "devDependencies": {
